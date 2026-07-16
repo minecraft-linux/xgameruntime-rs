@@ -2,6 +2,7 @@ use std::ffi::{CString, c_char, c_void};
 use std::result::Result;
 use std::sync::Mutex;
 
+use windows::winuser::{MB_OK, MessageBoxW};
 use windows_canvas::*;
 use windows_window::*;
 
@@ -174,47 +175,10 @@ fn initialize_delegate(
         state.ref_count += 1;
         return S_OK;
     }
+    std::thread::spawn(||{
 
-     std::thread::spawn(move || {
-        let window = Window::new("Canvas Standalone").size(800, 600).create().unwrap();
-
-        let device = GpuDevice::new().unwrap();
-        let (width, height) = window.client_size();
-        let mut chain =
-        unsafe { device.create_swap_chain_for_hwnd(window.hwnd(), width as u32, height as u32).unwrap() };
-
-        run_with(|| {
-            let width = chain.width() as f32;
-            let height = chain.height() as f32;
-            let session = chain.begin_draw()?;
-            session.clear(ColorF::DARK_SLATE_BLUE);
-            let brush = session.create_solid_brush(ColorF::CORNFLOWER_BLUE)?;
-            let r = width.min(height) * 0.3;
-
-            session.fill_ellipse(
-                &Ellipse::circle(Vector2::new(width / 2.0, height / 2.0), r),
-                &brush,
-            );
-
-            brush.set_color(ColorF::WHITE);
-
-            let format = TextFormat::new("Segoe UI", 24.0)?
-                .with_alignment(TextAlignment::Center)
-                .with_paragraph_alignment(ParagraphAlignment::Center);
-
-            session.draw_text(
-                "Hello from windows-canvas!",
-                &format,
-                &Rect::new(0.0, 0.0, width, height),
-                &brush,
-            );
-
-            drop(session);
-            chain.present()?;
-            Ok(true)
-        }).unwrap();
+        unsafe { MessageBoxW(None, windows::core::h!("WinRT"), windows::core::h!("World"), MB_OK) };
     });
-
     let api = match unsafe { load_delegated_api() } {
         Ok(api) => api,
         Err(error) => return error,
