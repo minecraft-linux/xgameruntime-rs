@@ -1,0 +1,19 @@
+[package]
+name = "xgameruntime-rs"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "xgameruntime"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tokio = { version = "1.52.3", features = ["fs", "io-util", "rt-multi-thread"] }
+windows-core = "0.62.2"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
