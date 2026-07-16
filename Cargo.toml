@@ -9,8 +9,46 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 tokio = { version = "1.52.3", features = ["fs", "io-util", "rt-multi-thread"] }
-windows-core = "0.62.2"
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+
+[dependencies.windows-core]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-sys]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+features = ["libloaderapi"]
+
+[dependencies.windows-canvas]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-window]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-reference]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+features = [
+    "ApplicationModel_Core",
+    "UI_Core",
+    "combaseapi",
+    "objbase",
+    "winuser",
+    "windef",
+    "std",
+]
 
 [profile.dev]
 panic = "abort"

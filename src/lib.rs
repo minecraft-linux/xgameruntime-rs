@@ -2,10 +2,14 @@ use std::ffi::{CString, c_char, c_void};
 use std::result::Result;
 use std::sync::Mutex;
 
-use windows_core::{GUID, HRESULT, Interface};
-use windows_sys::Win32::Foundation::{FreeLibrary, HMODULE};
-use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
+use windows_canvas::*;
+use windows_window::*;
 
+use windows_core::{GUID, HRESULT, Interface};
+// use windows_sys::Win32::Foundation::{FreeLibrary, HMODULE};
+// use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
+use windows_sys::libloaderapi::{GetProcAddress, LoadLibraryA, FreeLibrary};
+use windows_sys::minwindef::HMODULE;
 use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
 
 mod com;
@@ -171,6 +175,46 @@ fn initialize_delegate(
         return S_OK;
     }
 
+     std::thread::spawn(move || {
+        let window = Window::new("Canvas Standalone").size(800, 600).create().unwrap();
+
+        let device = GpuDevice::new().unwrap();
+        let (width, height) = window.client_size();
+        let mut chain =
+        unsafe { device.create_swap_chain_for_hwnd(window.hwnd(), width as u32, height as u32).unwrap() };
+
+        run_with(|| {
+            let width = chain.width() as f32;
+            let height = chain.height() as f32;
+            let session = chain.begin_draw()?;
+            session.clear(ColorF::DARK_SLATE_BLUE);
+            let brush = session.create_solid_brush(ColorF::CORNFLOWER_BLUE)?;
+            let r = width.min(height) * 0.3;
+
+            session.fill_ellipse(
+                &Ellipse::circle(Vector2::new(width / 2.0, height / 2.0), r),
+                &brush,
+            );
+
+            brush.set_color(ColorF::WHITE);
+
+            let format = TextFormat::new("Segoe UI", 24.0)?
+                .with_alignment(TextAlignment::Center)
+                .with_paragraph_alignment(ParagraphAlignment::Center);
+
+            session.draw_text(
+                "Hello from windows-canvas!",
+                &format,
+                &Rect::new(0.0, 0.0, width, height),
+                &brush,
+            );
+
+            drop(session);
+            chain.present()?;
+            Ok(true)
+        }).unwrap();
+    });
+
     let api = match unsafe { load_delegated_api() } {
         Ok(api) => api,
         Err(error) => return error,
@@ -234,6 +278,9 @@ pub extern "system" fn DllCanUnloadNow() -> HRESULT {
     S_OK
 }
 
+// use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OK};
+// use windows::core::PCWSTR;
+
 #[unsafe(no_mangle)]
 pub extern "system" fn InitializeApiImplEx2(
     gdk_ver: Ulong,
@@ -241,6 +288,20 @@ pub extern "system" fn InitializeApiImplEx2(
     mode: Char,
     options: *mut InitializeOptions,
 ) -> HRESULT {
+    // // Convert a Rust string to a wide string (UTF-16)
+    // let text = "Hello from Rust!";
+    // let caption = "Message Box";
+    // let text_utf16: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    // let caption_utf16: Vec<u16> = caption.encode_utf16().chain(std::iter::once(0)).collect();
+
+    // unsafe {
+    //     MessageBoxW(
+    //         None,
+    //         PCWSTR(text_utf16.as_ptr()),
+    //         PCWSTR(caption_utf16.as_ptr()),
+    //         MB_OK,
+    //     );
+    // }
     initialize_delegate(gdk_ver, gs_ver, mode, options)
 }
 
