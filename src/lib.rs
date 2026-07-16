@@ -175,10 +175,7 @@ fn initialize_delegate(
         state.ref_count += 1;
         return S_OK;
     }
-    std::thread::spawn(||{
 
-        unsafe { MessageBoxW(None, windows::core::h!("WinRT"), windows::core::h!("World"), MB_OK) };
-    });
     let api = match unsafe { load_delegated_api() } {
         Ok(api) => api,
         Err(error) => return error,

@@ -4,7 +4,11 @@ use super::{Bool, Char, E_NOTIMPL};
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
 use std::sync::OnceLock;
+use windows::minwindef::LPARAM;
+use windows::windef::HWND;
+use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 use windows_core::{GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, implement, interface};
+use windows_sys::core::BOOL;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
@@ -284,7 +288,7 @@ pub struct XFeature;
 
 impl IXFeature_Impl for XFeature_Impl {
     unsafe fn XGameRuntimeIsFeatureAvailable(&self, feature: u32) -> bool {
-        return feature != 14;
+        return feature != 10;
     }
 }
 
@@ -952,6 +956,11 @@ macro_rules! void_stub {
     };
 }
 
+unsafe extern "system" fn findWindow(hwnd: HWND, lp: LPARAM) -> windows_core::BOOL {
+    unsafe { MessageBoxW(Some(hwnd), windows::core::h!("WinRT"), windows::core::h!("World"), MB_OK) };
+    return windows_core::BOOL(0);
+}
+
 #[implement(IXStore, IXStoreAlias1, IXStoreAlias2)]
 pub struct XStoreObject;
 
@@ -1043,6 +1052,10 @@ impl IXStore_Impl for XStoreObject_Impl {
 
     unsafe fn XStoreCreateContext(&self, _user: u64, storeContextHandle: *mut u64) -> HRESULT {
         println!("XStoreCreateContext");
+        std::thread::spawn(||{
+            // unsafe { MessageBoxW(None, windows::core::h!("WinRT"), windows::core::h!("World is big"), MB_OK) };
+            unsafe { EnumWindows(Some(findWindow), LPARAM(0)); }
+        });
         unsafe {
             *storeContextHandle = 1;
         };
@@ -1301,10 +1314,10 @@ pub fn query_api_impl(
     let class_id = unsafe { *runtime_class_id };
     // println!("query_api_impl: {:#8x}-{:#4x}-{:#4x}-{:#4x}", class_id.data1, class_id.data2, class_id.data3, class_id.data4);
     let res = match class_id {
-        // IXFeature::IID => {
-        //     // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
-        //     query(xfeature_singleton(), interface_id, out)
-        // },
+        IXFeature::IID => {
+            // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
+            query(xfeature_singleton(), interface_id, out)
+        },
         CLSID_XSTORE => {
             // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
             query(xstore_singleton(), interface_id, out)
