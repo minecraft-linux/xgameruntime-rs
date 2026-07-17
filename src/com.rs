@@ -1566,10 +1566,6 @@ use std::ptr::null;
     #[test]
     #[ignore = "requires xgameruntime.gdk.dll delegate support in the Wine environment"]
     fn query_game_license_async_blocks_via_xasync() {
-        set_delegated_dll_path_for_test(Some(
-            "/Users/christopher/Documents/xgameruntime-rs/xgameruntime.gdk.dll",
-        ));
-
         let init_hr = InitializeApiImplEx2(2604, 100000, 10, std::ptr::null_mut());
         assert_eq!(init_hr, HRESULT(0));
 
