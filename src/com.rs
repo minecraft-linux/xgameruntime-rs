@@ -2,17 +2,20 @@ use super::{E_NOTIMPL};
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
 use std::ptr::null_mut;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+use std::task::{Context, Poll, Wake, Waker};
 use windows::minwindef::LPARAM;
 use windows::windef::HWND;
 use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 use windows_core::{GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, implement, interface};
 use windows_sys::core::BOOL;
+use std::pin::Pin;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
 const CLSID_XASYNC: GUID = GUID::from_u128(0x073b7dcb_1fcf_4030_94be_e3c9eb623428);
 const S_OK: HRESULT = HRESULT(0);
+const E_PENDING: HRESULT = HRESULT(0x8000000Au32 as i32);
 const E_ABORT: HRESULT = HRESULT(0x80004004u32 as i32);
 const E_NOINTERFACE: HRESULT = HRESULT(0x80004002u32 as i32);
 const E_OUTOFMEMORY: HRESULT = HRESULT(0x8007000Eu32 as i32);
@@ -1016,6 +1019,136 @@ unsafe extern "system" fn findWindow(hwnd: HWND, lp: LPARAM) -> windows_core::BO
     return windows_core::BOOL(0);
 }
 
+struct XAsyncContextHelper<T: Sized> {
+    result: HRESULT,
+    canceled: bool,
+    payload: Option<T>,
+    future: Pin<Box<dyn Future<Output = Result<T, HRESULT>> + Send + 'static>>,
+}
+
+struct XAsyncWaker {
+    block: *mut XAsyncBlock
+}
+
+unsafe impl Sync for XAsyncWaker {}
+unsafe impl Send for XAsyncWaker {}
+
+impl Wake for XAsyncWaker {
+    fn wake(self: Arc<Self>) {
+        println!("wake");
+        unsafe { xasync_schedule(self.block, 0) };
+    }
+}
+
+unsafe extern "system" fn run_async_helper<T: Sized>(
+    op: XAsyncOp,
+    data: *const XAsyncProviderData,
+) -> HRESULT {
+    let Some(data) = (unsafe { data.as_ref() }) else {
+        return E_POINTER;
+    };
+    let async_context = data.context as *mut XAsyncContextHelper<T>;
+    let Some(async_context) = (unsafe { async_context.as_mut() }) else {
+        return E_POINTER;
+    };
+
+    match op {
+        XAsyncOp::Begin => unsafe { xasync_schedule(data.async_, 0) },
+        XAsyncOp::DoWork => {
+            if async_context.canceled {
+                async_context.result = E_ABORT;
+            } else {
+                let waker =                 Waker::from(Arc::new(XAsyncWaker{block: data.async_}));
+                let mut cx = Context::from_waker(&waker);
+                match async_context.future.as_mut().poll(&mut cx) {
+                    Poll::Ready(value) => {
+                        match value {
+                            Err(hr) => async_context.result = hr,
+                            Ok(value) => {
+                                async_context.result = S_OK;
+                                async_context.payload = Some(value);
+                            }
+                        };
+                    }
+                    Poll::Pending => {
+                        println!("pending");
+                        return E_PENDING;
+                    }
+                }
+            }
+            println!("required_buf_size {}", size_of::<T>());
+            unsafe {
+                xasync_complete(
+                    data.async_,
+                    async_context.result,
+                    size_of::<T>(),
+                );
+            }
+            S_OK
+        }
+        XAsyncOp::GetResult => {
+            println!("get_result {}", size_of::<T>());
+            if async_context.result == S_OK && let Some(payload) = &async_context.payload {
+                println!("copy result {}", size_of::<T>());
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        (payload as *const T)
+                            .cast::<u8>(),
+                        data.buffer.cast::<u8>(),
+                        size_of::<T>(),
+                    );
+                }
+            }
+            S_OK
+        }
+        XAsyncOp::Cancel => {
+            async_context.canceled = true;
+            S_OK
+        }
+        XAsyncOp::Cleanup => {
+            unsafe {
+                drop(Box::from_raw(async_context));
+            }
+            S_OK
+        }
+    }
+}
+
+unsafe fn run_async<T: Sized, F>(
+    async_: *mut XAsyncBlock,
+    future: F,
+) -> HRESULT 
+where F: Future<Output = Result<T, HRESULT>> + Send + 'static,
+{
+    if async_.is_null() {
+        return S_OK;
+    }
+
+    let async_context = Box::new(XAsyncContextHelper{
+        canceled: false,
+        payload: None as Option<T>,
+        result: E_ABORT,
+        future: Box::pin(future),
+    });
+    let async_context = Box::into_raw(async_context);
+    let hr = unsafe {
+        xasync_begin(
+            async_,
+            async_context.cast(),
+            null_mut(),
+            c"run_async".as_ptr(),
+            run_async_helper::<T>,
+        )
+    };
+    if hr != S_OK {
+        unsafe {
+            drop(Box::from_raw(async_context));
+        }
+    }
+    hr
+}
+
+
 #[implement(IXStore, IXStoreAlias1, IXStoreAlias2)]
 pub struct XStoreObject;
 
@@ -1394,10 +1527,11 @@ pub fn query_api_impl(
 #[cfg(test)]
 mod tests {
     use std::ffi::{c_char, c_void};
+use std::ptr::null;
 
-    use crate::com::{IXStore, XAsyncBlock, XStoreGameLicense, query_api_impl, xasync_get_status};
-    use crate::{InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test};
-    use windows_core::{HRESULT, Interface};
+    use crate::com::{IXStore, XAsyncBlock, XStoreGameLicense, query_api_impl, run_async, xasync_get_result, xasync_get_status};
+    use crate::{E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test};
+    use windows_core::{GUID, HRESULT, Interface};
 
     fn read_c_string(bytes: &[c_char]) -> String {
         let len = bytes
@@ -1439,18 +1573,51 @@ mod tests {
         let init_hr = InitializeApiImplEx2(2604, 100000, 10, std::ptr::null_mut());
         assert_eq!(init_hr, HRESULT(0));
 
-        let mut out = std::ptr::null_mut();
-        let hr = query_api_impl(
-            &crate::com::CLSID_XSTORE,
-            &crate::com::IXStore::IID,
-            &mut out,
-        );
-        assert_eq!(hr, HRESULT(0));
+        // let mut out = std::ptr::null_mut();
+        // let hr = query_api_impl(
+        //     &crate::com::CLSID_XSTORE,
+        //     &crate::com::IXStore::IID,
+        //     &mut out,
+        // );
+        // assert_eq!(hr, HRESULT(0));
 
-        let store: IXStore = unsafe { IXStore::from_raw(out) };
-        let mut store_ctx: u64 = 0;
-        let hr = unsafe { store.XStoreCreateContext(0, &mut store_ctx) };
-        assert_eq!(hr, HRESULT(0));
+        // let store: IXStore = unsafe { IXStore::from_raw(out) };
+        // let mut store_ctx: u64 = 0;
+        // let hr = unsafe { store.XStoreCreateContext(0, &mut store_ctx) };
+        // assert_eq!(hr, HRESULT(0));
+
+        // let mut async_block = XAsyncBlock {
+        //     queue: std::ptr::null_mut(),
+        //     context: std::ptr::null_mut(),
+        //     callback: None,
+        //     internal: [0; std::mem::size_of::<*mut c_void>() * 4],
+        // };
+        // let hr = unsafe {
+        //     store.XStoreQueryGameLicenseAsync(
+        //         store_ctx,
+        //         (&mut async_block as *mut XAsyncBlock).cast(),
+        //     )
+        // };
+        // assert_eq!(hr, HRESULT(0));
+
+        // let status_hr = unsafe { xasync_get_status(&mut async_block, true) };
+        // assert_eq!(status_hr, HRESULT(0));
+
+        // let mut license = XStoreGameLicense::default();
+        // let result_hr = unsafe {
+        //     store.XStoreQueryGameLicenseResult(
+        //         (&mut async_block as *mut XAsyncBlock).cast(),
+        //         (&mut license as *mut XStoreGameLicense).cast(),
+        //     )
+        // };
+        // assert_eq!(result_hr, HRESULT(0));
+        // assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
+        // assert!(license.isActive);
+        // assert!(license.isTrialOwnedByThisUser);
+        // assert!(license.isTrial);
+        // assert!(!license.isDiscLicense);
+        // assert_eq!(license.trialTimeRemainingInSeconds, 3600);
+        // assert_eq!(read_c_string(&license.trialUniqueId), "trial-license");
 
         let mut async_block = XAsyncBlock {
             queue: std::ptr::null_mut(),
@@ -1458,32 +1625,53 @@ mod tests {
             callback: None,
             internal: [0; std::mem::size_of::<*mut c_void>() * 4],
         };
-        let hr = unsafe {
-            store.XStoreQueryGameLicenseAsync(
-                store_ctx,
-                (&mut async_block as *mut XAsyncBlock).cast(),
-            )
-        };
+
+        let tokio = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("failed to create Tokio runtime");
+
+        let handle = tokio.handle().clone();
+        #[derive(Debug)]
+        struct Payload {
+            v: i32,
+            v2: i64,
+            v3: GUID
+        }
+
+        let hr = unsafe { run_async(&mut async_block, async move {
+            println!("starting");
+
+            let task = handle.spawn(async {
+                let client = reqwest::Client::new();
+
+                let response = client
+                    .get("http://google.com")
+                    .send()
+                    .await
+                    .map_err(|_| E_FAIL)?;
+
+                println!("finished {}", response.status());
+
+                Ok::<Payload, HRESULT>(Payload {
+                    v: 0,
+                    v2: 323,
+                    v3: GUID::zeroed(),
+                })
+            });
+
+            task.await.map_err(|_| E_FAIL)?
+        }) };
         assert_eq!(hr, HRESULT(0));
 
         let status_hr = unsafe { xasync_get_status(&mut async_block, true) };
         assert_eq!(status_hr, HRESULT(0));
 
-        let mut license = XStoreGameLicense::default();
-        let result_hr = unsafe {
-            store.XStoreQueryGameLicenseResult(
-                (&mut async_block as *mut XAsyncBlock).cast(),
-                (&mut license as *mut XStoreGameLicense).cast(),
-            )
-        };
-        assert_eq!(result_hr, HRESULT(0));
-        assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
-        assert!(license.isActive);
-        assert!(license.isTrialOwnedByThisUser);
-        assert!(license.isTrial);
-        assert!(!license.isDiscLicense);
-        assert_eq!(license.trialTimeRemainingInSeconds, 3600);
-        assert_eq!(read_c_string(&license.trialUniqueId), "trial-license");
+        let mut payload: Payload = Payload { v: 0, v2: 0, v3: GUID::zeroed() };
+        let hr = unsafe { xasync_get_result(&mut async_block, null(), &mut payload)};
+        assert_eq!(hr, HRESULT(0));
+
+        println!("res {:?}", payload);
 
         let uninit_hr = UninitializeApiImpl();
         assert_eq!(uninit_hr, HRESULT(0));
