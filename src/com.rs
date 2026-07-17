@@ -814,6 +814,49 @@ pub struct XUserPlatformRemoteConnectEventHandlers {
 
 #[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
 pub unsafe trait IXUserPlatform: IUnknown {
+    unsafe fn __reserved_slot_0(&self) -> HRESULT;
+    unsafe fn __reserved_slot_1(&self) -> HRESULT;
+    unsafe fn __reserved_slot_2(&self) -> HRESULT;
+    unsafe fn __reserved_slot_3(&self) -> HRESULT;
+    unsafe fn __reserved_slot_4(&self) -> HRESULT;
+    unsafe fn __reserved_slot_5(&self) -> HRESULT;
+    unsafe fn __reserved_slot_6(&self) -> HRESULT;
+    unsafe fn __reserved_slot_7(&self) -> HRESULT;
+    unsafe fn __reserved_slot_8(&self) -> HRESULT;
+    unsafe fn __reserved_slot_9(&self) -> HRESULT;
+    unsafe fn __reserved_slot_10(&self) -> HRESULT;
+    unsafe fn __reserved_slot_11(&self) -> HRESULT;
+    unsafe fn __reserved_slot_12(&self) -> HRESULT;
+    unsafe fn __reserved_slot_13(&self) -> HRESULT;
+    unsafe fn __reserved_slot_14(&self) -> HRESULT;
+    unsafe fn __reserved_slot_15(&self) -> HRESULT;
+    unsafe fn __reserved_slot_16(&self) -> HRESULT;
+    unsafe fn __reserved_slot_17(&self) -> HRESULT;
+    unsafe fn __reserved_slot_18(&self) -> HRESULT;
+    unsafe fn __reserved_slot_19(&self) -> HRESULT;
+    unsafe fn __reserved_slot_20(&self) -> HRESULT;
+    unsafe fn __reserved_slot_21(&self) -> HRESULT;
+    unsafe fn __reserved_slot_22(&self) -> HRESULT;
+    unsafe fn __reserved_slot_23(&self) -> HRESULT;
+    unsafe fn __reserved_slot_24(&self) -> HRESULT;
+    unsafe fn __reserved_slot_25(&self) -> HRESULT;
+    unsafe fn __reserved_slot_26(&self) -> HRESULT;
+    unsafe fn __reserved_slot_27(&self) -> HRESULT;
+    unsafe fn __reserved_slot_28(&self) -> HRESULT;
+    unsafe fn __reserved_slot_29(&self) -> HRESULT;
+    unsafe fn __reserved_slot_30(&self) -> HRESULT;
+    unsafe fn __reserved_slot_31(&self) -> HRESULT;
+    unsafe fn __reserved_slot_32(&self) -> HRESULT;
+    unsafe fn __reserved_slot_33(&self) -> HRESULT;
+    unsafe fn __reserved_slot_34(&self) -> HRESULT;
+    unsafe fn __reserved_slot_35(&self) -> HRESULT;
+    unsafe fn __reserved_slot_36(&self) -> HRESULT;
+    unsafe fn __reserved_slot_37(&self) -> HRESULT;
+    unsafe fn __reserved_slot_38(&self) -> HRESULT;
+    unsafe fn __reserved_slot_39(&self) -> HRESULT;
+    unsafe fn __reserved_slot_40(&self) -> HRESULT;
+    unsafe fn __reserved_slot_41(&self) -> HRESULT;
+    unsafe fn __reserved_slot_42(&self) -> HRESULT;
     pub unsafe fn XUserPlatformRemoteConnectSetEventHandlers(
         &self,
         queue: *mut c_void,
