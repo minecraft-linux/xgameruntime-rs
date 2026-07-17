@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-
 use super::{Bool, Char, E_NOTIMPL};
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
@@ -94,11 +92,11 @@ fn write_c_string<const N: usize>(dst: &mut [c_char; N], value: &[u8]) {
 
 fn build_trial_game_license() -> XStoreGameLicense {
     let mut license = XStoreGameLicense {
-        isActive: true,
-        isTrialOwnedByThisUser: true,
+        isActive: false,
+        isTrialOwnedByThisUser: false,
         isDiscLicense: false,
-        isTrial: true,
-        trialTimeRemainingInSeconds: 3600,
+        isTrial: false,
+        trialTimeRemainingInSeconds: 0,
         expirationDate: 4_102_444_800,
         ..XStoreGameLicense::default()
     };
@@ -957,7 +955,7 @@ macro_rules! void_stub {
 }
 
 unsafe extern "system" fn findWindow(hwnd: HWND, lp: LPARAM) -> windows_core::BOOL {
-    unsafe { MessageBoxW(Some(hwnd), windows::core::h!("WinRT"), windows::core::h!("World"), MB_OK) };
+    unsafe { MessageBoxW(Some(hwnd), windows::core::h!("Some Very long text is coming soon"), windows::core::h!("World"), MB_OK) };
     return windows_core::BOOL(0);
 }
 
