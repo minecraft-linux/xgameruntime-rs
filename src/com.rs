@@ -1,6 +1,7 @@
-use super::{E_NOTIMPL};
+use super::E_NOTIMPL;
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
+use std::pin::Pin;
 use std::ptr::null_mut;
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll, Wake, Waker};
@@ -9,7 +10,6 @@ use windows::windef::HWND;
 use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 use windows_core::{GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, implement, interface};
 use windows_sys::core::BOOL;
-use std::pin::Pin;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
@@ -530,7 +530,7 @@ type XUserPlatformRemoteConnectShowPromptEventHandler = unsafe extern "system" f
     url: *const c_char,
     code: *const c_char,
     qrCodeSize: usize,
-    qrCode: *const c_char
+    qrCode: *const c_char,
 );
 type XUserPlatformRemoteConnectClosePromptEventHandler = unsafe extern "system" fn();
 
@@ -727,7 +727,7 @@ macro_rules! void_stub {
 }
 
 unsafe extern "system" fn findWindow(hwnd: HWND, lp: LPARAM) -> windows_core::BOOL {
-    unsafe  {
+    unsafe {
         let result: &mut HWND = &mut *(lp.0 as *mut HWND);
 
         // If this is the window you're looking for:
@@ -829,10 +829,26 @@ impl IXStore_Impl for XStoreObject_Impl {
 
     unsafe fn XStoreCreateContext(&self, _user: u64, storeContextHandle: *mut u64) -> HRESULT {
         println!("XStoreCreateContext");
-        std::thread::spawn(||{
+        std::thread::spawn(|| {
             let mut search: HWND = HWND(null_mut());
-            unsafe { EnumWindows(Some(findWindow), LPARAM((&mut search as *mut HWND) as isize)); }
-            unsafe { MessageBoxW(if search.0.is_null() { None } else { Some(search) }, windows::core::h!("WinRT"), windows::core::h!("World is big"), MB_OK) };
+            unsafe {
+                EnumWindows(
+                    Some(findWindow),
+                    LPARAM((&mut search as *mut HWND) as isize),
+                );
+            }
+            unsafe {
+                MessageBoxW(
+                    if search.0.is_null() {
+                        None
+                    } else {
+                        Some(search)
+                    },
+                    windows::core::h!("WinRT"),
+                    windows::core::h!("World is big"),
+                    MB_OK,
+                )
+            };
         });
         unsafe {
             *storeContextHandle = 1;
@@ -848,10 +864,12 @@ impl IXStore_Impl for XStoreObject_Impl {
         if storeContextHandle == 0 {
             return E_POINTER;
         }
-        unsafe { xasync::run(async_.cast(), async move {
-            println!("storeContextHandle: {storeContextHandle}");
-            return Ok(build_trial_game_license());
-        }) }
+        unsafe {
+            xasync::run(async_.cast(), async move {
+                println!("storeContextHandle: {storeContextHandle}");
+                return Ok(build_trial_game_license());
+            })
+        }
     }
 
     unsafe fn XStoreQueryGameLicenseResult(
@@ -867,13 +885,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         let mut payload = XStoreQueryGameLicenseAsyncResultPayload {
             license: XStoreGameLicense::default(),
         };
-        let hr = unsafe {
-            get_result(
-                async_.cast(),
-                null_mut(),
-                &mut payload,
-            )
-        };
+        let hr = unsafe { get_result(async_.cast(), null_mut(), &mut payload) };
         if hr != S_OK {
             return hr;
         }
@@ -1078,7 +1090,7 @@ pub fn query_api_impl(
         IXFeature::IID => {
             // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
             query(xfeature_singleton(), interface_id, out)
-        },
+        }
         CLSID_XSTORE => {
             // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
             query(xstore_singleton(), interface_id, out)
@@ -1099,11 +1111,13 @@ pub fn query_api_impl(
 #[cfg(test)]
 mod tests {
     use std::ffi::{c_char, c_void};
-use std::ptr::null;
+    use std::ptr::null;
 
-    use crate::com::{IXStore, XStoreGameLicense, query_api_impl, get_result};
+    use crate::com::{IXStore, XStoreGameLicense, get_result, query_api_impl};
     use crate::xasync::{XAsyncBlock, run, xasync_get_status};
-use crate::{E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test};
+    use crate::{
+        E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test,
+    };
     use windows_core::{GUID, HRESULT, Interface};
 
     fn read_c_string(bytes: &[c_char]) -> String {
@@ -1205,39 +1219,45 @@ use crate::{E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll
         struct Payload {
             v: i32,
             v2: i64,
-            v3: GUID
+            v3: GUID,
         }
 
-        let hr = unsafe { run(&mut async_block, async move {
-            println!("starting");
+        let hr = unsafe {
+            run(&mut async_block, async move {
+                println!("starting");
 
-            let task = handle.spawn(async {
-                let client = reqwest::Client::new();
+                let task = handle.spawn(async {
+                    let client = reqwest::Client::new();
 
-                let response = client
-                    .get("http://google.com")
-                    .send()
-                    .await
-                    .map_err(|_| E_FAIL)?;
+                    let response = client
+                        .get("http://google.com")
+                        .send()
+                        .await
+                        .map_err(|_| E_FAIL)?;
 
-                println!("finished {}", response.status());
+                    println!("finished {}", response.status());
 
-                Ok::<Payload, HRESULT>(Payload {
-                    v: 0,
-                    v2: 323,
-                    v3: GUID::zeroed(),
-                })
-            });
+                    Ok::<Payload, HRESULT>(Payload {
+                        v: 0,
+                        v2: 323,
+                        v3: GUID::zeroed(),
+                    })
+                });
 
-            task.await.map_err(|_| E_FAIL)?
-        }) };
+                task.await.map_err(|_| E_FAIL)?
+            })
+        };
         assert_eq!(hr, HRESULT(0));
 
         let status_hr = unsafe { xasync_get_status(&mut async_block, true) };
         assert_eq!(status_hr, HRESULT(0));
 
-        let mut payload: Payload = Payload { v: 0, v2: 0, v3: GUID::zeroed() };
-        let hr = unsafe { get_result(&mut async_block, null(), &mut payload)};
+        let mut payload: Payload = Payload {
+            v: 0,
+            v2: 0,
+            v3: GUID::zeroed(),
+        };
+        let hr = unsafe { get_result(&mut async_block, null(), &mut payload) };
         assert_eq!(hr, HRESULT(0));
 
         println!("res {:?}", payload);

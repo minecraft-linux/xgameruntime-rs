@@ -1,15 +1,15 @@
 use crate::S_OK;
 use crate::com::query_api_impl;
 
+use crate::results::*;
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
+use std::pin::Pin;
 use std::ptr::null_mut;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::task::{Context, Poll, Wake, Waker};
 use windows_core::{GUID, HRESULT, IUnknown, Interface, interface};
 use windows_sys::core::BOOL;
-use std::pin::Pin;
-use crate::results::*;
 
 type XTaskQueueHandle = *mut c_void;
 type XAsyncCompletionRoutine = unsafe extern "system" fn(async_block: *mut XAsyncBlock);
@@ -189,11 +189,7 @@ unsafe fn schedule(async_block: *mut XAsyncBlock, delay_ms: u32) -> HRESULT {
     hr
 }
 
-unsafe fn complete(
-    async_block: *mut XAsyncBlock,
-    result: HRESULT,
-    required_buffer_size: usize,
-) {
+unsafe fn complete(async_block: *mut XAsyncBlock, result: HRESULT, required_buffer_size: usize) {
     let xasync = match interface() {
         Ok(xasync) => xasync,
         Err(_) => return,
@@ -243,7 +239,7 @@ struct XAsyncContextHelper<T: Sized> {
 }
 
 struct XAsyncWaker {
-    block: *mut XAsyncBlock
+    block: *mut XAsyncBlock,
 }
 
 unsafe impl Sync for XAsyncWaker {}
@@ -274,7 +270,7 @@ unsafe extern "system" fn run_async_helper<T: Sized>(
             if async_context.canceled {
                 async_context.result = E_ABORT;
             } else {
-                let waker =                 Waker::from(Arc::new(XAsyncWaker{block: data.async_}));
+                let waker = Waker::from(Arc::new(XAsyncWaker { block: data.async_ }));
                 let mut cx = Context::from_waker(&waker);
                 match async_context.future.as_mut().poll(&mut cx) {
                     Poll::Ready(value) => {
@@ -294,22 +290,19 @@ unsafe extern "system" fn run_async_helper<T: Sized>(
             }
             println!("required_buf_size {}", size_of::<T>());
             unsafe {
-                complete(
-                    data.async_,
-                    async_context.result,
-                    size_of::<T>(),
-                );
+                complete(data.async_, async_context.result, size_of::<T>());
             }
             S_OK
         }
         XAsyncOp::GetResult => {
             println!("get_result {}", size_of::<T>());
-            if async_context.result == S_OK && let Some(payload) = &async_context.payload {
+            if async_context.result == S_OK
+                && let Some(payload) = &async_context.payload
+            {
                 println!("copy result {}", size_of::<T>());
                 unsafe {
                     std::ptr::copy_nonoverlapping(
-                        (payload as *const T)
-                            .cast::<u8>(),
+                        (payload as *const T).cast::<u8>(),
                         data.buffer.cast::<u8>(),
                         size_of::<T>(),
                     );
@@ -330,17 +323,15 @@ unsafe extern "system" fn run_async_helper<T: Sized>(
     }
 }
 
-pub unsafe fn run<T: Sized, F>(
-    async_: *mut XAsyncBlock,
-    future: F,
-) -> HRESULT 
-where F: Future<Output = Result<T, HRESULT>> + Send + 'static,
+pub unsafe fn run<T: Sized, F>(async_: *mut XAsyncBlock, future: F) -> HRESULT
+where
+    F: Future<Output = Result<T, HRESULT>> + Send + 'static,
 {
     if async_.is_null() {
         return S_OK;
     }
 
-    let async_context = Box::new(XAsyncContextHelper{
+    let async_context = Box::new(XAsyncContextHelper {
         canceled: false,
         payload: None as Option<T>,
         result: E_ABORT,

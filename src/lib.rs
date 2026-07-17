@@ -7,10 +7,10 @@ use windows::minwindef::LPARAM;
 use windows::windef::HWND;
 use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 
-use windows_core::{GUID, HRESULT, Interface};
-use windows_sys::libloaderapi::{GetProcAddress, LoadLibraryA, FreeLibrary};
-use windows_sys::minwindef::HMODULE;
 use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
+use windows_core::{GUID, HRESULT, Interface};
+use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
+use windows_sys::minwindef::HMODULE;
 
 mod com;
 mod results;
@@ -96,25 +96,51 @@ where
 }
 
 unsafe extern "system" fn find_window(hwnd: HWND, lp: LPARAM) -> windows_core::BOOL {
-    unsafe  {
+    unsafe {
         let result: &mut HWND = &mut *(lp.0 as *mut HWND);
         *result = hwnd;
     }
     return false.into();
 }
 
-unsafe extern "system" fn show(_context: *const c_void,_user_identifierr: u32, _operation: u32, url: *const c_char, code: *const c_char, _qr_code_size: usize, _qr_code: *const c_char) {
+unsafe extern "system" fn show(
+    _context: *const c_void,
+    _user_identifierr: u32,
+    _operation: u32,
+    url: *const c_char,
+    code: *const c_char,
+    _qr_code_size: usize,
+    _qr_code: *const c_char,
+) {
     unsafe {
         let url = CStr::from_ptr(url);
         let code = CStr::from_ptr(code);
         let mut search: HWND = HWND(null_mut());
-        _ = EnumWindows(Some(find_window), LPARAM((&mut search as *mut HWND) as isize));
-        MessageBoxW(if search.0.is_null() { None } else { Some(search) }, windows_strings::PCWSTR::from_raw(windows::core::HSTRING::from(format!("{} {}", url.to_string_lossy(), code.to_string_lossy())).as_ptr()), windows::core::h!("World"), MB_OK);
+        _ = EnumWindows(
+            Some(find_window),
+            LPARAM((&mut search as *mut HWND) as isize),
+        );
+        MessageBoxW(
+            if search.0.is_null() {
+                None
+            } else {
+                Some(search)
+            },
+            windows_strings::PCWSTR::from_raw(
+                windows::core::HSTRING::from(format!(
+                    "{} {}",
+                    url.to_string_lossy(),
+                    code.to_string_lossy()
+                ))
+                .as_ptr(),
+            ),
+            windows::core::h!("World"),
+            MB_OK,
+        );
     }
 }
 
-unsafe extern "system" fn hide() {
-}
+unsafe extern "system" fn hide() {}
 
 unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
     let dll_name = delegated_dll_name();
@@ -197,15 +223,17 @@ fn initialize_delegate(
     assert!(!out.is_null());
 
     if let Some(platform) = unsafe { IXUserPlatform::from_raw_borrowed(&out) } {
-        let callback: XUserPlatformRemoteConnectEventHandlers = XUserPlatformRemoteConnectEventHandlers{
-            show: Some(show),
-            close: Some(hide),
-            context: std::ptr::null_mut(),
+        let callback: XUserPlatformRemoteConnectEventHandlers =
+            XUserPlatformRemoteConnectEventHandlers {
+                show: Some(show),
+                close: Some(hide),
+                context: std::ptr::null_mut(),
+            };
+        let hr = unsafe {
+            platform.XUserPlatformRemoteConnectSetEventHandlers(std::ptr::null_mut(), &callback)
         };
-        let hr = unsafe { platform.XUserPlatformRemoteConnectSetEventHandlers(std::ptr::null_mut(), &callback) };
         assert_eq!(hr, HRESULT(0));
     }
-
 
     state.ref_count = 1;
     state.api = Some(api);
