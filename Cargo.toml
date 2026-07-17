@@ -8,9 +8,103 @@ name = "xgameruntime"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+reqwest = { version = "0.13.2", default-features = false, features = [
+    "http2",
+    "charset",
+    "json",
+    "native-tls",
+] }
 tokio = { version = "1.52.3", features = ["fs", "io-util", "rt-multi-thread"] }
-windows-core = "0.62.2"
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+
+[dependencies.windows-core]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-strings]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-sys]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+features = ["libloaderapi"]
+
+[dependencies.windows-canvas]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-window]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-reference]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+features = [
+    "ApplicationModel_Core",
+    "UI_Core",
+    "combaseapi",
+    "objbase",
+    "winuser",
+    "windef",
+    "std",
+    "Data_Xml_Dom",
+    "Devices_Enumeration",
+    "Foundation",
+    "Security_Credentials_UI",
+    "Security_Cryptography_DataProtection",
+    "std",
+    "Storage_Streams",
+    "UI",
+    "Web_Syndication",
+    "bits",
+    "combaseapi",
+    "exdisp",
+    "handleapi",
+    "libloaderapi",
+    "memorybuffer",
+    "minwinbase",
+    "minwindef",
+    "objbase",
+    "objidlbase",
+    "oaidl",
+    "oleauto",
+    "oleidl",
+    "pdh",
+    "processthreadsapi",
+    "ro",
+    "rpc",
+    "securitybaseapi",
+    "servprov",
+    "shellapi",
+    "shldisp",
+    "shlguid",
+    "shlobj_core",
+    "shobjidl_core",
+    "synchapi",
+    "threadpoolapiset",
+    "urlmon",
+    "userconsentverifierinterop",
+    "wbemcli",
+    "winbase",
+    "wincred",
+    "windef",
+    "winnt",
+    "winuser",
+    "wtypes",
+    "wtypesbase",
+]
 
 [profile.dev]
 panic = "abort"

@@ -1,37 +1,25 @@
-use std::ffi::{CString, c_char, c_void};
+use std::ffi::{CStr, CString, c_char, c_void};
+use std::ptr::null_mut;
 use std::result::Result;
 use std::sync::Mutex;
 
-use windows_core::{GUID, HRESULT, Interface};
-use windows_sys::Win32::Foundation::{FreeLibrary, HMODULE};
-use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
+use windows::minwindef::LPARAM;
+use windows::windef::HWND;
+use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 
 use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
+use windows_core::{GUID, HRESULT, Interface};
+use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
+use windows_sys::minwindef::HMODULE;
 
 mod com;
+mod results;
+mod xasync;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MsixvcFileEntry {
-    pub path: String,
-    pub offset: u64,
-    pub length: u64,
-    pub encrypted: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MsixvcInfo {
-    pub content_id: String,
-    pub files: Vec<MsixvcFileEntry>,
-}
-
-type Hinstance = *mut c_void;
-type Bool = i32;
-type Dword = u32;
 type Ulong = u32;
 type Char = i8;
 type Lpcstr = *const c_char;
 
-const TRUE: Bool = 1;
 const S_OK: HRESULT = HRESULT(0);
 const E_FAIL: HRESULT = HRESULT(0x80004005u32 as i32);
 const E_NOTIMPL: HRESULT = HRESULT(0x80004001u32 as i32);
@@ -107,13 +95,52 @@ where
     }
 }
 
-unsafe extern "system" fn show() {
-    todo!("show");
+unsafe extern "system" fn find_window(hwnd: HWND, lp: LPARAM) -> windows_core::BOOL {
+    unsafe {
+        let result: &mut HWND = &mut *(lp.0 as *mut HWND);
+        *result = hwnd;
+    }
+    return false.into();
 }
 
-unsafe extern "system" fn hide() {
-    todo!("hide");
+unsafe extern "system" fn show(
+    _context: *const c_void,
+    _user_identifierr: u32,
+    _operation: u32,
+    url: *const c_char,
+    code: *const c_char,
+    _qr_code_size: usize,
+    _qr_code: *const c_char,
+) {
+    unsafe {
+        let url = CStr::from_ptr(url);
+        let code = CStr::from_ptr(code);
+        let mut search: HWND = HWND(null_mut());
+        _ = EnumWindows(
+            Some(find_window),
+            LPARAM((&mut search as *mut HWND) as isize),
+        );
+        MessageBoxW(
+            if search.0.is_null() {
+                None
+            } else {
+                Some(search)
+            },
+            windows_strings::PCWSTR::from_raw(
+                windows::core::HSTRING::from(format!(
+                    "{} {}",
+                    url.to_string_lossy(),
+                    code.to_string_lossy()
+                ))
+                .as_ptr(),
+            ),
+            windows::core::h!("Xbox Live Remote Login"),
+            MB_OK,
+        );
+    }
 }
+
+unsafe extern "system" fn hide() {}
 
 unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
     let dll_name = delegated_dll_name();
@@ -184,6 +211,28 @@ fn initialize_delegate(
             FreeLibrary(api.module);
         }
         return hr;
+    }
+
+    let mut out: *mut c_void = std::ptr::null_mut();
+
+    let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
+
+    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUserPlatform::IID, &mut out) };
+
+    assert_eq!(hr, HRESULT(0));
+    assert!(!out.is_null());
+
+    if let Some(platform) = unsafe { IXUserPlatform::from_raw_borrowed(&out) } {
+        let callback: XUserPlatformRemoteConnectEventHandlers =
+            XUserPlatformRemoteConnectEventHandlers {
+                show: Some(show),
+                close: Some(hide),
+                context: std::ptr::null_mut(),
+            };
+        let hr = unsafe {
+            platform.XUserPlatformRemoteConnectSetEventHandlers(std::ptr::null_mut(), &callback)
+        };
+        assert_eq!(hr, HRESULT(0));
     }
 
     state.ref_count = 1;

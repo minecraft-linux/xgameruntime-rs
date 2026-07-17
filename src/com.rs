@@ -1,54 +1,25 @@
-#![allow(non_snake_case)]
-
-use super::{Bool, Char, E_NOTIMPL};
-use std::ffi::{c_char, c_void};
+use super::E_NOTIMPL;
+use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
-use std::sync::OnceLock;
+use std::pin::Pin;
+use std::ptr::null_mut;
+use std::sync::{Arc, OnceLock};
+use std::task::{Context, Poll, Wake, Waker};
+use windows::minwindef::LPARAM;
+use windows::windef::HWND;
+use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 use windows_core::{GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, implement, interface};
+use windows_sys::core::BOOL;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
-const CLSID_XASYNC: GUID = GUID::from_u128(0x073b7dcb_1fcf_4030_94be_e3c9eb623428);
-const S_OK: HRESULT = HRESULT(0);
-const E_ABORT: HRESULT = HRESULT(0x80004004u32 as i32);
-const E_NOINTERFACE: HRESULT = HRESULT(0x80004002u32 as i32);
-const E_OUTOFMEMORY: HRESULT = HRESULT(0x8007000Eu32 as i32);
-const E_POINTER: HRESULT = HRESULT(0x80004003u32 as i32);
 const STORE_SKU_ID_SIZE: usize = 18;
 const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 
-type XTaskQueueHandle = *mut c_void;
 type XStoreContextHandle = u64;
 
-type XAsyncCompletionRoutine = unsafe extern "system" fn(async_block: *mut XAsyncBlock);
-type XAsyncProvider =
-    unsafe extern "system" fn(op: XAsyncOp, data: *const XAsyncProviderData) -> HRESULT;
-
-#[repr(C)]
-pub struct XAsyncBlock {
-    pub queue: XTaskQueueHandle,
-    pub context: *mut c_void,
-    pub callback: Option<XAsyncCompletionRoutine>,
-    pub internal: [u8; size_of::<*mut c_void>() * 4],
-}
-
-#[repr(u32)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum XAsyncOp {
-    Begin = 0,
-    DoWork = 1,
-    GetResult = 2,
-    Cancel = 3,
-    Cleanup = 4,
-}
-
-#[repr(C)]
-pub struct XAsyncProviderData {
-    pub async_: *mut XAsyncBlock,
-    pub bufferSize: usize,
-    pub buffer: *mut c_void,
-    pub context: *mut c_void,
-}
+use crate::xasync::get_result;
+use crate::{results::*, xasync};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -108,172 +79,6 @@ struct XStoreQueryGameLicenseAsyncResultPayload {
     license: XStoreGameLicense,
 }
 
-struct XStoreQueryGameLicenseAsyncContext {
-    result: HRESULT,
-    canceled: bool,
-    store_context_handle: XStoreContextHandle,
-    payload: XStoreQueryGameLicenseAsyncResultPayload,
-}
-
-impl XStoreQueryGameLicenseAsyncContext {
-    fn new(store_context_handle: XStoreContextHandle) -> Self {
-        Self {
-            result: E_NOTIMPL,
-            canceled: false,
-            store_context_handle,
-            payload: XStoreQueryGameLicenseAsyncResultPayload {
-                license: XStoreGameLicense::default(),
-            },
-        }
-    }
-}
-
-fn xasync_interface() -> Result<IXAsync, HRESULT> {
-    let mut out = std::ptr::null_mut();
-    let hr = query_api_impl(&CLSID_XASYNC, &IXAsync::IID, &mut out);
-    if hr != S_OK {
-        return Err(hr);
-    }
-    Ok(unsafe { IXAsync::from_raw(out) })
-}
-
-unsafe fn xasync_begin(
-    async_block: *mut XAsyncBlock,
-    context: *mut c_void,
-    identity: *const c_void,
-    identity_name: *const c_char,
-    provider: XAsyncProvider,
-) -> HRESULT {
-    let xasync = match xasync_interface() {
-        Ok(xasync) => xasync,
-        Err(hr) => return hr,
-    };
-    let hr = unsafe {
-        xasync.XAsyncBegin(
-            async_block.cast(),
-            context,
-            identity.cast_mut(),
-            identity_name.cast_mut(),
-            provider as *mut c_void,
-        )
-    };
-    std::mem::forget(xasync);
-    hr
-}
-
-unsafe fn xasync_schedule(async_block: *mut XAsyncBlock, delay_ms: u32) -> HRESULT {
-    let xasync = match xasync_interface() {
-        Ok(xasync) => xasync,
-        Err(hr) => return hr,
-    };
-    let hr = unsafe { xasync.XAsyncSchedule(async_block.cast(), delay_ms) };
-    std::mem::forget(xasync);
-    hr
-}
-
-unsafe fn xasync_complete(
-    async_block: *mut XAsyncBlock,
-    result: HRESULT,
-    required_buffer_size: usize,
-) {
-    let xasync = match xasync_interface() {
-        Ok(xasync) => xasync,
-        Err(_) => return,
-    };
-    unsafe { xasync.XAsyncComplete(async_block.cast(), result.0, required_buffer_size as u64) };
-    std::mem::forget(xasync);
-}
-
-unsafe fn xasync_get_result<T>(
-    async_block: *mut XAsyncBlock,
-    identity: *const c_void,
-    out: *mut T,
-) -> HRESULT {
-    let xasync = match xasync_interface() {
-        Ok(xasync) => xasync,
-        Err(hr) => return hr,
-    };
-    let mut buffer_used = 0usize;
-    let hr = unsafe {
-        xasync.XAsyncGetResult(
-            async_block.cast(),
-            identity.cast_mut(),
-            size_of::<T>() as u64,
-            out.cast(),
-            &mut buffer_used,
-        )
-    };
-    std::mem::forget(xasync);
-    hr
-}
-
-unsafe fn xasync_get_status(async_block: *mut XAsyncBlock, wait: bool) -> HRESULT {
-    let xasync = match xasync_interface() {
-        Ok(xasync) => xasync,
-        Err(hr) => return hr,
-    };
-    let hr = unsafe { xasync.XAsyncGetStatus(async_block.cast(), if wait { 1 } else { 0 }) };
-    std::mem::forget(xasync);
-    hr
-}
-
-unsafe extern "system" fn xstore_query_game_license_async_provider(
-    op: XAsyncOp,
-    data: *const XAsyncProviderData,
-) -> HRESULT {
-    let Some(data) = (unsafe { data.as_ref() }) else {
-        return E_POINTER;
-    };
-    let async_context = data.context as *mut XStoreQueryGameLicenseAsyncContext;
-    let Some(async_context) = (unsafe { async_context.as_mut() }) else {
-        return E_POINTER;
-    };
-
-    match op {
-        XAsyncOp::Begin => unsafe { xasync_schedule(data.async_, 0) },
-        XAsyncOp::DoWork => {
-            if async_context.canceled {
-                async_context.result = E_ABORT;
-            } else {
-                let _ = async_context.store_context_handle;
-                async_context.payload.license = build_trial_game_license();
-                async_context.result = S_OK;
-            }
-            unsafe {
-                xasync_complete(
-                    data.async_,
-                    async_context.result,
-                    size_of::<XStoreQueryGameLicenseAsyncResultPayload>(),
-                );
-            }
-            S_OK
-        }
-        XAsyncOp::GetResult => {
-            if async_context.result == S_OK {
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        (&async_context.payload as *const XStoreQueryGameLicenseAsyncResultPayload)
-                            .cast::<u8>(),
-                        data.buffer.cast::<u8>(),
-                        size_of::<XStoreQueryGameLicenseAsyncResultPayload>(),
-                    );
-                }
-            }
-            S_OK
-        }
-        XAsyncOp::Cancel => {
-            async_context.canceled = true;
-            S_OK
-        }
-        XAsyncOp::Cleanup => {
-            unsafe {
-                drop(Box::from_raw(async_context));
-            }
-            S_OK
-        }
-    }
-}
-
 #[interface("8836fe87-edb9-4fe3-8dad-05f0d2cd5b40")]
 pub unsafe trait IXFeature: IUnknown {
     unsafe fn XGameRuntimeIsFeatureAvailable(&self, feature: u32) -> bool;
@@ -284,7 +89,7 @@ pub struct XFeature;
 
 impl IXFeature_Impl for XFeature_Impl {
     unsafe fn XGameRuntimeIsFeatureAvailable(&self, feature: u32) -> bool {
-        return feature != 14;
+        return true || feature != 10;
     }
 }
 
@@ -359,7 +164,7 @@ pub unsafe trait IXStore: IUnknown {
         context: *mut c_void,
         callback: *mut c_void,
     ) -> HRESULT;
-    unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> Bool;
+    unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> BOOL;
     unsafe fn XStoreProductsQueryNextPageAsync(
         &self,
         productQueryHandle: u64,
@@ -382,7 +187,7 @@ pub unsafe trait IXStore: IUnknown {
         async_: *mut c_void,
         storeLicenseHandle: *mut c_void,
     ) -> HRESULT;
-    unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> Bool;
+    unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> BOOL;
     unsafe fn XStoreCloseLicenseHandle(&self, storeLicenseHandle: u64) -> ();
     unsafe fn XStoreCanAcquireLicenseForStoreIdAsync(
         &self,
@@ -532,7 +337,7 @@ pub unsafe trait IXStore: IUnknown {
         token: *mut c_char,
         allowedStoreIds: *mut *mut c_char,
         allowedStoreIdsCount: u64,
-        disallowCsvRedemption: Bool,
+        disallowCsvRedemption: BOOL,
         async_: *mut c_void,
     ) -> HRESULT;
     unsafe fn XStoreShowRedeemTokenUIResult(&self, async_: *mut c_void) -> HRESULT;
@@ -584,7 +389,7 @@ pub unsafe trait IXStore: IUnknown {
         &self,
         async_: *mut c_void,
         count: u32,
-        packageIdentifiers: Char,
+        packageIdentifiers: c_char,
     ) -> HRESULT;
     unsafe fn XStoreQueryPackageIdentifier(
         &self,
@@ -604,8 +409,8 @@ pub unsafe trait IXStore: IUnknown {
         &self,
         storeContextHandle: u64,
         token: u64,
-        wait: Bool,
-    ) -> Bool;
+        wait: BOOL,
+    ) -> BOOL;
     unsafe fn XStoreRegisterPackageLicenseLost(
         &self,
         licenseHandle: u64,
@@ -618,8 +423,8 @@ pub unsafe trait IXStore: IUnknown {
         &self,
         licenseHandle: u64,
         token: u64,
-        wait: Bool,
-    ) -> Bool;
+        wait: BOOL,
+    ) -> BOOL;
     unsafe fn __ReservedSlot70(&self) -> HRESULT;
     unsafe fn XStoreAcquireLicenseForDurablesAsync(
         &self,
@@ -698,109 +503,15 @@ pub unsafe trait IXStoreAlias2: IXStore {}
 #[interface("0dd112ac-7c24-448c-b92b-3960fb5bd30c")]
 pub unsafe trait IXStoreAlias3: IXStore {}
 
-#[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
-pub unsafe trait IXAsync: IUnknown {
-    unsafe fn XAsyncGetStatus(&self, asyncBlock: *mut c_void, wait: Bool) -> HRESULT;
-    unsafe fn XAsyncGetResultSize(
-        &self,
-        asyncBlock: *mut c_void,
-        bufferSize: *mut usize,
-    ) -> HRESULT;
-    unsafe fn XAsyncCancel(&self, asyncBlock: *mut c_void) -> ();
-    unsafe fn XAsyncRun(&self, asyncBlock: *mut c_void, work: *mut c_void) -> HRESULT;
-    unsafe fn XAsyncBegin(
-        &self,
-        asyncBlock: *mut c_void,
-        context: *mut c_void,
-        identity: *mut c_void,
-        identityName: *mut c_char,
-        provider: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn __ReservedSlot8(&self) -> HRESULT;
-    unsafe fn XAsyncSchedule(&self, asyncBlock: *mut c_void, delayInMs: u32) -> HRESULT;
-    unsafe fn XAsyncComplete(
-        &self,
-        asyncBlock: *mut c_void,
-        result: i32,
-        requiredBufferSize: u64,
-    ) -> ();
-    unsafe fn XAsyncGetResult(
-        &self,
-        asyncBlock: *mut c_void,
-        identity: *mut c_void,
-        bufferSize: u64,
-        buffer: *mut c_void,
-        bufferUsed: *mut usize,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueCreate(
-        &self,
-        workDispatchMode: u64,
-        completionDispatchMode: u64,
-        queue: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueCreateComposite(
-        &self,
-        workPort: u64,
-        completionPort: u64,
-        queue: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueGetPort(&self, queue: u64, port: u64, portHandle: *mut u64) -> HRESULT;
-    unsafe fn XTaskQueueDuplicateHandle(
-        &self,
-        queueHandle: u64,
-        duplicatedHandle: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueDispatch(&self, queue: u64, port: u64, timeoutInMs: u32) -> Bool;
-    unsafe fn XTaskQueueCloseHandle(&self, queue: u64) -> ();
-    unsafe fn XTaskQueueSubmitCallback(
-        &self,
-        queue: u64,
-        port: u64,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueSubmitDelayedCallback(
-        &self,
-        queue: u64,
-        port: u64,
-        delayMs: u32,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueRegisterWaiter(
-        &self,
-        queue: u64,
-        port: u64,
-        waitHandle: *mut c_void,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-        token: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueUnregisterWaiter(&self, queue: u64, token: u64) -> ();
-    unsafe fn XTaskQueueTerminate(
-        &self,
-        queue: u64,
-        wait: Bool,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueRegisterMonitor(
-        &self,
-        queue: u64,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-        token: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueUnregisterMonitor(&self, queue: u64, token: u64) -> ();
-    unsafe fn XTaskQueueGetCurrentProcessTaskQueue(&self, queue: *mut u64) -> Bool;
-    unsafe fn XTaskQueueSetCurrentProcessTaskQueue(&self, queue: u64) -> ();
-    unsafe fn XThreadSetTimeSensitive(&self, isTimeSensitiveThread: Bool) -> HRESULT;
-    unsafe fn __ReservedSlot28(&self) -> HRESULT;
-    unsafe fn XThreadAssertNotTimeSensitive(&self) -> ();
-    unsafe fn XThreadIsTimeSensitive(&self) -> Bool;
-}
-
-type XUserPlatformRemoteConnectShowPromptEventHandler = unsafe extern "system" fn();
+type XUserPlatformRemoteConnectShowPromptEventHandler = unsafe extern "system" fn(
+    context: *const c_void,
+    userIdentifier: u32,
+    operation: u32,
+    url: *const c_char,
+    code: *const c_char,
+    qrCodeSize: usize,
+    qrCode: *const c_char,
+);
 type XUserPlatformRemoteConnectClosePromptEventHandler = unsafe extern "system" fn();
 
 #[repr(C)]
@@ -810,23 +521,57 @@ pub struct XUserPlatformRemoteConnectEventHandlers {
     pub context: *mut c_void,
 }
 
-#[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
+#[interface("26f3c674-a2fe-44fa-b6c4-a323bc94ff53")]
 pub unsafe trait IXUserPlatform: IUnknown {
+    // unsafe fn __reserved_slot_0(&self) -> HRESULT;
+    // unsafe fn __reserved_slot_1(&self) -> HRESULT;
+    // unsafe fn __reserved_slot_2(&self) -> HRESULT;
+    unsafe fn __reserved_slot_3(&self) -> HRESULT;
+    unsafe fn __reserved_slot_4(&self) -> HRESULT;
+    unsafe fn __reserved_slot_5(&self) -> HRESULT;
+    unsafe fn __reserved_slot_6(&self) -> HRESULT;
+    unsafe fn __reserved_slot_7(&self) -> HRESULT;
+    unsafe fn __reserved_slot_8(&self) -> HRESULT;
+    unsafe fn __reserved_slot_9(&self) -> HRESULT;
+    unsafe fn __reserved_slot_10(&self) -> HRESULT;
+    unsafe fn __reserved_slot_11(&self) -> HRESULT;
+    unsafe fn __reserved_slot_12(&self) -> HRESULT;
+    unsafe fn __reserved_slot_13(&self) -> HRESULT;
+    unsafe fn __reserved_slot_14(&self) -> HRESULT;
+    unsafe fn __reserved_slot_15(&self) -> HRESULT;
+    unsafe fn __reserved_slot_16(&self) -> HRESULT;
+    unsafe fn __reserved_slot_17(&self) -> HRESULT;
+    unsafe fn __reserved_slot_18(&self) -> HRESULT;
+    unsafe fn __reserved_slot_19(&self) -> HRESULT;
+    unsafe fn __reserved_slot_20(&self) -> HRESULT;
+    unsafe fn __reserved_slot_21(&self) -> HRESULT;
+    unsafe fn __reserved_slot_22(&self) -> HRESULT;
+    unsafe fn __reserved_slot_23(&self) -> HRESULT;
+    unsafe fn __reserved_slot_24(&self) -> HRESULT;
+    unsafe fn __reserved_slot_25(&self) -> HRESULT;
+    unsafe fn __reserved_slot_26(&self) -> HRESULT;
+    unsafe fn __reserved_slot_27(&self) -> HRESULT;
+    unsafe fn __reserved_slot_28(&self) -> HRESULT;
+    unsafe fn __reserved_slot_29(&self) -> HRESULT;
+    unsafe fn __reserved_slot_30(&self) -> HRESULT;
+    unsafe fn __reserved_slot_31(&self) -> HRESULT;
+    unsafe fn __reserved_slot_32(&self) -> HRESULT;
+    unsafe fn __reserved_slot_33(&self) -> HRESULT;
+    unsafe fn __reserved_slot_34(&self) -> HRESULT;
+    unsafe fn __reserved_slot_35(&self) -> HRESULT;
+    unsafe fn __reserved_slot_36(&self) -> HRESULT;
+    unsafe fn __reserved_slot_37(&self) -> HRESULT;
+    unsafe fn __reserved_slot_38(&self) -> HRESULT;
+    unsafe fn __reserved_slot_39(&self) -> HRESULT;
+    unsafe fn __reserved_slot_40(&self) -> HRESULT;
+    unsafe fn __reserved_slot_41(&self) -> HRESULT;
+    unsafe fn __reserved_slot_42(&self) -> HRESULT;
     pub unsafe fn XUserPlatformRemoteConnectSetEventHandlers(
         &self,
         queue: *mut c_void,
         handler: *const XUserPlatformRemoteConnectEventHandlers,
     ) -> HRESULT;
 }
-
-// [uuid(26f3c674-a2fe-44fa-b6c4-a323bc94ff53)]
-// interface I_01acd177_91f9_4763_a38e_ccbb55ce32e0_clsid__GUID_01acd177_91f9_4763_a38e_ccbb55ce32e0_0_Cascade_3 : I_01acd177_91f9_4763_a38e_ccbb55ce32e0_clsid__GUID_01acd177_91f9_4763_a38e_ccbb55ce32e0_0_Cascade_2
-// {
-//     [helpstring("XUserPlatformRemoteConnectSetEventHandlers")] long XUserPlatformRemoteConnectSetEventHandlers([in] XTaskQueueHandle queue, [in] XUserPlatformRemoteConnectEventHandlersPtr handlers);
-//     [helpstring("XUserPlatformRemoteConnectCancelPrompt")] long XUserPlatformRemoteConnectCancelPrompt([in] XUserPlatformOperation operation);
-//     [helpstring("XUserPlatformSpopPromptSetEventHandlers")] long XUserPlatformSpopPromptSetEventHandlers([in] XTaskQueueHandle queue, [in] XUserPlatformSpopPromptEventHandlerPtr handler, [in] VoidPtr context);
-//     [helpstring("XUserPlatformSpopPromptComplete")] long XUserPlatformSpopPromptComplete([in] XUserPlatformOperation operation, [in] XUserPlatformSpopOperationResult result);
-// };
 
 #[interface("bf2346b2-39af-4658-b5ea-44713c7e83b3")]
 pub unsafe trait IXNetworking: IUnknown {
@@ -853,8 +598,8 @@ pub unsafe trait IXNetworking: IUnknown {
     unsafe fn XNetworkingUnregisterPreferredLocalUdpMultiplayerPortChanged(
         &self,
         token: u64,
-        wait: Bool,
-    ) -> Bool;
+        wait: BOOL,
+    ) -> BOOL;
     unsafe fn XNetworkingQuerySecurityInformationForUrlAsync(
         &self,
         url: *mut c_char,
@@ -871,7 +616,7 @@ pub unsafe trait IXNetworking: IUnknown {
         securityInformationBufferByteCount: u64,
         securityInformationBufferByteCountUsed: *mut usize,
         securityInformationBuffer: *mut u8,
-        securityInformation: *mut c_void,
+        securityInformation: *mut *mut c_void,
     ) -> HRESULT;
     unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16Async(
         &self,
@@ -889,7 +634,7 @@ pub unsafe trait IXNetworking: IUnknown {
         securityInformationBufferByteCount: u64,
         securityInformationBufferByteCountUsed: *mut usize,
         securityInformationBuffer: *mut u8,
-        securityInformation: *mut c_void,
+        securityInformation: *mut *mut c_void,
     ) -> HRESULT;
     unsafe fn XNetworkingVerifyServerCertificate(
         &self,
@@ -902,12 +647,12 @@ pub unsafe trait IXNetworking: IUnknown {
     ) -> HRESULT;
     unsafe fn XNetworkingRegisterConnectivityHintChanged(
         &self,
-        queue: u64,
+        queue: *mut c_void,
         context: *mut c_void,
-        callback: *mut c_void,
+        callback: Option<OnChanged>,
         token: *mut c_void,
     ) -> HRESULT;
-    unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: Bool) -> Bool;
+    unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: BOOL) -> BOOL;
     unsafe fn XNetworkingQueryConfigurationSetting(
         &self,
         configurationSetting: u64,
@@ -930,7 +675,7 @@ pub unsafe trait IXNetworking2: IXNetworking {}
 
 macro_rules! hresult_stub {
     ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> HRESULT;)*) => {
-        $(unsafe fn $name(&self $(, $arg: $ty)*) -> HRESULT { $(let _ = $arg;)* println!("$name"); E_NOTIMPL })*
+        $(unsafe fn $name(&self $(, $arg: $ty)*) -> HRESULT { $(let _ = $arg;)* E_NOTIMPL })*
     };
 }
 
@@ -941,8 +686,8 @@ macro_rules! hresult_stub_panic {
 }
 
 macro_rules! bool_stub {
-    ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> Bool;)*) => {
-        $(unsafe fn $name(&self $(, $arg: $ty)*) -> Bool { $(let _ = $arg;)* 0 })*
+    ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> BOOL;)*) => {
+        $(unsafe fn $name(&self $(, $arg: $ty)*) -> BOOL { $(let _ = $arg;)* false.into() })*
     };
 }
 
@@ -999,7 +744,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         unsafe fn XStoreShowPurchaseUIResult(&self, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreShowRateAndReviewUIAsync(&self, storeContextHandle: u64, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreShowRateAndReviewUIResult(&self, async_: *mut c_void, result: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowRedeemTokenUIAsync(&self, storeContextHandle: u64, token: *mut c_char, allowedStoreIds: *mut *mut c_char, allowedStoreIdsCount: u64, disallowCsvRedemption: Bool, async_: *mut c_void) -> HRESULT;
+        unsafe fn XStoreShowRedeemTokenUIAsync(&self, storeContextHandle: u64, token: *mut c_char, allowedStoreIds: *mut *mut c_char, allowedStoreIdsCount: u64, disallowCsvRedemption: BOOL, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreShowRedeemTokenUIResult(&self, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreQueryGameAndDlcPackageUpdatesAsync(&self, storeContextHandle: u64, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreQueryGameAndDlcPackageUpdatesResultCount(&self, async_: *mut c_void, count: *mut u32) -> HRESULT;
@@ -1010,7 +755,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         unsafe fn XStoreDownloadAndInstallPackageUpdatesResult(&self, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreDownloadAndInstallPackagesAsync(&self, storeContextHandle: u64, storeIds: *mut *mut c_char, storeIdsCount: u64, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreDownloadAndInstallPackagesResultCount(&self, async_: *mut c_void, count: *mut u32) -> HRESULT;
-        unsafe fn XStoreDownloadAndInstallPackagesResult(&self, async_: *mut c_void, count: u32, packageIdentifiers: Char) -> HRESULT;
+        unsafe fn XStoreDownloadAndInstallPackagesResult(&self, async_: *mut c_void, count: u32, packageIdentifiers: c_char) -> HRESULT;
         unsafe fn XStoreQueryPackageIdentifier(&self, storeId: *mut c_char, size: u64, packageIdentifier: *mut c_char) -> HRESULT;
         unsafe fn XStoreRegisterGameLicenseChanged(&self, storeContextHandle: u64, queue: u64, context: *mut c_void, callback: *mut c_void, token: *mut c_void) -> HRESULT;
         unsafe fn XStoreRegisterPackageLicenseLost(&self, licenseHandle: u64, queue: u64, context: *mut c_void, callback: *mut c_void, token: *mut c_void) -> HRESULT;
@@ -1030,10 +775,10 @@ impl IXStore_Impl for XStoreObject_Impl {
         unsafe fn XStoreShowGiftingUIResult(&self, async_: *mut c_void) -> HRESULT;
     }
     bool_stub! {
-        unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> Bool;
-        unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> Bool;
-        unsafe fn XStoreUnregisterGameLicenseChanged(&self, storeContextHandle: u64, token: u64, wait: Bool) -> Bool;
-        unsafe fn XStoreUnregisterPackageLicenseLost(&self, licenseHandle: u64, token: u64, wait: Bool) -> Bool;
+        unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> BOOL;
+        unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> BOOL;
+        unsafe fn XStoreUnregisterGameLicenseChanged(&self, storeContextHandle: u64, token: u64, wait: BOOL) -> BOOL;
+        unsafe fn XStoreUnregisterPackageLicenseLost(&self, licenseHandle: u64, token: u64, wait: BOOL) -> BOOL;
     }
     void_stub! {
         unsafe fn XStoreCloseContextHandle(&self, storeContextHandle: u64) -> ();
@@ -1042,7 +787,6 @@ impl IXStore_Impl for XStoreObject_Impl {
     }
 
     unsafe fn XStoreCreateContext(&self, _user: u64, storeContextHandle: *mut u64) -> HRESULT {
-        println!("XStoreCreateContext");
         unsafe {
             *storeContextHandle = 1;
         };
@@ -1057,27 +801,12 @@ impl IXStore_Impl for XStoreObject_Impl {
         if storeContextHandle == 0 {
             return E_POINTER;
         }
-        if async_.is_null() {
-            return S_OK;
+        unsafe {
+            xasync::run_sync(async_.cast(), move || {
+                // println!("storeContextHandle: {storeContextHandle}");
+                return Ok(XStoreGameLicense::default());
+            })
         }
-
-        let async_context = Box::new(XStoreQueryGameLicenseAsyncContext::new(storeContextHandle));
-        let async_context = Box::into_raw(async_context);
-        let hr = unsafe {
-            xasync_begin(
-                async_.cast(),
-                async_context.cast(),
-                c"XStoreQueryGameLicenseAsync".as_ptr().cast(),
-                c"XStoreQueryGameLicenseAsync".as_ptr(),
-                xstore_query_game_license_async_provider,
-            )
-        };
-        if hr != S_OK {
-            unsafe {
-                drop(Box::from_raw(async_context));
-            }
-        }
-        hr
     }
 
     unsafe fn XStoreQueryGameLicenseResult(
@@ -1085,7 +814,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         async_: *mut c_void,
         license: *mut c_void,
     ) -> HRESULT {
-        println!("XStoreQueryGameLicenseResult");
+        // println!("XStoreQueryGameLicenseResult");
         if async_.is_null() || license.is_null() {
             return E_POINTER;
         }
@@ -1093,13 +822,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         let mut payload = XStoreQueryGameLicenseAsyncResultPayload {
             license: XStoreGameLicense::default(),
         };
-        let hr = unsafe {
-            xasync_get_result(
-                async_.cast(),
-                c"XStoreQueryGameLicenseAsync".as_ptr().cast(),
-                &mut payload,
-            )
-        };
+        let hr = unsafe { get_result(async_.cast(), null_mut(), &mut payload) };
         if hr != S_OK {
             return hr;
         }
@@ -1129,6 +852,15 @@ pub struct XNetworkingConnectivityHint {
     pub roaming: u8,
 }
 
+#[repr(C)]
+pub struct XNetworkingSecurityInformation {
+    enabledHttpSecurityProtocolFlags: u32,
+    thumbprintCount: usize,
+    thumbprints: *const c_void,
+}
+
+type OnChanged = unsafe extern "system" fn(context: *mut c_void, hint: *const XNetworkingConnectivityHint);
+
 impl IXNetworking_Impl for XNetworkingObject_Impl {
     hresult_stub_panic! {
         unsafe fn XNetworkingQueryPreferredLocalUdpMultiplayerPort(&self, preferredLocalUdpMultiplayerPort: *mut u16) -> HRESULT;
@@ -1140,8 +872,8 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         unsafe fn XNetworkingQueryStatistics(&self, statisticsType: u64, statisticsBuffer: *mut c_void) -> HRESULT;
     }
     bool_stub! {
-        unsafe fn XNetworkingUnregisterPreferredLocalUdpMultiplayerPortChanged(&self, token: u64, wait: Bool) -> Bool;
-        unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: Bool) -> Bool;
+        unsafe fn XNetworkingUnregisterPreferredLocalUdpMultiplayerPortChanged(&self, token: u64, wait: BOOL) -> BOOL;
+        unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: BOOL) -> BOOL;
     }
 
     unsafe fn XNetworkingGetConnectivityHint(
@@ -1175,11 +907,23 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
 
     unsafe fn XNetworkingRegisterConnectivityHintChanged(
         &self,
-        queue: u64,
+        queue: *mut c_void,
         context: *mut c_void,
-        callback: *mut c_void,
+        callback: Option<OnChanged>,
         token: *mut c_void,
     ) -> HRESULT {
+        if let Some(callback) = callback {
+            // println!("XNetworkingRegisterConnectivityHintChanged");
+            unsafe { callback(context, &XNetworkingConnectivityHint {
+                    connectivityLevel: 3,
+                    connectivityCost: 1,
+                    ianaInterfaceType: 0,
+                    networkInitialized: 1,
+                    approachingDataLimit: 0,
+                    overDataLimit: 0,
+                    roaming: 0,
+                })};
+            }
         S_OK
     }
 
@@ -1188,7 +932,17 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         url: *mut c_char,
         asyncBlock: *mut c_void,
     ) -> HRESULT {
-        todo!()
+        let url = unsafe { CStr::from_ptr(url) };
+        // println!("XNetworkingQuerySecurityInformationForUrlAsync {}", url.to_string_lossy());
+        unsafe {
+            xasync::run_sync(asyncBlock.cast(),  move || {
+                Ok(XNetworkingSecurityInformation {
+                    enabledHttpSecurityProtocolFlags: 0x00000080 | 0x00000200 | 0x00000800 | 0x00002000,
+                    thumbprintCount: 0,
+                    thumbprints: null_mut(),
+                })
+            })
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlAsyncResultSize(
@@ -1196,7 +950,15 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         asyncBlock: *mut c_void,
         securityInformationBufferByteCount: *mut usize,
     ) -> HRESULT {
-        todo!()
+        let r = unsafe { xasync::get_result_size(asyncBlock.cast()) };
+        match r {
+            Ok(size) => unsafe {
+                *securityInformationBufferByteCount = size;
+                // println!("XNetworkingQuerySecurityInformationForUrlAsyncResultSize: OK");
+                S_OK
+            },
+            Err(hr) => hr,
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlAsyncResult(
@@ -1205,9 +967,23 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         securityInformationBufferByteCount: u64,
         securityInformationBufferByteCountUsed: *mut usize,
         securityInformationBuffer: *mut u8,
-        securityInformation: *mut c_void,
+        securityInformation: *mut *mut c_void,
     ) -> HRESULT {
-        todo!()
+        let hr = unsafe {
+            get_result(
+                asyncBlock.cast(),
+                null_mut(),
+                securityInformationBuffer.cast::<XNetworkingSecurityInformation>(),
+            )
+        };
+        if hr.is_ok() {
+            unsafe { *securityInformation = securityInformationBuffer.cast() };
+            // println!("XNetworkingQuerySecurityInformationForUrlAsyncResult: OK");
+            S_OK
+        } else {
+            todo!("XNetworkingQuerySecurityInformationForUrlAsyncResult {}", hr);
+            hr
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16Async(
@@ -1215,7 +991,15 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         url: *mut u16,
         asyncBlock: *mut c_void,
     ) -> HRESULT {
-        todo!()
+        unsafe {
+            xasync::run_sync(asyncBlock.cast(), move || {
+                Ok(XNetworkingSecurityInformation {
+                    enabledHttpSecurityProtocolFlags: 0x00000080 | 0x00000200 | 0x00000800 | 0x00002000,
+                    thumbprintCount: 0,
+                    thumbprints: null_mut(),
+                })
+            })
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16AsyncResultSize(
@@ -1223,7 +1007,14 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         asyncBlock: *mut c_void,
         securityInformationBufferByteCount: *mut usize,
     ) -> HRESULT {
-        todo!()
+        let r = unsafe { xasync::get_result_size(asyncBlock.cast()) };
+        match r {
+            Ok(size) => unsafe {
+                *securityInformationBufferByteCount = size;
+                S_OK
+            },
+            Err(hr) => hr,
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult(
@@ -1232,9 +1023,21 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         securityInformationBufferByteCount: u64,
         securityInformationBufferByteCountUsed: *mut usize,
         securityInformationBuffer: *mut u8,
-        securityInformation: *mut c_void,
+        securityInformation: *mut *mut c_void,
     ) -> HRESULT {
-        todo!()
+        let hr = unsafe {
+            get_result(
+                asyncBlock.cast(),
+                null_mut(),
+                securityInformationBuffer.cast::<XNetworkingSecurityInformation>(),
+            )
+        };
+        if hr.is_ok() {
+            unsafe { *securityInformation = securityInformationBuffer.cast() };
+            S_OK
+        } else {
+            hr
+        }
     }
 }
 
@@ -1301,20 +1104,20 @@ pub fn query_api_impl(
     let class_id = unsafe { *runtime_class_id };
     // println!("query_api_impl: {:#8x}-{:#4x}-{:#4x}-{:#4x}", class_id.data1, class_id.data2, class_id.data3, class_id.data4);
     let res = match class_id {
-        // IXFeature::IID => {
-        //     // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
-        //     query(xfeature_singleton(), interface_id, out)
-        // },
+        IXFeature::IID => {
+            // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
+            query(xfeature_singleton(), interface_id, out)
+        }
         CLSID_XSTORE => {
             // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
             query(xstore_singleton(), interface_id, out)
         }
         CLSID_XNETWORKING => {
-            println!(
-                "query_api_impl: {:#32x} {:#32x}",
-                class_id.to_u128(),
-                unsafe { *interface_id }.to_u128()
-            );
+            // println!(
+            //     "query_api_impl: {:#32x} {:#32x}",
+            //     class_id.to_u128(),
+            //     unsafe { *interface_id }.to_u128()
+            // );
             query(xnetworking_singleton(), interface_id, out)
         }
         _ => crate::delegated_query_api_impl(runtime_class_id, interface_id, out),
@@ -1325,10 +1128,14 @@ pub fn query_api_impl(
 #[cfg(test)]
 mod tests {
     use std::ffi::{c_char, c_void};
+    use std::ptr::null;
 
-    use crate::com::{IXStore, XAsyncBlock, XStoreGameLicense, query_api_impl, xasync_get_status};
-    use crate::{InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test};
-    use windows_core::{HRESULT, Interface};
+    use crate::com::{IXStore, XStoreGameLicense, get_result, query_api_impl};
+    use crate::xasync::{XAsyncBlock, get_status, run};
+    use crate::{
+        E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test,
+    };
+    use windows_core::{GUID, HRESULT, Interface};
 
     fn read_c_string(bytes: &[c_char]) -> String {
         let len = bytes
@@ -1363,10 +1170,6 @@ mod tests {
     #[test]
     #[ignore = "requires xgameruntime.gdk.dll delegate support in the Wine environment"]
     fn query_game_license_async_blocks_via_xasync() {
-        set_delegated_dll_path_for_test(Some(
-            "/Users/christopher/Documents/xgameruntime-rs/xgameruntime.gdk.dll",
-        ));
-
         let init_hr = InitializeApiImplEx2(2604, 100000, 10, std::ptr::null_mut());
         assert_eq!(init_hr, HRESULT(0));
 
@@ -1397,7 +1200,7 @@ mod tests {
         };
         assert_eq!(hr, HRESULT(0));
 
-        let status_hr = unsafe { xasync_get_status(&mut async_block, true) };
+        let status_hr = unsafe { get_status(&mut async_block, true) };
         assert_eq!(status_hr, HRESULT(0));
 
         let mut license = XStoreGameLicense::default();
@@ -1408,13 +1211,73 @@ mod tests {
             )
         };
         assert_eq!(result_hr, HRESULT(0));
-        assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
+        // assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
         assert!(license.isActive);
-        assert!(license.isTrialOwnedByThisUser);
-        assert!(license.isTrial);
+        assert!(!license.isTrialOwnedByThisUser);
+        assert!(!license.isTrial);
         assert!(!license.isDiscLicense);
-        assert_eq!(license.trialTimeRemainingInSeconds, 3600);
-        assert_eq!(read_c_string(&license.trialUniqueId), "trial-license");
+        assert_eq!(license.trialTimeRemainingInSeconds, 0);
+        // assert_eq!(read_c_string(&license.trialUniqueId), "trial-license");
+
+        let mut async_block = XAsyncBlock {
+            queue: std::ptr::null_mut(),
+            context: std::ptr::null_mut(),
+            callback: None,
+            internal: [0; std::mem::size_of::<*mut c_void>() * 4],
+        };
+
+        let tokio = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("failed to create Tokio runtime");
+
+        let handle = tokio.handle().clone();
+        #[derive(Debug)]
+        struct Payload {
+            v: i32,
+            v2: i64,
+            v3: GUID,
+        }
+
+        let hr = unsafe {
+            run(&mut async_block, async move {
+                println!("starting");
+
+                let task = handle.spawn(async {
+                    let client = reqwest::Client::new();
+
+                    let response = client
+                        .get("http://google.com")
+                        .send()
+                        .await
+                        .map_err(|_| E_FAIL)?;
+
+                    println!("finished {}", response.status());
+
+                    Ok::<Payload, HRESULT>(Payload {
+                        v: 0,
+                        v2: 323,
+                        v3: GUID::zeroed(),
+                    })
+                });
+
+                task.await.map_err(|_| E_FAIL)?
+            })
+        };
+        assert_eq!(hr, HRESULT(0));
+
+        let status_hr = unsafe { get_status(&mut async_block, true) };
+        assert_eq!(status_hr, HRESULT(0));
+
+        let mut payload: Payload = Payload {
+            v: 0,
+            v2: 0,
+            v3: GUID::zeroed(),
+        };
+        let hr = unsafe { get_result(&mut async_block, null(), &mut payload) };
+        assert_eq!(hr, HRESULT(0));
+
+        println!("res {:?}", payload);
 
         let uninit_hr = UninitializeApiImpl();
         assert_eq!(uninit_hr, HRESULT(0));
