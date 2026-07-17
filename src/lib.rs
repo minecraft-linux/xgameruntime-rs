@@ -14,21 +14,6 @@ use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
 
 mod com;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MsixvcFileEntry {
-    pub path: String,
-    pub offset: u64,
-    pub length: u64,
-    pub encrypted: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MsixvcInfo {
-    pub content_id: String,
-    pub files: Vec<MsixvcFileEntry>,
-}
-
-type Bool = i32;
 type Ulong = u32;
 type Char = i8;
 type Lpcstr = *const c_char;
@@ -113,7 +98,7 @@ unsafe extern "system" fn find_window(hwnd: HWND, lp: LPARAM) -> windows_core::B
         let result: &mut HWND = &mut *(lp.0 as *mut HWND);
         *result = hwnd;
     }
-    return windows_core::BOOL(0);
+    return false.into();
 }
 
 unsafe extern "system" fn show(_context: *const c_void,_user_identifierr: u32, _operation: u32, url: *const c_char, code: *const c_char, _qr_code_size: usize, _qr_code: *const c_char) {

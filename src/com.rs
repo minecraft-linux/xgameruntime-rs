@@ -1,4 +1,4 @@
-use super::{Bool, Char, E_NOTIMPL};
+use super::{E_NOTIMPL};
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
 use std::ptr::null_mut;
@@ -362,7 +362,7 @@ pub unsafe trait IXStore: IUnknown {
         context: *mut c_void,
         callback: *mut c_void,
     ) -> HRESULT;
-    unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> Bool;
+    unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> BOOL;
     unsafe fn XStoreProductsQueryNextPageAsync(
         &self,
         productQueryHandle: u64,
@@ -385,7 +385,7 @@ pub unsafe trait IXStore: IUnknown {
         async_: *mut c_void,
         storeLicenseHandle: *mut c_void,
     ) -> HRESULT;
-    unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> Bool;
+    unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> BOOL;
     unsafe fn XStoreCloseLicenseHandle(&self, storeLicenseHandle: u64) -> ();
     unsafe fn XStoreCanAcquireLicenseForStoreIdAsync(
         &self,
@@ -535,7 +535,7 @@ pub unsafe trait IXStore: IUnknown {
         token: *mut c_char,
         allowedStoreIds: *mut *mut c_char,
         allowedStoreIdsCount: u64,
-        disallowCsvRedemption: Bool,
+        disallowCsvRedemption: BOOL,
         async_: *mut c_void,
     ) -> HRESULT;
     unsafe fn XStoreShowRedeemTokenUIResult(&self, async_: *mut c_void) -> HRESULT;
@@ -587,7 +587,7 @@ pub unsafe trait IXStore: IUnknown {
         &self,
         async_: *mut c_void,
         count: u32,
-        packageIdentifiers: Char,
+        packageIdentifiers: c_char,
     ) -> HRESULT;
     unsafe fn XStoreQueryPackageIdentifier(
         &self,
@@ -607,8 +607,8 @@ pub unsafe trait IXStore: IUnknown {
         &self,
         storeContextHandle: u64,
         token: u64,
-        wait: Bool,
-    ) -> Bool;
+        wait: BOOL,
+    ) -> BOOL;
     unsafe fn XStoreRegisterPackageLicenseLost(
         &self,
         licenseHandle: u64,
@@ -621,8 +621,8 @@ pub unsafe trait IXStore: IUnknown {
         &self,
         licenseHandle: u64,
         token: u64,
-        wait: Bool,
-    ) -> Bool;
+        wait: BOOL,
+    ) -> BOOL;
     unsafe fn __ReservedSlot70(&self) -> HRESULT;
     unsafe fn XStoreAcquireLicenseForDurablesAsync(
         &self,
@@ -703,7 +703,7 @@ pub unsafe trait IXStoreAlias3: IXStore {}
 
 #[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
 pub unsafe trait IXAsync: IUnknown {
-    unsafe fn XAsyncGetStatus(&self, asyncBlock: *mut c_void, wait: Bool) -> HRESULT;
+    unsafe fn XAsyncGetStatus(&self, asyncBlock: *mut c_void, wait: BOOL) -> HRESULT;
     unsafe fn XAsyncGetResultSize(
         &self,
         asyncBlock: *mut c_void,
@@ -753,7 +753,7 @@ pub unsafe trait IXAsync: IUnknown {
         queueHandle: u64,
         duplicatedHandle: *mut u64,
     ) -> HRESULT;
-    unsafe fn XTaskQueueDispatch(&self, queue: u64, port: u64, timeoutInMs: u32) -> Bool;
+    unsafe fn XTaskQueueDispatch(&self, queue: u64, port: u64, timeoutInMs: u32) -> BOOL;
     unsafe fn XTaskQueueCloseHandle(&self, queue: u64) -> ();
     unsafe fn XTaskQueueSubmitCallback(
         &self,
@@ -783,7 +783,7 @@ pub unsafe trait IXAsync: IUnknown {
     unsafe fn XTaskQueueTerminate(
         &self,
         queue: u64,
-        wait: Bool,
+        wait: BOOL,
         callbackContext: *mut c_void,
         callback: *mut c_void,
     ) -> HRESULT;
@@ -795,12 +795,12 @@ pub unsafe trait IXAsync: IUnknown {
         token: *mut u64,
     ) -> HRESULT;
     unsafe fn XTaskQueueUnregisterMonitor(&self, queue: u64, token: u64) -> ();
-    unsafe fn XTaskQueueGetCurrentProcessTaskQueue(&self, queue: *mut u64) -> Bool;
+    unsafe fn XTaskQueueGetCurrentProcessTaskQueue(&self, queue: *mut u64) -> BOOL;
     unsafe fn XTaskQueueSetCurrentProcessTaskQueue(&self, queue: u64) -> ();
-    unsafe fn XThreadSetTimeSensitive(&self, isTimeSensitiveThread: Bool) -> HRESULT;
+    unsafe fn XThreadSetTimeSensitive(&self, isTimeSensitiveThread: BOOL) -> HRESULT;
     unsafe fn __ReservedSlot28(&self) -> HRESULT;
     unsafe fn XThreadAssertNotTimeSensitive(&self) -> ();
-    unsafe fn XThreadIsTimeSensitive(&self) -> Bool;
+    unsafe fn XThreadIsTimeSensitive(&self) -> BOOL;
 }
 
 type XUserPlatformRemoteConnectShowPromptEventHandler = unsafe extern "system" fn(
@@ -907,8 +907,8 @@ pub unsafe trait IXNetworking: IUnknown {
     unsafe fn XNetworkingUnregisterPreferredLocalUdpMultiplayerPortChanged(
         &self,
         token: u64,
-        wait: Bool,
-    ) -> Bool;
+        wait: BOOL,
+    ) -> BOOL;
     unsafe fn XNetworkingQuerySecurityInformationForUrlAsync(
         &self,
         url: *mut c_char,
@@ -961,7 +961,7 @@ pub unsafe trait IXNetworking: IUnknown {
         callback: *mut c_void,
         token: *mut c_void,
     ) -> HRESULT;
-    unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: Bool) -> Bool;
+    unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: BOOL) -> BOOL;
     unsafe fn XNetworkingQueryConfigurationSetting(
         &self,
         configurationSetting: u64,
@@ -995,8 +995,8 @@ macro_rules! hresult_stub_panic {
 }
 
 macro_rules! bool_stub {
-    ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> Bool;)*) => {
-        $(unsafe fn $name(&self $(, $arg: $ty)*) -> Bool { $(let _ = $arg;)* 0 })*
+    ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> BOOL;)*) => {
+        $(unsafe fn $name(&self $(, $arg: $ty)*) -> BOOL { $(let _ = $arg;)* false.into() })*
     };
 }
 
@@ -1063,7 +1063,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         unsafe fn XStoreShowPurchaseUIResult(&self, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreShowRateAndReviewUIAsync(&self, storeContextHandle: u64, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreShowRateAndReviewUIResult(&self, async_: *mut c_void, result: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowRedeemTokenUIAsync(&self, storeContextHandle: u64, token: *mut c_char, allowedStoreIds: *mut *mut c_char, allowedStoreIdsCount: u64, disallowCsvRedemption: Bool, async_: *mut c_void) -> HRESULT;
+        unsafe fn XStoreShowRedeemTokenUIAsync(&self, storeContextHandle: u64, token: *mut c_char, allowedStoreIds: *mut *mut c_char, allowedStoreIdsCount: u64, disallowCsvRedemption: BOOL, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreShowRedeemTokenUIResult(&self, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreQueryGameAndDlcPackageUpdatesAsync(&self, storeContextHandle: u64, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreQueryGameAndDlcPackageUpdatesResultCount(&self, async_: *mut c_void, count: *mut u32) -> HRESULT;
@@ -1074,7 +1074,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         unsafe fn XStoreDownloadAndInstallPackageUpdatesResult(&self, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreDownloadAndInstallPackagesAsync(&self, storeContextHandle: u64, storeIds: *mut *mut c_char, storeIdsCount: u64, async_: *mut c_void) -> HRESULT;
         unsafe fn XStoreDownloadAndInstallPackagesResultCount(&self, async_: *mut c_void, count: *mut u32) -> HRESULT;
-        unsafe fn XStoreDownloadAndInstallPackagesResult(&self, async_: *mut c_void, count: u32, packageIdentifiers: Char) -> HRESULT;
+        unsafe fn XStoreDownloadAndInstallPackagesResult(&self, async_: *mut c_void, count: u32, packageIdentifiers: c_char) -> HRESULT;
         unsafe fn XStoreQueryPackageIdentifier(&self, storeId: *mut c_char, size: u64, packageIdentifier: *mut c_char) -> HRESULT;
         unsafe fn XStoreRegisterGameLicenseChanged(&self, storeContextHandle: u64, queue: u64, context: *mut c_void, callback: *mut c_void, token: *mut c_void) -> HRESULT;
         unsafe fn XStoreRegisterPackageLicenseLost(&self, licenseHandle: u64, queue: u64, context: *mut c_void, callback: *mut c_void, token: *mut c_void) -> HRESULT;
@@ -1094,10 +1094,10 @@ impl IXStore_Impl for XStoreObject_Impl {
         unsafe fn XStoreShowGiftingUIResult(&self, async_: *mut c_void) -> HRESULT;
     }
     bool_stub! {
-        unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> Bool;
-        unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> Bool;
-        unsafe fn XStoreUnregisterGameLicenseChanged(&self, storeContextHandle: u64, token: u64, wait: Bool) -> Bool;
-        unsafe fn XStoreUnregisterPackageLicenseLost(&self, licenseHandle: u64, token: u64, wait: Bool) -> Bool;
+        unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> BOOL;
+        unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> BOOL;
+        unsafe fn XStoreUnregisterGameLicenseChanged(&self, storeContextHandle: u64, token: u64, wait: BOOL) -> BOOL;
+        unsafe fn XStoreUnregisterPackageLicenseLost(&self, licenseHandle: u64, token: u64, wait: BOOL) -> BOOL;
     }
     void_stub! {
         unsafe fn XStoreCloseContextHandle(&self, storeContextHandle: u64) -> ();
@@ -1209,8 +1209,8 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         unsafe fn XNetworkingQueryStatistics(&self, statisticsType: u64, statisticsBuffer: *mut c_void) -> HRESULT;
     }
     bool_stub! {
-        unsafe fn XNetworkingUnregisterPreferredLocalUdpMultiplayerPortChanged(&self, token: u64, wait: Bool) -> Bool;
-        unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: Bool) -> Bool;
+        unsafe fn XNetworkingUnregisterPreferredLocalUdpMultiplayerPortChanged(&self, token: u64, wait: BOOL) -> BOOL;
+        unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: BOOL) -> BOOL;
     }
 
     unsafe fn XNetworkingGetConnectivityHint(
