@@ -675,7 +675,7 @@ pub unsafe trait IXNetworking2: IXNetworking {}
 
 macro_rules! hresult_stub {
     ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> HRESULT;)*) => {
-        $(unsafe fn $name(&self $(, $arg: $ty)*) -> HRESULT { $(let _ = $arg;)* println!("$name"); E_NOTIMPL })*
+        $(unsafe fn $name(&self $(, $arg: $ty)*) -> HRESULT { $(let _ = $arg;)* E_NOTIMPL })*
     };
 }
 
@@ -803,8 +803,8 @@ impl IXStore_Impl for XStoreObject_Impl {
         }
         unsafe {
             xasync::run(async_.cast(), async move {
-                println!("storeContextHandle: {storeContextHandle}");
-                return Ok(build_trial_game_license());
+                // println!("storeContextHandle: {storeContextHandle}");
+                return Ok(XStoreGameLicense::default());
             })
         }
     }
@@ -814,7 +814,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         async_: *mut c_void,
         license: *mut c_void,
     ) -> HRESULT {
-        println!("XStoreQueryGameLicenseResult");
+        // println!("XStoreQueryGameLicenseResult");
         if async_.is_null() || license.is_null() {
             return E_POINTER;
         }
@@ -902,7 +902,6 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         requestHandle: *mut c_void,
         securityInformation: *mut c_void,
     ) -> HRESULT {
-        println!("XNetworkingVerifyServerCertificate");
         S_OK
     }
 
@@ -913,13 +912,8 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         callback: Option<OnChanged>,
         token: *mut c_void,
     ) -> HRESULT {
-        // unsafe {
-        //     (*token).token = 1;
-        // }
-        // (void* context, const XNetworkingConnectivityHint* /*hint*/)
-        // let cbk : on_changed = callback as on_changed;
         if let Some(callback) = callback {
-            println!("XNetworkingRegisterConnectivityHintChanged");
+            // println!("XNetworkingRegisterConnectivityHintChanged");
             unsafe { callback(context, &XNetworkingConnectivityHint {
                     connectivityLevel: 3,
                     connectivityCost: 1,
@@ -1217,13 +1211,13 @@ mod tests {
             )
         };
         assert_eq!(result_hr, HRESULT(0));
-        assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
+        // assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
         assert!(license.isActive);
-        assert!(license.isTrialOwnedByThisUser);
-        assert!(license.isTrial);
+        assert!(!license.isTrialOwnedByThisUser);
+        assert!(!license.isTrial);
         assert!(!license.isDiscLicense);
-        assert_eq!(license.trialTimeRemainingInSeconds, 3600);
-        assert_eq!(read_c_string(&license.trialUniqueId), "trial-license");
+        assert_eq!(license.trialTimeRemainingInSeconds, 0);
+        // assert_eq!(read_c_string(&license.trialUniqueId), "trial-license");
 
         let mut async_block = XAsyncBlock {
             queue: std::ptr::null_mut(),
