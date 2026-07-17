@@ -134,7 +134,7 @@ unsafe extern "system" fn show(
                 ))
                 .as_ptr(),
             ),
-            windows::core::h!("World"),
+            windows::core::h!("Xbox Live Remote Login"),
             MB_OK,
         );
     }

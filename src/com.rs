@@ -802,7 +802,7 @@ impl IXStore_Impl for XStoreObject_Impl {
             return E_POINTER;
         }
         unsafe {
-            xasync::run(async_.cast(), async move {
+            xasync::run_sync(async_.cast(), move || {
                 // println!("storeContextHandle: {storeContextHandle}");
                 return Ok(XStoreGameLicense::default());
             })
@@ -937,7 +937,7 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         unsafe {
             xasync::run_sync(asyncBlock.cast(),  move || {
                 Ok(XNetworkingSecurityInformation {
-                    enabledHttpSecurityProtocolFlags: 0x00000200 | 0x00000800 | 0x00002000,
+                    enabledHttpSecurityProtocolFlags: 0x00000080 | 0x00000200 | 0x00000800 | 0x00002000,
                     thumbprintCount: 0,
                     thumbprints: null_mut(),
                 })
