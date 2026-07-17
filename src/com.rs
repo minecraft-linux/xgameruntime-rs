@@ -787,28 +787,6 @@ impl IXStore_Impl for XStoreObject_Impl {
     }
 
     unsafe fn XStoreCreateContext(&self, _user: u64, storeContextHandle: *mut u64) -> HRESULT {
-        println!("XStoreCreateContext");
-        std::thread::spawn(|| {
-            let mut search: HWND = HWND(null_mut());
-            unsafe {
-                EnumWindows(
-                    Some(findWindow),
-                    LPARAM((&mut search as *mut HWND) as isize),
-                );
-            }
-            unsafe {
-                MessageBoxW(
-                    if search.0.is_null() {
-                        None
-                    } else {
-                        Some(search)
-                    },
-                    windows::core::h!("WinRT"),
-                    windows::core::h!("World is big"),
-                    MB_OK,
-                )
-            };
-        });
         unsafe {
             *storeContextHandle = 1;
         };
