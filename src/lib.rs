@@ -13,6 +13,8 @@ use windows_sys::minwindef::HMODULE;
 use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
 
 mod com;
+mod results;
+mod xasync;
 
 type Ulong = u32;
 type Char = i8;
