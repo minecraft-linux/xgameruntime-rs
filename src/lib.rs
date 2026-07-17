@@ -283,9 +283,6 @@ pub extern "system" fn DllCanUnloadNow() -> HRESULT {
     S_OK
 }
 
-// use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OK};
-// use windows::core::PCWSTR;
-
 #[unsafe(no_mangle)]
 pub extern "system" fn InitializeApiImplEx2(
     gdk_ver: Ulong,
@@ -293,20 +290,6 @@ pub extern "system" fn InitializeApiImplEx2(
     mode: Char,
     options: *mut InitializeOptions,
 ) -> HRESULT {
-    // // Convert a Rust string to a wide string (UTF-16)
-    // let text = "Hello from Rust!";
-    // let caption = "Message Box";
-    // let text_utf16: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-    // let caption_utf16: Vec<u16> = caption.encode_utf16().chain(std::iter::once(0)).collect();
-
-    // unsafe {
-    //     MessageBoxW(
-    //         None,
-    //         PCWSTR(text_utf16.as_ptr()),
-    //         PCWSTR(caption_utf16.as_ptr()),
-    //         MB_OK,
-    //     );
-    // }
     initialize_delegate(gdk_ver, gs_ver, mode, options)
 }
 

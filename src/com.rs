@@ -697,16 +697,6 @@ macro_rules! void_stub {
     };
 }
 
-unsafe extern "system" fn findWindow(hwnd: HWND, lp: LPARAM) -> windows_core::BOOL {
-    unsafe {
-        let result: &mut HWND = &mut *(lp.0 as *mut HWND);
-
-        // If this is the window you're looking for:
-        *result = hwnd;
-    }
-    return windows_core::BOOL(0);
-}
-
 #[implement(IXStore, IXStoreAlias1, IXStoreAlias2)]
 pub struct XStoreObject;
 
