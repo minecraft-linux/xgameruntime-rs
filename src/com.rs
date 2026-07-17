@@ -18,7 +18,7 @@ const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 
 type XStoreContextHandle = u64;
 
-use crate::xasync::xasync_get_result;
+use crate::xasync::get_result;
 use crate::{results::*, xasync};
 
 #[repr(C)]
@@ -848,7 +848,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         if storeContextHandle == 0 {
             return E_POINTER;
         }
-        unsafe { xasync::run_async(async_.cast(), async move {
+        unsafe { xasync::run(async_.cast(), async move {
             println!("storeContextHandle: {storeContextHandle}");
             return Ok(build_trial_game_license());
         }) }
@@ -868,7 +868,7 @@ impl IXStore_Impl for XStoreObject_Impl {
             license: XStoreGameLicense::default(),
         };
         let hr = unsafe {
-            xasync_get_result(
+            get_result(
                 async_.cast(),
                 null_mut(),
                 &mut payload,
@@ -1101,8 +1101,8 @@ mod tests {
     use std::ffi::{c_char, c_void};
 use std::ptr::null;
 
-    use crate::com::{IXStore, XStoreGameLicense, query_api_impl, xasync_get_result};
-    use crate::xasync::{XAsyncBlock, run_async, xasync_get_status};
+    use crate::com::{IXStore, XStoreGameLicense, query_api_impl, get_result};
+    use crate::xasync::{XAsyncBlock, run, xasync_get_status};
 use crate::{E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test};
     use windows_core::{GUID, HRESULT, Interface};
 
@@ -1208,7 +1208,7 @@ use crate::{E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll
             v3: GUID
         }
 
-        let hr = unsafe { run_async(&mut async_block, async move {
+        let hr = unsafe { run(&mut async_block, async move {
             println!("starting");
 
             let task = handle.spawn(async {
@@ -1237,7 +1237,7 @@ use crate::{E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll
         assert_eq!(status_hr, HRESULT(0));
 
         let mut payload: Payload = Payload { v: 0, v2: 0, v3: GUID::zeroed() };
-        let hr = unsafe { xasync_get_result(&mut async_block, null(), &mut payload)};
+        let hr = unsafe { get_result(&mut async_block, null(), &mut payload)};
         assert_eq!(hr, HRESULT(0));
 
         println!("res {:?}", payload);

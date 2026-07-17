@@ -1,16 +1,12 @@
 use crate::S_OK;
 use crate::com::query_api_impl;
 
-use super::{E_NOTIMPL};
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
 use std::ptr::null_mut;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc};
 use std::task::{Context, Poll, Wake, Waker};
-use windows::minwindef::LPARAM;
-use windows::windef::HWND;
-use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
-use windows_core::{GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, implement, interface};
+use windows_core::{GUID, HRESULT, IUnknown, Interface, interface};
 use windows_sys::core::BOOL;
 use std::pin::Pin;
 use crate::results::*;
@@ -150,7 +146,7 @@ pub unsafe trait IXAsync: IUnknown {
     unsafe fn XThreadIsTimeSensitive(&self) -> BOOL;
 }
 
-fn xasync_interface() -> Result<IXAsync, HRESULT> {
+fn interface() -> Result<IXAsync, HRESULT> {
     let mut out = std::ptr::null_mut();
     let hr = query_api_impl(&CLSID_XASYNC, &IXAsync::IID, &mut out);
     if hr != S_OK {
@@ -159,14 +155,14 @@ fn xasync_interface() -> Result<IXAsync, HRESULT> {
     Ok(unsafe { IXAsync::from_raw(out) })
 }
 
-unsafe fn xasync_begin(
+unsafe fn begin(
     async_block: *mut XAsyncBlock,
     context: *mut c_void,
     identity: *const c_void,
     identity_name: *const c_char,
     provider: XAsyncProvider,
 ) -> HRESULT {
-    let xasync = match xasync_interface() {
+    let xasync = match interface() {
         Ok(xasync) => xasync,
         Err(hr) => return hr,
     };
@@ -183,8 +179,8 @@ unsafe fn xasync_begin(
     hr
 }
 
-unsafe fn xasync_schedule(async_block: *mut XAsyncBlock, delay_ms: u32) -> HRESULT {
-    let xasync = match xasync_interface() {
+unsafe fn schedule(async_block: *mut XAsyncBlock, delay_ms: u32) -> HRESULT {
+    let xasync = match interface() {
         Ok(xasync) => xasync,
         Err(hr) => return hr,
     };
@@ -193,12 +189,12 @@ unsafe fn xasync_schedule(async_block: *mut XAsyncBlock, delay_ms: u32) -> HRESU
     hr
 }
 
-unsafe fn xasync_complete(
+unsafe fn complete(
     async_block: *mut XAsyncBlock,
     result: HRESULT,
     required_buffer_size: usize,
 ) {
-    let xasync = match xasync_interface() {
+    let xasync = match interface() {
         Ok(xasync) => xasync,
         Err(_) => return,
     };
@@ -206,12 +202,12 @@ unsafe fn xasync_complete(
     std::mem::forget(xasync);
 }
 
-pub(crate) unsafe fn xasync_get_result<T>(
+pub(crate) unsafe fn get_result<T>(
     async_block: *mut XAsyncBlock,
     identity: *const c_void,
     out: *mut T,
 ) -> HRESULT {
-    let xasync = match xasync_interface() {
+    let xasync = match interface() {
         Ok(xasync) => xasync,
         Err(hr) => return hr,
     };
@@ -230,7 +226,7 @@ pub(crate) unsafe fn xasync_get_result<T>(
 }
 
 pub(crate) unsafe fn xasync_get_status(async_block: *mut XAsyncBlock, wait: bool) -> HRESULT {
-    let xasync = match xasync_interface() {
+    let xasync = match interface() {
         Ok(xasync) => xasync,
         Err(hr) => return hr,
     };
@@ -256,7 +252,7 @@ unsafe impl Send for XAsyncWaker {}
 impl Wake for XAsyncWaker {
     fn wake(self: Arc<Self>) {
         println!("wake");
-        unsafe { xasync_schedule(self.block, 0) };
+        unsafe { schedule(self.block, 0) };
     }
 }
 
@@ -273,7 +269,7 @@ unsafe extern "system" fn run_async_helper<T: Sized>(
     };
 
     match op {
-        XAsyncOp::Begin => unsafe { xasync_schedule(data.async_, 0) },
+        XAsyncOp::Begin => unsafe { schedule(data.async_, 0) },
         XAsyncOp::DoWork => {
             if async_context.canceled {
                 async_context.result = E_ABORT;
@@ -298,7 +294,7 @@ unsafe extern "system" fn run_async_helper<T: Sized>(
             }
             println!("required_buf_size {}", size_of::<T>());
             unsafe {
-                xasync_complete(
+                complete(
                     data.async_,
                     async_context.result,
                     size_of::<T>(),
@@ -334,7 +330,7 @@ unsafe extern "system" fn run_async_helper<T: Sized>(
     }
 }
 
-pub unsafe fn run_async<T: Sized, F>(
+pub unsafe fn run<T: Sized, F>(
     async_: *mut XAsyncBlock,
     future: F,
 ) -> HRESULT 
@@ -352,7 +348,7 @@ where F: Future<Output = Result<T, HRESULT>> + Send + 'static,
     });
     let async_context = Box::into_raw(async_context);
     let hr = unsafe {
-        xasync_begin(
+        begin(
             async_,
             async_context.cast(),
             null_mut(),
