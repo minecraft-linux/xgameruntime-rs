@@ -79,26 +79,6 @@ struct XStoreQueryGameLicenseAsyncResultPayload {
     license: XStoreGameLicense,
 }
 
-struct XStoreQueryGameLicenseAsyncContext {
-    result: HRESULT,
-    canceled: bool,
-    store_context_handle: XStoreContextHandle,
-    payload: XStoreQueryGameLicenseAsyncResultPayload,
-}
-
-impl XStoreQueryGameLicenseAsyncContext {
-    fn new(store_context_handle: XStoreContextHandle) -> Self {
-        Self {
-            result: E_NOTIMPL,
-            canceled: false,
-            store_context_handle,
-            payload: XStoreQueryGameLicenseAsyncResultPayload {
-                license: XStoreGameLicense::default(),
-            },
-        }
-    }
-}
-
 #[interface("8836fe87-edb9-4fe3-8dad-05f0d2cd5b40")]
 pub unsafe trait IXFeature: IUnknown {
     unsafe fn XGameRuntimeIsFeatureAvailable(&self, feature: u32) -> bool;
