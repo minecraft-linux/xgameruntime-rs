@@ -234,6 +234,7 @@ dependencies = [
  "windows-canvas",
  "windows-core",
  "windows-reference",
+ "windows-strings",
  "windows-sys",
  "windows-window",
 ]

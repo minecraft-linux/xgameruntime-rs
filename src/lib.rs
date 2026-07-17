@@ -1,8 +1,11 @@
-use std::ffi::{CString, c_char, c_void};
+use std::ffi::{CStr, CString, c_char, c_void};
+use std::ptr::null_mut;
 use std::result::Result;
 use std::sync::Mutex;
 
-use windows::winuser::{MB_OK, MessageBoxW};
+use windows::minwindef::LPARAM;
+use windows::windef::HWND;
+use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 use windows_canvas::*;
 use windows_window::*;
 
@@ -112,12 +115,25 @@ where
     }
 }
 
-unsafe extern "system" fn show() {
-    todo!("show");
+unsafe extern "system" fn find_window(hwnd: HWND, lp: LPARAM) -> windows_core::BOOL {
+    unsafe  {
+        let result: &mut HWND = &mut *(lp.0 as *mut HWND);
+        *result = hwnd;
+    }
+    return windows_core::BOOL(0);
+}
+
+unsafe extern "system" fn show(context: *const c_void, userIdentifier: u32, operation: u32, url: *const c_char, code: *const c_char, qrCodeSize: usize, qrCode: *const c_char) {
+    unsafe {
+        let url = CStr::from_ptr(url);
+        let code = CStr::from_ptr(code);
+        let mut search: HWND = HWND(null_mut());
+        _ = EnumWindows(Some(find_window), LPARAM((&mut search as *mut HWND) as isize));
+        MessageBoxW(if search.0.is_null() { None } else { Some(search) }, windows_strings::PCWSTR::from_raw(windows::core::HSTRING::from(format!("{} {}", url.to_string_lossy(), code.to_string_lossy())).as_ptr()), windows::core::h!("World"), MB_OK);
+    }
 }
 
 unsafe extern "system" fn hide() {
-    todo!("hide");
 }
 
 unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
@@ -190,6 +206,26 @@ fn initialize_delegate(
         }
         return hr;
     }
+
+    let mut out: *mut c_void = std::ptr::null_mut();
+
+    let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
+
+    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUserPlatform::IID, &mut out) };
+
+    assert_eq!(hr, HRESULT(0));
+    assert!(!out.is_null());
+
+    if let Some(platform) = unsafe { IXUserPlatform::from_raw_borrowed(&out) } {
+        let callback: XUserPlatformRemoteConnectEventHandlers = XUserPlatformRemoteConnectEventHandlers{
+            show: Some(show),
+            close: Some(hide),
+            context: std::ptr::null_mut(),
+        };
+        let hr = unsafe { platform.XUserPlatformRemoteConnectSetEventHandlers(std::ptr::null_mut(), &callback) };
+        assert_eq!(hr, HRESULT(0));
+    }
+
 
     state.ref_count = 1;
     state.api = Some(api);

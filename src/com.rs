@@ -1,6 +1,7 @@
 use super::{Bool, Char, E_NOTIMPL};
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
+use std::ptr::null_mut;
 use std::sync::OnceLock;
 use windows::minwindef::LPARAM;
 use windows::windef::HWND;
@@ -802,7 +803,15 @@ pub unsafe trait IXAsync: IUnknown {
     unsafe fn XThreadIsTimeSensitive(&self) -> Bool;
 }
 
-type XUserPlatformRemoteConnectShowPromptEventHandler = unsafe extern "system" fn();
+type XUserPlatformRemoteConnectShowPromptEventHandler = unsafe extern "system" fn(
+    context: *const c_void,
+    userIdentifier: u32,
+    operation: u32,
+    url: *const c_char,
+    code: *const c_char,
+    qrCodeSize: usize,
+    qrCode: *const c_char
+);
 type XUserPlatformRemoteConnectClosePromptEventHandler = unsafe extern "system" fn();
 
 #[repr(C)]
@@ -812,11 +821,11 @@ pub struct XUserPlatformRemoteConnectEventHandlers {
     pub context: *mut c_void,
 }
 
-#[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
+#[interface("26f3c674-a2fe-44fa-b6c4-a323bc94ff53")]
 pub unsafe trait IXUserPlatform: IUnknown {
-    unsafe fn __reserved_slot_0(&self) -> HRESULT;
-    unsafe fn __reserved_slot_1(&self) -> HRESULT;
-    unsafe fn __reserved_slot_2(&self) -> HRESULT;
+    // unsafe fn __reserved_slot_0(&self) -> HRESULT;
+    // unsafe fn __reserved_slot_1(&self) -> HRESULT;
+    // unsafe fn __reserved_slot_2(&self) -> HRESULT;
     unsafe fn __reserved_slot_3(&self) -> HRESULT;
     unsafe fn __reserved_slot_4(&self) -> HRESULT;
     unsafe fn __reserved_slot_5(&self) -> HRESULT;
@@ -998,7 +1007,12 @@ macro_rules! void_stub {
 }
 
 unsafe extern "system" fn findWindow(hwnd: HWND, lp: LPARAM) -> windows_core::BOOL {
-    unsafe { MessageBoxW(Some(hwnd), windows::core::h!("Some Very long text is coming soon"), windows::core::h!("World"), MB_OK) };
+    unsafe  {
+        let result: &mut HWND = &mut *(lp.0 as *mut HWND);
+
+        // If this is the window you're looking for:
+        *result = hwnd;
+    }
     return windows_core::BOOL(0);
 }
 
@@ -1094,8 +1108,9 @@ impl IXStore_Impl for XStoreObject_Impl {
     unsafe fn XStoreCreateContext(&self, _user: u64, storeContextHandle: *mut u64) -> HRESULT {
         println!("XStoreCreateContext");
         std::thread::spawn(||{
-            // unsafe { MessageBoxW(None, windows::core::h!("WinRT"), windows::core::h!("World is big"), MB_OK) };
-            unsafe { EnumWindows(Some(findWindow), LPARAM(0)); }
+            let mut search: HWND = HWND(null_mut());
+            unsafe { EnumWindows(Some(findWindow), LPARAM((&mut search as *mut HWND) as isize)); }
+            unsafe { MessageBoxW(if search.0.is_null() { None } else { Some(search) }, windows::core::h!("WinRT"), windows::core::h!("World is big"), MB_OK) };
         });
         unsafe {
             *storeContextHandle = 1;

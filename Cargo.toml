@@ -15,6 +15,11 @@ git = "https://github.com/microsoft/windows-rs"
 branch = "master"
 default-features = true
 
+[dependencies.windows-strings]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
 [dependencies.windows-sys]
 git = "https://github.com/microsoft/windows-rs"
 branch = "master"
