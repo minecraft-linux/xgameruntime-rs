@@ -1,5 +1,5 @@
 use super::E_NOTIMPL;
-use std::ffi::{c_char, c_void};
+use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
 use std::pin::Pin;
 use std::ptr::null_mut;
@@ -89,7 +89,7 @@ pub struct XFeature;
 
 impl IXFeature_Impl for XFeature_Impl {
     unsafe fn XGameRuntimeIsFeatureAvailable(&self, feature: u32) -> bool {
-        return feature != 10;
+        return true || feature != 10;
     }
 }
 
@@ -573,15 +573,6 @@ pub unsafe trait IXUserPlatform: IUnknown {
     ) -> HRESULT;
 }
 
-// [uuid(26f3c674-a2fe-44fa-b6c4-a323bc94ff53)]
-// interface I_01acd177_91f9_4763_a38e_ccbb55ce32e0_clsid__GUID_01acd177_91f9_4763_a38e_ccbb55ce32e0_0_Cascade_3 : I_01acd177_91f9_4763_a38e_ccbb55ce32e0_clsid__GUID_01acd177_91f9_4763_a38e_ccbb55ce32e0_0_Cascade_2
-// {
-//     [helpstring("XUserPlatformRemoteConnectSetEventHandlers")] long XUserPlatformRemoteConnectSetEventHandlers([in] XTaskQueueHandle queue, [in] XUserPlatformRemoteConnectEventHandlersPtr handlers);
-//     [helpstring("XUserPlatformRemoteConnectCancelPrompt")] long XUserPlatformRemoteConnectCancelPrompt([in] XUserPlatformOperation operation);
-//     [helpstring("XUserPlatformSpopPromptSetEventHandlers")] long XUserPlatformSpopPromptSetEventHandlers([in] XTaskQueueHandle queue, [in] XUserPlatformSpopPromptEventHandlerPtr handler, [in] VoidPtr context);
-//     [helpstring("XUserPlatformSpopPromptComplete")] long XUserPlatformSpopPromptComplete([in] XUserPlatformOperation operation, [in] XUserPlatformSpopOperationResult result);
-// };
-
 #[interface("bf2346b2-39af-4658-b5ea-44713c7e83b3")]
 pub unsafe trait IXNetworking: IUnknown {
     unsafe fn XNetworkingQueryPreferredLocalUdpMultiplayerPort(
@@ -625,7 +616,7 @@ pub unsafe trait IXNetworking: IUnknown {
         securityInformationBufferByteCount: u64,
         securityInformationBufferByteCountUsed: *mut usize,
         securityInformationBuffer: *mut u8,
-        securityInformation: *mut c_void,
+        securityInformation: *mut *mut c_void,
     ) -> HRESULT;
     unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16Async(
         &self,
@@ -643,7 +634,7 @@ pub unsafe trait IXNetworking: IUnknown {
         securityInformationBufferByteCount: u64,
         securityInformationBufferByteCountUsed: *mut usize,
         securityInformationBuffer: *mut u8,
-        securityInformation: *mut c_void,
+        securityInformation: *mut *mut c_void,
     ) -> HRESULT;
     unsafe fn XNetworkingVerifyServerCertificate(
         &self,
@@ -656,9 +647,9 @@ pub unsafe trait IXNetworking: IUnknown {
     ) -> HRESULT;
     unsafe fn XNetworkingRegisterConnectivityHintChanged(
         &self,
-        queue: u64,
+        queue: *mut c_void,
         context: *mut c_void,
-        callback: *mut c_void,
+        callback: Option<OnChanged>,
         token: *mut c_void,
     ) -> HRESULT;
     unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: BOOL) -> BOOL;
@@ -715,8 +706,6 @@ unsafe extern "system" fn findWindow(hwnd: HWND, lp: LPARAM) -> windows_core::BO
     }
     return windows_core::BOOL(0);
 }
-
-// TODO build_trial_game_license()
 
 #[implement(IXStore, IXStoreAlias1, IXStoreAlias2)]
 pub struct XStoreObject;
@@ -895,6 +884,15 @@ pub struct XNetworkingConnectivityHint {
     pub roaming: u8,
 }
 
+#[repr(C)]
+pub struct XNetworkingSecurityInformation {
+    enabledHttpSecurityProtocolFlags: u32,
+    thumbprintCount: usize,
+    thumbprints: *const c_void,
+}
+
+type OnChanged = unsafe extern "system" fn(context: *mut c_void, hint: *const XNetworkingConnectivityHint);
+
 impl IXNetworking_Impl for XNetworkingObject_Impl {
     hresult_stub_panic! {
         unsafe fn XNetworkingQueryPreferredLocalUdpMultiplayerPort(&self, preferredLocalUdpMultiplayerPort: *mut u16) -> HRESULT;
@@ -936,16 +934,34 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         requestHandle: *mut c_void,
         securityInformation: *mut c_void,
     ) -> HRESULT {
+        println!("XNetworkingVerifyServerCertificate");
         S_OK
     }
 
     unsafe fn XNetworkingRegisterConnectivityHintChanged(
         &self,
-        queue: u64,
+        queue: *mut c_void,
         context: *mut c_void,
-        callback: *mut c_void,
+        callback: Option<OnChanged>,
         token: *mut c_void,
     ) -> HRESULT {
+        // unsafe {
+        //     (*token).token = 1;
+        // }
+        // (void* context, const XNetworkingConnectivityHint* /*hint*/)
+        // let cbk : on_changed = callback as on_changed;
+        if let Some(callback) = callback {
+            println!("XNetworkingRegisterConnectivityHintChanged");
+            unsafe { callback(context, &XNetworkingConnectivityHint {
+                    connectivityLevel: 3,
+                    connectivityCost: 1,
+                    ianaInterfaceType: 0,
+                    networkInitialized: 1,
+                    approachingDataLimit: 0,
+                    overDataLimit: 0,
+                    roaming: 0,
+                })};
+            }
         S_OK
     }
 
@@ -954,7 +970,17 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         url: *mut c_char,
         asyncBlock: *mut c_void,
     ) -> HRESULT {
-        todo!()
+        let url = unsafe { CStr::from_ptr(url) };
+        // println!("XNetworkingQuerySecurityInformationForUrlAsync {}", url.to_string_lossy());
+        unsafe {
+            xasync::run_sync(asyncBlock.cast(),  move || {
+                Ok(XNetworkingSecurityInformation {
+                    enabledHttpSecurityProtocolFlags: 0x00000200 | 0x00000800 | 0x00002000,
+                    thumbprintCount: 0,
+                    thumbprints: null_mut(),
+                })
+            })
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlAsyncResultSize(
@@ -962,7 +988,15 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         asyncBlock: *mut c_void,
         securityInformationBufferByteCount: *mut usize,
     ) -> HRESULT {
-        todo!()
+        let r = unsafe { xasync::get_result_size(asyncBlock.cast()) };
+        match r {
+            Ok(size) => unsafe {
+                *securityInformationBufferByteCount = size;
+                // println!("XNetworkingQuerySecurityInformationForUrlAsyncResultSize: OK");
+                S_OK
+            },
+            Err(hr) => hr,
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlAsyncResult(
@@ -971,9 +1005,23 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         securityInformationBufferByteCount: u64,
         securityInformationBufferByteCountUsed: *mut usize,
         securityInformationBuffer: *mut u8,
-        securityInformation: *mut c_void,
+        securityInformation: *mut *mut c_void,
     ) -> HRESULT {
-        todo!()
+        let hr = unsafe {
+            get_result(
+                asyncBlock.cast(),
+                null_mut(),
+                securityInformationBuffer.cast::<XNetworkingSecurityInformation>(),
+            )
+        };
+        if hr.is_ok() {
+            unsafe { *securityInformation = securityInformationBuffer.cast() };
+            // println!("XNetworkingQuerySecurityInformationForUrlAsyncResult: OK");
+            S_OK
+        } else {
+            todo!("XNetworkingQuerySecurityInformationForUrlAsyncResult {}", hr);
+            hr
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16Async(
@@ -981,7 +1029,15 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         url: *mut u16,
         asyncBlock: *mut c_void,
     ) -> HRESULT {
-        todo!()
+        unsafe {
+            xasync::run_sync(asyncBlock.cast(), move || {
+                Ok(XNetworkingSecurityInformation {
+                    enabledHttpSecurityProtocolFlags: 0x00000080 | 0x00000200 | 0x00000800 | 0x00002000,
+                    thumbprintCount: 0,
+                    thumbprints: null_mut(),
+                })
+            })
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16AsyncResultSize(
@@ -989,7 +1045,14 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         asyncBlock: *mut c_void,
         securityInformationBufferByteCount: *mut usize,
     ) -> HRESULT {
-        todo!()
+        let r = unsafe { xasync::get_result_size(asyncBlock.cast()) };
+        match r {
+            Ok(size) => unsafe {
+                *securityInformationBufferByteCount = size;
+                S_OK
+            },
+            Err(hr) => hr,
+        }
     }
 
     unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult(
@@ -998,9 +1061,21 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         securityInformationBufferByteCount: u64,
         securityInformationBufferByteCountUsed: *mut usize,
         securityInformationBuffer: *mut u8,
-        securityInformation: *mut c_void,
+        securityInformation: *mut *mut c_void,
     ) -> HRESULT {
-        todo!()
+        let hr = unsafe {
+            get_result(
+                asyncBlock.cast(),
+                null_mut(),
+                securityInformationBuffer.cast::<XNetworkingSecurityInformation>(),
+            )
+        };
+        if hr.is_ok() {
+            unsafe { *securityInformation = securityInformationBuffer.cast() };
+            S_OK
+        } else {
+            hr
+        }
     }
 }
 
@@ -1076,11 +1151,11 @@ pub fn query_api_impl(
             query(xstore_singleton(), interface_id, out)
         }
         CLSID_XNETWORKING => {
-            println!(
-                "query_api_impl: {:#32x} {:#32x}",
-                class_id.to_u128(),
-                unsafe { *interface_id }.to_u128()
-            );
+            // println!(
+            //     "query_api_impl: {:#32x} {:#32x}",
+            //     class_id.to_u128(),
+            //     unsafe { *interface_id }.to_u128()
+            // );
             query(xnetworking_singleton(), interface_id, out)
         }
         _ => crate::delegated_query_api_impl(runtime_class_id, interface_id, out),
@@ -1094,7 +1169,7 @@ mod tests {
     use std::ptr::null;
 
     use crate::com::{IXStore, XStoreGameLicense, get_result, query_api_impl};
-    use crate::xasync::{XAsyncBlock, run, xasync_get_status};
+    use crate::xasync::{XAsyncBlock, get_status, run};
     use crate::{
         E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test,
     };
@@ -1163,7 +1238,7 @@ mod tests {
         };
         assert_eq!(hr, HRESULT(0));
 
-        let status_hr = unsafe { xasync_get_status(&mut async_block, true) };
+        let status_hr = unsafe { get_status(&mut async_block, true) };
         assert_eq!(status_hr, HRESULT(0));
 
         let mut license = XStoreGameLicense::default();
@@ -1229,7 +1304,7 @@ mod tests {
         };
         assert_eq!(hr, HRESULT(0));
 
-        let status_hr = unsafe { xasync_get_status(&mut async_block, true) };
+        let status_hr = unsafe { get_status(&mut async_block, true) };
         assert_eq!(status_hr, HRESULT(0));
 
         let mut payload: Payload = Payload {
