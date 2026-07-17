@@ -6,12 +6,8 @@ use std::sync::Mutex;
 use windows::minwindef::LPARAM;
 use windows::windef::HWND;
 use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
-use windows_canvas::*;
-use windows_window::*;
 
 use windows_core::{GUID, HRESULT, Interface};
-// use windows_sys::Win32::Foundation::{FreeLibrary, HMODULE};
-// use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 use windows_sys::libloaderapi::{GetProcAddress, LoadLibraryA, FreeLibrary};
 use windows_sys::minwindef::HMODULE;
 use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
@@ -32,14 +28,11 @@ pub struct MsixvcInfo {
     pub files: Vec<MsixvcFileEntry>,
 }
 
-type Hinstance = *mut c_void;
 type Bool = i32;
-type Dword = u32;
 type Ulong = u32;
 type Char = i8;
 type Lpcstr = *const c_char;
 
-const TRUE: Bool = 1;
 const S_OK: HRESULT = HRESULT(0);
 const E_FAIL: HRESULT = HRESULT(0x80004005u32 as i32);
 const E_NOTIMPL: HRESULT = HRESULT(0x80004001u32 as i32);
@@ -123,7 +116,7 @@ unsafe extern "system" fn find_window(hwnd: HWND, lp: LPARAM) -> windows_core::B
     return windows_core::BOOL(0);
 }
 
-unsafe extern "system" fn show(context: *const c_void, userIdentifier: u32, operation: u32, url: *const c_char, code: *const c_char, qrCodeSize: usize, qrCode: *const c_char) {
+unsafe extern "system" fn show(_context: *const c_void,_user_identifierr: u32, _operation: u32, url: *const c_char, code: *const c_char, _qr_code_size: usize, _qr_code: *const c_char) {
     unsafe {
         let url = CStr::from_ptr(url);
         let code = CStr::from_ptr(code);
