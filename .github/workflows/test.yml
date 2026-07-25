@@ -1,0 +1,33 @@
+name: Rust check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  fmt:
+    name: Check fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo fmt --check --all
+  check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run check
+        run: cargo check --workspace
+      - name: Run build
+        run: cargo build -r
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: xgameruntime
+          path: target/**/*.dll
+          if-no-files-found: error
