@@ -859,7 +859,8 @@ pub struct XNetworkingSecurityInformation {
     thumbprints: *const c_void,
 }
 
-type OnChanged = unsafe extern "system" fn(context: *mut c_void, hint: *const XNetworkingConnectivityHint);
+type OnChanged =
+    unsafe extern "system" fn(context: *mut c_void, hint: *const XNetworkingConnectivityHint);
 
 impl IXNetworking_Impl for XNetworkingObject_Impl {
     hresult_stub_panic! {
@@ -914,16 +915,21 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
     ) -> HRESULT {
         if let Some(callback) = callback {
             // println!("XNetworkingRegisterConnectivityHintChanged");
-            unsafe { callback(context, &XNetworkingConnectivityHint {
-                    connectivityLevel: 3,
-                    connectivityCost: 1,
-                    ianaInterfaceType: 0,
-                    networkInitialized: 1,
-                    approachingDataLimit: 0,
-                    overDataLimit: 0,
-                    roaming: 0,
-                })};
-            }
+            unsafe {
+                callback(
+                    context,
+                    &XNetworkingConnectivityHint {
+                        connectivityLevel: 3,
+                        connectivityCost: 1,
+                        ianaInterfaceType: 0,
+                        networkInitialized: 1,
+                        approachingDataLimit: 0,
+                        overDataLimit: 0,
+                        roaming: 0,
+                    },
+                )
+            };
+        }
         S_OK
     }
 
@@ -935,9 +941,12 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         let url = unsafe { CStr::from_ptr(url) };
         // println!("XNetworkingQuerySecurityInformationForUrlAsync {}", url.to_string_lossy());
         unsafe {
-            xasync::run_sync(asyncBlock.cast(),  move || {
+            xasync::run_sync(asyncBlock.cast(), move || {
                 Ok(XNetworkingSecurityInformation {
-                    enabledHttpSecurityProtocolFlags: 0x00000080 | 0x00000200 | 0x00000800 | 0x00002000,
+                    enabledHttpSecurityProtocolFlags: 0x00000080
+                        | 0x00000200
+                        | 0x00000800
+                        | 0x00002000,
                     thumbprintCount: 0,
                     thumbprints: null_mut(),
                 })
@@ -981,7 +990,10 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
             // println!("XNetworkingQuerySecurityInformationForUrlAsyncResult: OK");
             S_OK
         } else {
-            todo!("XNetworkingQuerySecurityInformationForUrlAsyncResult {}", hr);
+            todo!(
+                "XNetworkingQuerySecurityInformationForUrlAsyncResult {}",
+                hr
+            );
             hr
         }
     }
@@ -994,7 +1006,10 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         unsafe {
             xasync::run_sync(asyncBlock.cast(), move || {
                 Ok(XNetworkingSecurityInformation {
-                    enabledHttpSecurityProtocolFlags: 0x00000080 | 0x00000200 | 0x00000800 | 0x00002000,
+                    enabledHttpSecurityProtocolFlags: 0x00000080
+                        | 0x00000200
+                        | 0x00000800
+                        | 0x00002000,
                     thumbprintCount: 0,
                     thumbprints: null_mut(),
                 })
