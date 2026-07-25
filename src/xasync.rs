@@ -366,7 +366,6 @@ where
     hr
 }
 
-
 struct XsyncContextHelper<T: Sized, F: Fn() -> Result<T, HRESULT>> {
     result: HRESULT,
     canceled: bool,
@@ -388,20 +387,18 @@ unsafe extern "system" fn run_sync_helper<T: Sized, F: Fn() -> Result<T, HRESULT
 
     match op {
         XAsyncOp::Begin => unsafe {
-                let value = (async_context.future)();
-                match value {
-                    Err(hr) => async_context.result = hr,
-                    Ok(value) => {
-                        async_context.result = S_OK;
-                        async_context.payload = Some(value);
-                    }
-                };
-                complete(data.async_, async_context.result, size_of::<T>());
-                S_OK
-            },
-        XAsyncOp::DoWork => {
+            let value = (async_context.future)();
+            match value {
+                Err(hr) => async_context.result = hr,
+                Ok(value) => {
+                    async_context.result = S_OK;
+                    async_context.payload = Some(value);
+                }
+            };
+            complete(data.async_, async_context.result, size_of::<T>());
             S_OK
-        }
+        },
+        XAsyncOp::DoWork => S_OK,
         XAsyncOp::GetResult => {
             // println!("get_result {}", size_of::<T>());
             if async_context.result == S_OK
