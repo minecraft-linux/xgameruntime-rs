@@ -1,20 +1,24 @@
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr::null_mut;
 use std::result::Result;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use eframe::WgpuConfiguration;
+use wgpu::{Backends, InstanceFlags};
+use windows_sys::w;
+use winit::platform::windows::EventLoopBuilderExtWindows;
 
 use windows::minwindef::LPARAM;
-use windows::windef::HWND;
-use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
+use windows::windef::{HMENU, HWND};
+use windows::winuser::{AppendMenuW, CreateMenu, DrawMenuBar, EnumWindows, GWLP_WNDPROC, MB_OK, MF_STRING, MessageBoxW, SetMenu};
 
 use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
-use windows_core::{GUID, HRESULT, Interface};
+use windows_core::{GUID, HRESULT, Interface, PCWSTR};
 use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
 use windows_sys::minwindef::HMODULE;
 
-mod com;
-mod results;
-mod xasync;
+pub mod com;
+pub mod results;
+pub mod xasync;
 
 type Ulong = u32;
 type Char = i8;
@@ -103,6 +107,23 @@ unsafe extern "system" fn find_window(hwnd: HWND, lp: LPARAM) -> windows_core::B
     return false.into();
 }
 
+const IDM_OPEN: usize = 1001;
+const IDM_EXIT: usize = 1002;
+
+pub fn create_window_menu(hwnd: HWND) -> windows::core::Result<HMENU> {
+    unsafe {
+        let menu = CreateMenu();
+
+        AppendMenuW(menu, MF_STRING, IDM_OPEN, PCWSTR::from_raw(w!("My Open")));
+        AppendMenuW(menu, MF_STRING, IDM_EXIT, PCWSTR::from_raw(w!("My Exit")));
+
+        SetMenu(hwnd, Some(menu));
+        DrawMenuBar(hwnd);
+
+        Ok(menu)
+    }
+}
+
 unsafe extern "system" fn show(
     _context: *const c_void,
     _user_identifierr: u32,
@@ -120,6 +141,10 @@ unsafe extern "system" fn show(
             Some(find_window),
             LPARAM((&mut search as *mut HWND) as isize),
         );
+        if !search.0.is_null() {
+            //SetWindowlongPtrW(search, GWLP_WNDPROC, 0);
+            create_window_menu(search).unwrap();
+        }
         MessageBoxW(
             if search.0.is_null() {
                 None
@@ -186,6 +211,32 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
     })
 }
 
+#[derive(Default)]
+struct MyEguiApp {}
+
+impl MyEguiApp {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_global_style.
+        // Restore app state using cc.storage (requires the "persistence" feature).
+        // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
+        // for e.g. egui::PaintCallback.
+        Self::default()
+    }
+}
+
+impl eframe::App for MyEguiApp {
+   fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        //frame.winit_window().unwrap().
+        //    ui.viewport(|v|v.builder.visible = Some(true));
+        ui.send_viewport_cmd(
+            egui::ViewportCommand::Visible(true),
+        );
+        egui::CentralPanel::default().show(ui, |ui| {
+            ui.heading("Hello World!");
+        });
+   }
+}
+
 fn initialize_delegate(
     gdk_ver: Ulong,
     gs_ver: Ulong,
@@ -234,6 +285,24 @@ fn initialize_delegate(
         };
         assert_eq!(hr, HRESULT(0));
     }
+
+    // let options = eframe::NativeOptions {
+    //     viewport: egui::ViewportBuilder::default()
+    //         .with_inner_size([420.0, 180.0])
+    //         .with_resizable(false),
+
+    //     window_builder: Some(Box::new(move |attributes| {
+    //         return attributes.with_visible(false)
+    //     })),
+
+    //     ..Default::default()
+    // };
+
+    // eframe::run_native(
+    //     "Confirm action",
+    //     options,
+    //     Box::new(|_cc| Ok(Box::new(MyEguiApp::default()))),
+    // ).unwrap();
 
     state.ref_count = 1;
     state.api = Some(api);
@@ -320,4 +389,51 @@ pub extern "system" fn UninitializeApiImpl() -> HRESULT {
 #[unsafe(no_mangle)]
 pub extern "system" fn XErrorReport(_status: HRESULT, _message: Lpcstr) -> HRESULT {
     E_NOTIMPL
+}
+
+#[test]
+fn test() {
+    let options = eframe::NativeOptions {
+        renderer: eframe::Renderer::Wgpu,
+
+        wgpu_options: WgpuConfiguration {
+            wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(
+                eframe::egui_wgpu::WgpuSetupCreateNew { instance_descriptor: wgpu::InstanceDescriptor { backends: Backends::DX12, backend_options: wgpu::BackendOptions {
+                    dx12: wgpu::Dx12BackendOptions {
+                        shader_compiler:
+                            wgpu::Dx12Compiler::DynamicDxc { dxc_path: "Z:/Users/christopher/Documents/minecraft/out2/dxcompiler.dll".to_owned() },
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                display: None,
+                flags: InstanceFlags::from_env_or_default(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds { for_resource_creation: None, for_device_loss: None } },
+                    display_handle: None,
+                    power_preference: wgpu::PowerPreference::None,
+                    native_adapter_selector: None,
+                    ..eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle() }
+            ),
+            ..Default::default()
+        },
+
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([420.0, 180.0])
+            .with_resizable(false),
+
+        window_builder: Some(Box::new(move |attributes| {
+            return attributes.with_visible(false);
+        })),
+        event_loop_builder: Some(Box::new(|b|{
+            b.with_any_thread(true);
+        })),
+
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Confirm action",
+        options,
+        Box::new(|_cc| Ok(Box::new(MyEguiApp::default()))),
+    ).unwrap();
 }

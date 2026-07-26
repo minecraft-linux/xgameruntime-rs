@@ -8,13 +8,32 @@ name = "xgameruntime"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+eframe = { version = "0.35.0", features = [ "glow", "default_fonts" ] }
+egui = "0.35.0"
+egui_extras = { version = "0.35.0", features = ["http", "image"] }
+image = { version = "0.25", features = ["jpeg", "png"] } # Add the types you want support for
+env_logger = "0.11.11"
+raw-window-handle = "0.6.2"
 reqwest = { version = "0.13.2", default-features = false, features = [
     "http2",
     "charset",
     "json",
     "native-tls",
 ] }
-tokio = { version = "1.52.3", features = ["fs", "io-util", "rt-multi-thread"] }
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.52.3", features = ["full"] }
+winit = "0.30.13"
+
+[target.'cfg(windows)'.dependencies]
+wgpu = {
+    version = "29.0.4",
+    default-features = false,
+    features = [
+        "dx12",
+        "wgsl",
+        "std",
+    ],
+}
 
 [dependencies.windows-core]
 git = "https://github.com/microsoft/windows-rs"
@@ -22,6 +41,17 @@ branch = "master"
 default-features = true
 
 [dependencies.windows-strings]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-future]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+
+[dependencies.windows-time]
 git = "https://github.com/microsoft/windows-rs"
 branch = "master"
 default-features = true
@@ -65,7 +95,10 @@ features = [
     "Security_Credentials_UI",
     "Security_Cryptography_DataProtection",
     "std",
+    "Storage",
     "Storage_Streams",
+    "Storage_Pickers",
+    "Storage_FileProperties",
     "UI",
     "Web_Syndication",
     "bits",
@@ -104,6 +137,7 @@ features = [
     "winuser",
     "wtypes",
     "wtypesbase",
+    "sysinfoapi",
 ]
 
 [profile.dev]

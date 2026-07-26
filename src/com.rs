@@ -521,6 +521,18 @@ pub struct XUserPlatformRemoteConnectEventHandlers {
     pub context: *mut c_void,
 }
 
+pub struct XUserGetTokenAndSignatureUtf16HttpHeader {
+    name: *const u16,
+    value: *const u16,
+}
+
+pub struct XUserGetTokenAndSignatureUtf16Data {
+    pub token_count: usize,
+    pub signature_count: usize,
+    pub token: *const u16,
+    pub signature: *const u16,
+}
+
 #[interface("26f3c674-a2fe-44fa-b6c4-a323bc94ff53")]
 pub unsafe trait IXUserPlatform: IUnknown {
     // unsafe fn __reserved_slot_0(&self) -> HRESULT;
@@ -530,8 +542,12 @@ pub unsafe trait IXUserPlatform: IUnknown {
     unsafe fn __reserved_slot_4(&self) -> HRESULT;
     unsafe fn __reserved_slot_5(&self) -> HRESULT;
     unsafe fn __reserved_slot_6(&self) -> HRESULT;
-    unsafe fn __reserved_slot_7(&self) -> HRESULT;
-    unsafe fn __reserved_slot_8(&self) -> HRESULT;
+    pub unsafe fn x_user_add_async(
+        &self,
+        options: u32,
+        async_block: *mut c_void,
+    ) -> HRESULT;
+    pub unsafe fn x_user_add_result(&self, async_block: *mut c_void, user: *mut *mut c_void) -> HRESULT;
     unsafe fn __reserved_slot_9(&self) -> HRESULT;
     unsafe fn __reserved_slot_10(&self) -> HRESULT;
     unsafe fn __reserved_slot_11(&self) -> HRESULT;
@@ -549,9 +565,20 @@ pub unsafe trait IXUserPlatform: IUnknown {
     unsafe fn __reserved_slot_23(&self) -> HRESULT;
     unsafe fn __reserved_slot_24(&self) -> HRESULT;
     unsafe fn __reserved_slot_25(&self) -> HRESULT;
-    unsafe fn __reserved_slot_26(&self) -> HRESULT;
-    unsafe fn __reserved_slot_27(&self) -> HRESULT;
-    unsafe fn __reserved_slot_28(&self) -> HRESULT;
+    pub unsafe fn xuser_get_token_and_signature_utf16_async(
+        &self,
+        user: *const c_void,
+        options: u32,
+        method: *const u16,
+        url: *const u16,
+        header_count: usize,
+        headers: *const XUserGetTokenAndSignatureUtf16HttpHeader,
+        body_size: usize,
+        body_buffer: *const c_void,
+        async_block: *mut c_void,
+    ) -> HRESULT;
+    pub unsafe fn xuser_get_token_and_signature_utf16_result_size(&self, async_block: *mut c_void, result_size: *mut usize) -> HRESULT;
+    pub unsafe fn xuser_get_token_and_signature_utf16_result(&self, async_block: *mut c_void, buffer_size: usize, buffer: *mut u8, ptr_to_buffer: *mut *mut XUserGetTokenAndSignatureUtf16Data, buffer_used: *mut usize) -> HRESULT;
     unsafe fn __reserved_slot_29(&self) -> HRESULT;
     unsafe fn __reserved_slot_30(&self) -> HRESULT;
     unsafe fn __reserved_slot_31(&self) -> HRESULT;
@@ -1143,14 +1170,113 @@ pub fn query_api_impl(
 #[cfg(test)]
 mod tests {
     use std::ffi::{c_char, c_void};
-    use std::ptr::null;
+    use std::ptr::{null, null_mut};
 
     use crate::com::{IXStore, XStoreGameLicense, get_result, query_api_impl};
     use crate::xasync::{XAsyncBlock, get_status, run};
     use crate::{
         E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test,
     };
-    use windows_core::{GUID, HRESULT, Interface};
+    use windows::Storage::Pickers::{FileOpenPicker, PickerLocationId, PickerViewMode};
+    use windows::Storage::{IStorageItem, IStorageItem_Impl, StorageFile};
+    use windows::shobjidl_core::{IInitializeWithWindow, IInitializeWithWindow_Impl};
+    use windows::windef::HWND;
+    use windows_core::{GUID, HRESULT, HSTRING, Interface, implement};
+
+    // #[implement(IInitializeWithWindow)]
+    // struct RsStorageFile;
+
+    // impl IStorageFile2_Impl for RsStorageFile_Impl {
+
+    // }
+
+    // #[implement(IStorageItem)]
+    // struct MyStorageItem {}
+
+    // impl IStorageItem_Impl for MyStorageItem_Impl {
+    //     fn RenameAsyncOverloadDefaultOptions(
+    //         &self,
+    //         desiredName: &windows_core::HSTRING,
+    //     ) -> windows_core::Result<windows_future::IAsyncAction> {
+    //         todo!()
+    //     }
+
+    //     fn RenameAsync(
+    //         &self,
+    //         desiredName: &windows_core::HSTRING,
+    //         option: windows::Storage::NameCollisionOption,
+    //     ) -> windows_core::Result<windows_future::IAsyncAction> {
+    //         todo!()
+    //     }
+
+    //     fn DeleteAsyncOverloadDefaultOptions(
+    //         &self,
+    //     ) -> windows_core::Result<windows_future::IAsyncAction> {
+    //         todo!()
+    //     }
+
+    //     fn DeleteAsync(
+    //         &self,
+    //         option: windows::Storage::StorageDeleteOption,
+    //     ) -> windows_core::Result<windows_future::IAsyncAction> {
+    //         todo!()
+    //     }
+
+    //     fn GetBasicPropertiesAsync(
+    //         &self,
+    //     ) -> windows_core::Result<
+    //         windows_future::IAsyncOperation<windows::Storage::FileProperties::BasicProperties>,
+    //     > {
+    //         todo!()
+    //     }
+
+    //     fn Name(&self) -> windows_core::Result<windows_core::HSTRING> {
+    //         todo!()
+    //     }
+
+    //     fn Path(&self) -> windows_core::Result<windows_core::HSTRING> {
+    //         todo!()
+    //     }
+
+    //     fn Attributes(&self) -> windows_core::Result<windows::Storage::FileAttributes> {
+    //         todo!()
+    //     }
+
+    //     fn DateCreated(&self) -> windows_core::Result<windows_time::DateTime> {
+    //         todo!()
+    //     }
+
+    //     fn IsOfType(
+    //         &self,
+    //         r#type: windows::Storage::StorageItemTypes,
+    //     ) -> windows_core::Result<bool> {
+    //         todo!()
+    //     }
+    // }
+
+    // #[implement(FileOpenPicker)]
+    // struct MyStoragePicker  {
+
+    // }
+
+    // impl FileOpenPicker_Impl for MyStoragePicker_Impl {
+
+    // }
+    // #[repr(transparent)]
+    // #[derive(Clone, Debug, Eq, PartialEq)]
+    // pub struct RsFileOpenPicker(FileOpenPicker);
+
+    // windows_core::imp::interface_hierarchy!(
+    //     RsFileOpenPicker,
+    //     FileOpenPicker,
+    //     windows_core::IUnknown,
+    //     windows_core::IInspectable
+    // );
+    // impl IInitializeWithWindow_Impl for RsFileOpenPicker {
+    //     fn Initialize(&self, hwnd: windows::windef::HWND) -> windows_core::Result<()> {
+    //         todo!()
+    //     }
+    // }
 
     fn read_c_string(bytes: &[c_char]) -> String {
         let len = bytes
@@ -1297,5 +1423,35 @@ mod tests {
         let uninit_hr = UninitializeApiImpl();
         assert_eq!(uninit_hr, HRESULT(0));
         set_delegated_dll_path_for_test(None);
+
+        // windows::Storage::Pickers::
+    }
+
+    pub async fn pick_file(hwnd: HWND) -> windows_core::Result<StorageFile> {
+        let picker = FileOpenPicker::new()?;
+
+        picker.SetViewMode(PickerViewMode::List)?;
+        picker.SetSuggestedStartLocation(PickerLocationId::DocumentsLibrary)?;
+
+        let filters = picker.FileTypeFilter()?;
+        filters.Append(&HSTRING::from(".xml"))?;
+        filters.Append(&HSTRING::from(".txt"))?;
+
+        // FileOpenPicker is a WinRT object, but desktop apps need to supply
+        // the owner HWND through this COM interop interface.
+        let initialize: IInitializeWithWindow = picker.cast()?;
+
+        unsafe {
+            initialize.Initialize(hwnd);
+        }
+
+        let file = picker.PickSingleFileAsync()?.await?;
+        Ok(file)
+    }
+
+    #[tokio::test]
+    async fn test_picker() {
+        let file = pick_file(HWND(null_mut())).await.unwrap();
+        println!("{}", file.DisplayName().unwrap().to_string_lossy());
     }
 }

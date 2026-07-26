@@ -198,7 +198,7 @@ unsafe fn complete(async_block: *mut XAsyncBlock, result: HRESULT, required_buff
     std::mem::forget(xasync);
 }
 
-pub(crate) unsafe fn get_result<T>(
+pub unsafe fn get_result<T>(
     async_block: *mut XAsyncBlock,
     identity: *const c_void,
     out: *mut T,
@@ -221,7 +221,7 @@ pub(crate) unsafe fn get_result<T>(
     hr
 }
 
-pub(crate) unsafe fn get_status(async_block: *mut XAsyncBlock, wait: bool) -> HRESULT {
+pub unsafe fn get_status(async_block: *mut XAsyncBlock, wait: bool) -> HRESULT {
     let xasync = match interface() {
         Ok(xasync) => xasync,
         Err(hr) => return hr,
@@ -231,7 +231,7 @@ pub(crate) unsafe fn get_status(async_block: *mut XAsyncBlock, wait: bool) -> HR
     hr
 }
 
-pub(crate) unsafe fn get_result_size(async_block: *mut XAsyncBlock) -> Result<usize, HRESULT> {
+pub unsafe fn get_result_size(async_block: *mut XAsyncBlock) -> Result<usize, HRESULT> {
     let xasync = match interface() {
         Ok(xasync) => xasync,
         Err(hr) => return Err(hr),
