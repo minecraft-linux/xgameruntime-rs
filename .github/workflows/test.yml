@@ -29,5 +29,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: xgameruntime
-          path: target/**/*.dll
+          path: target/release/*.dll
           if-no-files-found: error
