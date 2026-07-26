@@ -625,7 +625,7 @@ fn main() /*-> eframe::Result<()>*/
         println!("Showing player picker...");
 
         let hr = unsafe {
-            game_ui.x_game_ui_show_player_picker_async(&mut async_, user_out as XUserHandle, "Hello world".as_bytes().as_ptr() as *const c_char, 0, null_mut(), 0, null_mut(), 1, 1)
+            game_ui.x_game_ui_show_player_picker_async(&mut async_, user_out as XUserHandle, c"Hello world".as_ptr() as *const c_char, 0, null_mut(), 0, null_mut(), 1, 1)
         };
         if hr.is_err() {
             println!("Failed to show player picker: {:?}", hr);

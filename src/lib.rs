@@ -375,7 +375,10 @@ impl eframe::App for MyEguiApp {
 
 
 unsafe extern "system" fn my_show_player_picker(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, info: *mut XGameUiPlayerPickerInfo, context: *mut c_void) {
-    println!("my_show_player_picker called with callback_handle: {:?}, queue: {:?}, info: {:?}, context: {:?}", callback_handle, queue, info, context);
+    let i = unsafe { &*info };
+    let cstr = CStr::from_ptr(i.promptText);
+    let prompt_text = cstr.to_string_lossy();
+    println!("my_show_player_picker called with callback_handle: {:?}, queue: {:?}, info: {:?}, context: {:?}, requesting_user: {:?}, prompt_text: {:?}", callback_handle, queue, info, context, i.requestingUser, prompt_text);
     unsafe { get_x_game_ui().x_game_ui_set_player_picker_ui_response(callback_handle, 0, null_mut()) };
 }
 

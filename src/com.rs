@@ -535,14 +535,14 @@ visibilityflags: XGameUiTextEntryVisibilityFlags,
 }
 #[repr(C)]
 pub struct XGameUiPlayerPickerInfo {
-requestingUser: XUserHandle,
-promptText: *const c_char,
-selectFromPlayersCount: u32,
-selectFromPlayers: *const u64,
-preSelectedPlayersCount: u32,
-preSelectedPlayers: *const u64,
-minSelectionCount: u32,
-maxSelectionCount: u32,
+pub requestingUser: XUserHandle,
+pub promptText: *const c_char,
+pub selectFromPlayersCount: u32,
+pub selectFromPlayers: *const u64,
+pub preSelectedPlayersCount: u32,
+pub preSelectedPlayers: *const u64,
+pub minSelectionCount: u32,
+pub maxSelectionCount: u32,
 }
 
 pub type XGameUiShowPlayerProfileCardUiCallback = unsafe extern "system" fn(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, target_player: u64, context: *mut c_void);
