@@ -1,17 +1,17 @@
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr::null_mut;
 use std::result::Result;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use eframe::WgpuConfiguration;
 use wgpu::{Backends, InstanceFlags};
 use windows_sys::w;
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
-use windows::minwindef::LPARAM;
+use windows::minwindef::{LPARAM, LRESULT, WPARAM};
 use windows::windef::{HMENU, HWND};
-use windows::winuser::{AppendMenuW, CreateMenu, DrawMenuBar, EnumWindows, GWLP_WNDPROC, MB_OK, MF_STRING, MessageBoxW, SetMenu};
+use windows::winuser::{AppendMenuW, CallWindowProcW, CreateMenu, DefWindowProcW, DrawMenuBar, EnumWindows, GWLP_WNDPROC, GetWindowLongPtrW, MB_OK, MF_STRING, MessageBoxW, SetMenu, SetWindowLongPtrW, WNDPROC};
 
-use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
+use crate::com::{IXGameUi, IXUserPlatform, XGameUiCallbackHandle, XGameUiPlayerPickerInfo, XGameUiUiCallbacks, XTaskQueueHandle, XUserPlatformRemoteConnectEventHandlers};
 use windows_core::{GUID, HRESULT, Interface, PCWSTR};
 use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
 use windows_sys::minwindef::HMODULE;
@@ -117,11 +117,146 @@ pub fn create_window_menu(hwnd: HWND) -> windows::core::Result<HMENU> {
         AppendMenuW(menu, MF_STRING, IDM_OPEN, PCWSTR::from_raw(w!("My Open")));
         AppendMenuW(menu, MF_STRING, IDM_EXIT, PCWSTR::from_raw(w!("My Exit")));
 
-        SetMenu(hwnd, Some(menu));
-        DrawMenuBar(hwnd);
+        attach_menu_and_subclass(hwnd, menu)?;
 
         Ok(menu)
     }
+}
+
+// Suitable only when subclassing one window.
+// For multiple windows, store the original WNDPROC per HWND.
+static ORIGINAL_WNDPROC: OnceLock<isize> = OnceLock::new();
+
+
+        // let game_ui = get_x_game_ui();
+        // let async_ = xasync::XAsyncBlock {
+        //     context: std::ptr::null_mut(),
+        //     queue: std::ptr::null_mut(),
+        //     callback: None,
+        //     internal: [0; std::mem::size_of::<*mut c_void>() * 4],
+        // };
+
+        // unsafe {
+        //     game_ui.x_game_ui_show_player_picker_async(&async_, requesting_user, prompt_text, select_from_players_count, select_from_players, pre_selected_players_count, pre_selected_players, min_selection_count, max_selection_count)
+        // };
+
+
+unsafe extern "system" fn subclass_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT
+{
+    match message {
+        WM_COMMAND => {
+            let command_id = wparam.0 & 0xffff;
+            let notification = (wparam.0 >> 16) & 0xffff;
+
+            println!(
+                "WM_COMMAND: id={command_id}, notification={notification}, lparam={:#x}",
+                lparam.0
+            );
+
+            let is_menu_command = notification == 0 && lparam.0 == 0;
+            if is_menu_command {
+                match command_id {
+                    IDM_OPEN => {
+                        println!("Open selected");
+                        return LRESULT(0);
+                    }
+                    IDM_EXIT => {
+                        // key down? or up?
+                        let game_ui = get_x_game_ui();
+                        let mut async_ = xasync::XAsyncBlock {
+                            context: std::ptr::null_mut(),
+                            queue: std::ptr::null_mut(),
+                            callback: None,
+                            internal: [0; std::mem::size_of::<*mut c_void>() * 4],
+                        };
+
+                        println!("Showing player picker...");
+
+                        let hr = unsafe {
+                            game_ui.x_game_ui_show_player_picker_async(&mut async_, 0, "Hello world".as_bytes().as_ptr() as *const c_char, 0, null_mut(), 0, null_mut(), 1, 1)
+                        };
+                        if hr.is_err() {
+                            println!("Failed to show player picker: {:?}", hr);
+                        } else {
+                            xasync::get_status(&mut async_, true);
+
+                            let mut result_players_count: u32 = 1;
+                            let mut result_players: [u64; 10] = [0; 10];
+                            let mut result_players_used: u32 = 0;
+
+                            let hr = unsafe {
+                                game_ui.x_game_ui_show_player_picker_result(&mut async_, result_players_count, result_players.as_mut_ptr(), &mut result_players_used)
+                            };
+                            if hr.is_err() {
+                                println!("Failed to get player picker result: {:?}", hr);
+                            } else {
+                                println!("Player picker result: count={}, used={}, players={:?}", result_players_count, result_players_used, &result_players[..result_players_used as usize]);
+                            }
+                        }
+
+                        println!("Exit selected");
+                        return LRESULT(0);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        WM_NCDESTROY => {
+            // Restore the original procedure before the window disappears.
+            if let Some(&original) = ORIGINAL_WNDPROC.get() {
+                SetWindowLongPtrW(hwnd, GWLP_WNDPROC, original);
+            }
+        }
+
+        _ => {}
+    }
+
+    match ORIGINAL_WNDPROC.get().copied() {
+        Some(original) => {
+            let original_proc: WNDPROC = std::mem::transmute(original);
+            CallWindowProcW(original_proc, hwnd, message, wparam, lparam)
+        }
+        None => DefWindowProcW(hwnd, message, wparam, lparam),
+    }
+}
+
+pub unsafe fn attach_menu_and_subclass(
+    hwnd: HWND,
+    menu: HMENU,
+) -> windows::core::Result<()> {
+    SetMenu(hwnd, Some(menu));
+    DrawMenuBar(hwnd);
+
+    let current_proc = GetWindowLongPtrW(hwnd, GWLP_WNDPROC);
+
+    // Clear/check GetLastError in production, because zero may theoretically
+    // be a valid previous value for some SetWindowLongPtr operations.
+    let previous = SetWindowLongPtrW(
+        hwnd,
+        GWLP_WNDPROC,
+        subclass_proc as *const () as isize,
+    );
+
+    if previous == 0 {
+        return Err(windows::core::Error::from_thread());
+    }
+
+    // Prefer `previous`; it is the procedure replaced atomically.
+    let _ = current_proc;
+    ORIGINAL_WNDPROC
+        .set(previous)
+        .map_err(|_| windows::core::Error::new(
+            windows::core::HRESULT(0x80004005u32 as i32),
+            "Window was already subclassed",
+        ))?;
+
+    Ok(())
 }
 
 unsafe extern "system" fn show(
@@ -237,6 +372,49 @@ impl eframe::App for MyEguiApp {
    }
 }
 
+
+
+unsafe extern "system" fn my_show_player_picker(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, info: *mut XGameUiPlayerPickerInfo, context: *mut c_void) {
+    println!("my_show_player_picker called with callback_handle: {:?}, queue: {:?}, info: {:?}, context: {:?}", callback_handle, queue, info, context);
+    unsafe { get_x_game_ui().x_game_ui_set_player_picker_ui_response(callback_handle, 0, null_mut()) };
+}
+
+fn get_x_user_platform() -> IXUserPlatform {
+    let state = delegated_state();
+    let Some(api) = state.api.as_ref() else {
+        panic!("Delegated API not initialized");
+    };
+
+    let mut out: *mut c_void = std::ptr::null_mut();
+
+    let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
+
+    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUserPlatform::IID, &mut out) };
+
+    assert_eq!(hr, HRESULT(0));
+    assert!(!out.is_null());
+
+    unsafe { IXUserPlatform::from_raw(out) }
+}
+
+pub fn get_x_game_ui() -> IXGameUi {
+    let state = delegated_state();
+    let Some(api) = state.api.as_ref() else {
+        panic!("Delegated API not initialized");
+    };
+
+    let mut out: *mut c_void = std::ptr::null_mut();
+
+    let xuserguid = GUID::from_u128(0xdfcd4649_4ff8_4043_ba07_35d607df98b0);
+
+    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXGameUi::IID, &mut out) };
+
+    assert_eq!(hr, HRESULT(0));
+    assert!(!out.is_null());
+
+    unsafe { IXGameUi::from_raw(out) }
+}
+
 fn initialize_delegate(
     gdk_ver: Ulong,
     gs_ver: Ulong,
@@ -282,6 +460,34 @@ fn initialize_delegate(
             };
         let hr = unsafe {
             platform.XUserPlatformRemoteConnectSetEventHandlers(std::ptr::null_mut(), &callback)
+        };
+        assert_eq!(hr, HRESULT(0));
+    }
+
+    let mut out: *mut c_void = std::ptr::null_mut();
+
+    let xuserguid = GUID::from_u128(0xdfcd4649_4ff8_4043_ba07_35d607df98b0);
+
+    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXGameUi::IID, &mut out) };
+
+    assert_eq!(hr, HRESULT(0));
+    assert!(!out.is_null());
+
+    if let Some(game_ui) = unsafe { IXGameUi::from_raw_borrowed(&out) } {
+        let callback = XGameUiUiCallbacks {
+            show_player_picker_callback: Some(my_show_player_picker),
+            context: std::ptr::null_mut(),
+            show_achievements_callback: None,
+            show_multiplayer_activity_game_invite_callback: None,
+            show_player_profile_card_callback: None,
+            show_send_game_invite_callback: None,
+            show_message_dialog_callback: None,
+            show_error_dialog_callback: None,
+            show_text_entry_callback: None,
+        };
+
+        let hr = unsafe {
+            game_ui.xgame_ui_set_ui_callbacks(&callback, true)
         };
         assert_eq!(hr, HRESULT(0));
     }
