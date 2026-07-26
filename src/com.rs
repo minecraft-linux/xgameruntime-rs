@@ -18,7 +18,7 @@ const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 
 type XStoreContextHandle = u64;
 
-use crate::xasync::get_result;
+use crate::xasync::{XAsyncBlock, get_result};
 use crate::{results::*, xasync};
 
 #[repr(C)]
@@ -502,6 +502,178 @@ pub unsafe trait IXStoreAlias2: IXStore {}
 
 #[interface("0dd112ac-7c24-448c-b92b-3960fb5bd30c")]
 pub unsafe trait IXStoreAlias3: IXStore {}
+
+pub type XGameUiCallbackHandle = u64;
+pub type XTaskQueueHandle = u64;
+
+// pub unsafe fn x_game_ui_show_player_profile_card_ui_callback (callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, target_player: u64, context: *mut c_void);
+// pub unsafe fn x_game_ui_show_player_picker_ui_callback (callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, info: *mut XGameUiPlayerPickerInfo, context: *mut c_void);
+// pub unsafe fn x_game_ui_show_send_game_invite_ui_callback (callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, session_configuration_id: *const c_char, session_template_name: *const c_char, session_id: *const c_char, invitation_text: *const c_char, custom_activation_context: *const c_char, context: *mut c_void);
+// pub unsafe fn x_game_ui_show_achievements_ui_callback (callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, title_id: u32, context: *mut c_void);
+// pub unsafe fn x_game_ui_show_multiplayer_activity_game_invite_ui_callback (callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, context: *mut c_void);
+// pub unsafe fn x_game_ui_show_error_dialog_ui_callback (callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, error_code: HRESULT, service_context: *const c_char, context: *mut c_void);
+// pub unsafe fn x_game_ui_show_text_entry_ui_callback (callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, title_text: *const c_char, description_text: *const c_char, default_text: *const c_char, input_scope: XGameUiTextEntryInputScope, max_text_length: u32, context: *mut c_void);
+
+#[repr(C)]
+pub struct XGameUiWebAuthenticationResultData {
+responseStatus: HRESULT,
+responseCompletionUriSize: usize,
+responseCompletionUri: *const c_char,
+}
+#[repr(C)]
+pub struct XGameUiTextEntryExtents {
+left: f32,
+top: f32,
+right: f32,
+bottom: f32,
+}
+#[repr(C)]
+pub struct XGameUiTextEntryOptions {
+inputScope: XGameUiTextEntryInputScope,
+positionHint: XGameUiTextEntryPositionHint,
+visibilityflags: XGameUiTextEntryVisibilityFlags,
+}
+#[repr(C)]
+pub struct XGameUiPlayerPickerInfo {
+requestingUser: XUserHandle,
+promptText: *const c_char,
+selectFromPlayersCount: u32,
+selectFromPlayers: *const u64,
+preSelectedPlayersCount: u32,
+preSelectedPlayers: *const u64,
+minSelectionCount: u32,
+maxSelectionCount: u32,
+}
+
+pub type XGameUiShowPlayerProfileCardUiCallback = unsafe extern "system" fn(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, target_player: u64, context: *mut c_void);
+pub type XGameUiShowPlayerPickerUiCallback = unsafe extern "system" fn(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, info: *mut XGameUiPlayerPickerInfo, context: *mut c_void);
+pub type XGameUiShowSendGameInviteUiCallback = unsafe extern "system" fn(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, session_configuration_id: *const c_char, session_template_name: *const c_char, session_id: *const c_char, invitation_text: *const c_char, custom_activation_context: *const c_char, context: *mut c_void);
+pub type XGameUiShowAchievementsUiCallback = unsafe extern "system" fn(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, title_id: u32, context: *mut c_void);
+pub type XGameUiShowMultiplayerActivityGameInviteUiCallback = unsafe extern "system" fn(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, title_id: u32, context: *mut c_void);
+pub type XGameUiShowMessageDialogUiCallback = unsafe extern "system" fn(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, requesting_user: XUserHandle, context: *mut c_void);
+pub type XGameUiShowErrorDialogUiCallback = unsafe extern "system" fn(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, error_code: HRESULT, service_context: *const c_char, context: *mut c_void);
+pub type XGameUiShowTextEntryUiCallback = unsafe extern "system" fn(callback_handle: XGameUiCallbackHandle, queue: XTaskQueueHandle, title_text: *const c_char, description_text: *const c_char, default_text: *const c_char, input_scope: XGameUiTextEntryInputScope, max_text_length: u32, context: *mut c_void);
+
+pub struct XGameUiUiCallbacks {
+    pub context: *mut c_void,
+    pub show_player_profile_card_callback: Option<XGameUiShowPlayerProfileCardUiCallback>,
+    pub show_player_picker_callback: Option<XGameUiShowPlayerPickerUiCallback>,
+    pub show_send_game_invite_callback: Option<XGameUiShowSendGameInviteUiCallback>,
+    pub show_achievements_callback: Option<XGameUiShowAchievementsUiCallback>,
+    pub show_multiplayer_activity_game_invite_callback: Option<XGameUiShowMultiplayerActivityGameInviteUiCallback>,
+    pub show_message_dialog_callback: Option<XGameUiShowMessageDialogUiCallback>,
+    pub show_error_dialog_callback: Option<XGameUiShowErrorDialogUiCallback>,
+    pub show_text_entry_callback: Option<XGameUiShowTextEntryUiCallback>,
+}
+
+pub type XUserHandle = u64;
+
+
+enum XGameUiMessageDialogButton {
+    First = 0,
+    Second = 1,
+    Third = 2
+}
+#[repr(u32)]
+enum XGameUiNotificationPositionHint {
+    BottomCenter = 0,
+    BottomLeft = 1,
+    BottomRight = 2,
+    TopCenter = 3,
+    TopLeft = 4,
+    TopRight = 5
+}
+#[repr(u32)]
+pub enum XGameUiTextEntryChangeTypeFlags {
+    None = 0x0,
+    TextChanged = 0x1,
+    Dismissed = 0x2
+}
+#[repr(u32)]
+pub enum XGameUiTextEntryInputScope {
+    Default = 0,
+    Url = 1,
+    EmailSmtpAddress = 5,
+    Number = 29,
+    Password = 31,
+    TelephoneNumber = 32,
+    Alphanumeric = 40,
+    Search = 50,
+    ChatWithoutEmoji = 68
+}
+#[repr(u32)]
+pub enum XGameUiTextEntryPositionHint {
+    Bottom = 0,
+    Top = 1
+}
+#[repr(u32)]
+pub enum XGameUiTextEntryVisibilityFlags {
+    Default = 0x0,
+    OnlyShowCandidates = 0x1
+}
+#[repr(u32)]
+pub enum XGameUiWebAuthenticationOptions {
+    None = 0x00,
+    PreferFullscreen = 0x01
+}
+
+#[interface("eaf669df-5542-4590-99a3-8dc061f837cc")]
+pub unsafe trait IXGameUi : IUnknown {
+    pub unsafe fn x_game_ui_show_message_dialog_async (self: &Self, async_: *mut XAsyncBlock, title_text: *const c_char, content_text: *const c_char, first_button_text: *const c_char, second_button_text: *const c_char, third_button_text: *const c_char, default_button: XGameUiMessageDialogButton, cancel_button: XGameUiMessageDialogButton) -> HRESULT;
+    pub unsafe fn x_game_ui_show_message_dialog_result (self: &Self, async_: *mut XAsyncBlock, result_button: *mut XGameUiMessageDialogButton) -> HRESULT;
+    pub unsafe fn x_game_ui_show_send_game_invite_async (self: &Self, async_: *mut XAsyncBlock, requesting_user: XUserHandle, session_configuration_id: *const c_char, session_template_name: *const c_char, session_id: *const c_char, invitation_text: *const c_char, custom_activation_context: *const c_char) -> HRESULT;
+    pub unsafe fn x_game_ui_show_send_game_invite_result (self: &Self, async_: *mut XAsyncBlock) -> HRESULT;
+    pub unsafe fn x_game_ui_show_player_profile_card_async (self: &Self, async_: *mut XAsyncBlock, requesting_user: XUserHandle, target_player: u64) -> HRESULT;
+    pub unsafe fn x_game_ui_show_player_profile_card_result (self: &Self, async_: *mut XAsyncBlock) -> HRESULT;
+    pub unsafe fn x_game_ui_show_achievements_async (self: &Self, async_: *mut XAsyncBlock, requesting_user: XUserHandle, title_id: u32) -> HRESULT;
+    pub unsafe fn x_game_ui_show_achievements_result (self: &Self, async_: *mut XAsyncBlock) -> HRESULT;
+    pub unsafe fn x_game_ui_show_player_picker_async (self: &Self, async_: *mut XAsyncBlock, requesting_user: XUserHandle, prompt_text: *const c_char, select_from_players_count: u32, select_from_players: *const u64, pre_selected_players_count: u32, pre_selected_players: *const u64, min_selection_count: u32, max_selection_count: u32) -> HRESULT;
+    pub unsafe fn x_game_ui_show_player_picker_result_count (self: &Self, async_: *mut XAsyncBlock, result_players_count: *mut u32) -> HRESULT;
+    pub unsafe fn x_game_ui_show_player_picker_result (self: &Self, async_: *mut XAsyncBlock, result_players_count: u32, result_players: *mut u64, result_players_used: *mut u32) -> HRESULT;
+    pub unsafe fn x_game_ui_show_error_dialog_async (self: &Self, async_: *mut XAsyncBlock, error_code: HRESULT, context: *const c_char) -> HRESULT;
+    pub unsafe fn x_game_ui_show_error_dialog_result (self: &Self, async_: *mut XAsyncBlock) -> HRESULT;
+    unsafe fn __reserved_slot_16(&self) -> HRESULT;
+    unsafe fn __reserved_slot_17(&self) -> HRESULT;
+    unsafe fn __reserved_slot_18(&self) -> HRESULT;
+    unsafe fn __reserved_slot_19(&self) -> HRESULT;
+    unsafe fn __reserved_slot_20(&self) -> HRESULT;
+    unsafe fn __reserved_slot_21(&self) -> HRESULT;
+    unsafe fn __reserved_slot_22(&self) -> HRESULT;
+    unsafe fn __reserved_slot_23(&self) -> HRESULT;
+    unsafe fn __reserved_slot_24(&self) -> HRESULT;
+    unsafe fn __reserved_slot_25(&self) -> HRESULT;
+    unsafe fn __reserved_slot_26(&self) -> HRESULT;
+    unsafe fn __reserved_slot_27(&self) -> HRESULT;
+    unsafe fn __reserved_slot_28(&self) -> HRESULT;
+    unsafe fn __reserved_slot_29(&self) -> HRESULT;
+    unsafe fn __reserved_slot_30(&self) -> HRESULT;
+    unsafe fn __reserved_slot_31(&self) -> HRESULT;
+    unsafe fn __reserved_slot_32(&self) -> HRESULT;
+    unsafe fn __reserved_slot_33(&self) -> HRESULT;
+    unsafe fn __reserved_slot_34(&self) -> HRESULT;
+    unsafe fn __reserved_slot_35(&self) -> HRESULT;
+    unsafe fn __reserved_slot_36(&self) -> HRESULT;
+    unsafe fn __reserved_slot_37(&self) -> HRESULT;
+    unsafe fn __reserved_slot_38(&self) -> HRESULT;
+    unsafe fn __reserved_slot_39(&self) -> HRESULT;
+    unsafe fn __reserved_slot_40(&self) -> HRESULT;
+    unsafe fn __reserved_slot_41(&self) -> HRESULT;
+    // pub unsafe fn x_game_ui_set_ui_callbacks (self: &Self, callbacks: *const XGameUiUiCallbacks, use_system_ui_if_available: bool);
+    pub unsafe fn xgame_ui_set_ui_callbacks(
+        &self,
+        callbacks: *const XGameUiUiCallbacks,
+        use_system_ui_if_available: bool,
+    ) -> HRESULT;
+    pub unsafe fn x_game_ui_set_message_dialog_ui_response (self: &Self, callback_handle: XGameUiCallbackHandle, response: XGameUiMessageDialogButton) -> HRESULT;
+    pub unsafe fn x_game_ui_set_player_picker_ui_response (self: &Self, callback_handle: XGameUiCallbackHandle, player_count: u32, players: *const u64) -> HRESULT;
+    pub unsafe fn x_game_ui_set_text_entry_ui_response (self: &Self, callback_handle: XGameUiCallbackHandle, response: *const c_char) -> HRESULT;
+    pub unsafe fn x_game_ui_set_player_profile_card_ui_response (self: &Self, callback_handle: XGameUiCallbackHandle) -> HRESULT;
+    pub unsafe fn x_game_ui_set_send_game_invite_ui_response (self: &Self, callback_handle: XGameUiCallbackHandle) -> HRESULT;
+    pub unsafe fn x_game_ui_set_achievements_ui_response (self: &Self, callback_handle: XGameUiCallbackHandle) -> HRESULT;
+    pub unsafe fn x_game_ui_set_multiplayer_activity_game_invite_ui_response (self: &Self, callback_handle: XGameUiCallbackHandle) -> HRESULT;
+    pub unsafe fn x_game_ui_set_error_dialog_ui_response (self: &Self, callback_handle: XGameUiCallbackHandle) -> HRESULT;
+
+}
 
 type XUserPlatformRemoteConnectShowPromptEventHandler = unsafe extern "system" fn(
     context: *const c_void,

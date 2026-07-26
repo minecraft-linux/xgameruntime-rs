@@ -1,5 +1,6 @@
 use core::slice;
 use std::collections::HashMap;
+use std::ffi::c_char;
 use std::os::raw::c_void;
 use std::ptr::null_mut;
 
@@ -24,8 +25,8 @@ use windows::{
 };
 use winit::{platform::windows::EventLoopBuilderExtWindows, window::WindowId};
 use windows::{minwindef::*, windef::*, wingdi::*, winuser::*, sysinfoapi::*};
-use xgameruntime::{InitializeApiImplEx2, xasync};
-use xgameruntime::com::{IXUserPlatform, XUserGetTokenAndSignatureUtf16Data, query_api_impl};
+use xgameruntime::{InitializeApiImplEx2, get_x_game_ui, xasync};
+use xgameruntime::com::{IXUserPlatform, XUserGetTokenAndSignatureUtf16Data, XUserHandle, query_api_impl};
 use xgameruntime::xasync::XAsyncBlock;
 
 #[derive(Default)]
@@ -612,6 +613,41 @@ fn main() /*-> eframe::Result<()>*/
 
     //     parent
     // };
+
+        let game_ui = get_x_game_ui();
+        let mut async_ = xasync::XAsyncBlock {
+            context: std::ptr::null_mut(),
+            queue: std::ptr::null_mut(),
+            callback: None,
+            internal: [0; std::mem::size_of::<*mut c_void>() * 4],
+        };
+
+        println!("Showing player picker...");
+
+        let hr = unsafe {
+            game_ui.x_game_ui_show_player_picker_async(&mut async_, user_out as XUserHandle, "Hello world".as_bytes().as_ptr() as *const c_char, 0, null_mut(), 0, null_mut(), 1, 1)
+        };
+        if hr.is_err() {
+            println!("Failed to show player picker: {:?}", hr);
+        } else {
+            println!("waiting player picker...");
+            unsafe { xasync::get_status(&mut async_, true) };
+
+            let mut result_players_count: u32 = 1;
+            let mut result_players: [u64; 10] = [0; 10];
+            let mut result_players_used: u32 = 0;
+
+            let hr = unsafe {
+                game_ui.x_game_ui_show_player_picker_result(&mut async_, result_players_count, result_players.as_mut_ptr(), &mut result_players_used)
+            };
+            if hr.is_err() {
+                println!("Failed to get player picker result: {:?}", hr);
+            } else {
+                println!("Player picker result: count={}, used={}, players={:?}", result_players_count, result_players_used, &result_players[..result_players_used as usize]);
+            }
+        }
+
+
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
 

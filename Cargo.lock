@@ -5637,6 +5637,7 @@ dependencies = [
  "env_logger",
  "image",
  "raw-window-handle",
+ "regex",
  "reqwest",
  "serde",
  "tokio",
