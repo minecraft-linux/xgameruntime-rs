@@ -159,7 +159,7 @@ fn result<T>(r: T, h: HRESULT) -> Result<T, HRESULT> {
     if h == S_OK { Ok(r) } else { Err(h) }
 }
 
-unsafe fn begin(
+pub unsafe fn begin(
     async_block: *mut XAsyncBlock,
     context: *mut c_void,
     identity: *const c_void,
@@ -179,13 +179,13 @@ unsafe fn begin(
     result((), hr)
 }
 
-unsafe fn schedule(async_block: *mut XAsyncBlock, delay_ms: u32) -> Result<(), HRESULT> {
+pub unsafe fn schedule(async_block: *mut XAsyncBlock, delay_ms: u32) -> Result<(), HRESULT> {
     let xasync = interface()?;
     let hr = unsafe { xasync.XAsyncSchedule(async_block.cast(), delay_ms) };
     result((), hr)
 }
 
-unsafe fn complete(
+pub unsafe fn complete(
     async_block: *mut XAsyncBlock,
     result: HRESULT,
     required_buffer_size: usize,
@@ -195,7 +195,7 @@ unsafe fn complete(
     Ok(())
 }
 
-pub(crate) unsafe fn get_result<T>(
+pub unsafe fn get_result<T>(
     async_block: *mut XAsyncBlock,
     identity: *const c_void,
     out: *mut T,
@@ -214,13 +214,13 @@ pub(crate) unsafe fn get_result<T>(
     result((), hr)
 }
 
-pub(crate) unsafe fn get_status(async_block: *mut XAsyncBlock, wait: bool) -> Result<(), HRESULT> {
+pub unsafe fn get_status(async_block: *mut XAsyncBlock, wait: bool) -> Result<(), HRESULT> {
     let xasync = interface()?;
     let hr = unsafe { xasync.XAsyncGetStatus(async_block.cast(), wait.into()) };
     result((), hr)
 }
 
-pub(crate) unsafe fn get_result_size(async_block: *mut XAsyncBlock) -> Result<usize, HRESULT> {
+pub unsafe fn get_result_size(async_block: *mut XAsyncBlock) -> Result<usize, HRESULT> {
     let xasync = interface()?;
     let mut buffer_size: usize = 0;
     let hr = unsafe { xasync.XAsyncGetResultSize(async_block.cast(), &mut buffer_size) };

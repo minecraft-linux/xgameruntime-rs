@@ -19,7 +19,7 @@ const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 type XStoreContextHandle = u64;
 
 use crate::xasync::get_result;
-use crate::{results::*, xasync};
+use crate::{E_FAIL, results::*, xasync};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -822,15 +822,15 @@ impl IXStore_Impl for XStoreObject_Impl {
         let mut payload = XStoreQueryGameLicenseAsyncResultPayload {
             license: XStoreGameLicense::default(),
         };
-        let hr = unsafe { get_result(async_.cast(), null_mut(), &mut payload) };
-        if hr != S_OK {
-            return hr;
+        match unsafe { get_result(async_.cast(), null_mut(), &mut payload) } {
+            Ok(_) => {
+                unsafe {
+                    *(license as *mut XStoreGameLicense) = payload.license;
+                }
+                S_OK
+            }
+            Err(hr) => return hr,
         }
-
-        unsafe {
-            *(license as *mut XStoreGameLicense) = payload.license;
-        }
-        S_OK
     }
 }
 
@@ -978,23 +978,30 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         securityInformationBuffer: *mut u8,
         securityInformation: *mut *mut c_void,
     ) -> HRESULT {
-        let hr = unsafe {
+        if securityInformationBufferByteCount < size_of::<XNetworkingSecurityInformation>() as u64 {
+            return E_FAIL;
+        }
+        if !securityInformationBufferByteCountUsed.is_null() {
+            unsafe { *securityInformationBufferByteCountUsed = 0 };
+        }
+        match unsafe {
             get_result(
                 asyncBlock.cast(),
                 null_mut(),
                 securityInformationBuffer.cast::<XNetworkingSecurityInformation>(),
             )
-        };
-        if hr.is_ok() {
-            unsafe { *securityInformation = securityInformationBuffer.cast() };
-            // println!("XNetworkingQuerySecurityInformationForUrlAsyncResult: OK");
-            S_OK
-        } else {
-            todo!(
-                "XNetworkingQuerySecurityInformationForUrlAsyncResult {}",
-                hr
-            );
-            hr
+        } {
+            Ok(_) => {
+                if !securityInformationBufferByteCountUsed.is_null() {
+                    unsafe {
+                        *securityInformationBufferByteCountUsed =
+                            size_of::<XNetworkingSecurityInformation>()
+                    };
+                }
+                unsafe { *securityInformation = securityInformationBuffer.cast() };
+                S_OK
+            }
+            Err(hr) => hr,
         }
     }
 
@@ -1040,18 +1047,30 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         securityInformationBuffer: *mut u8,
         securityInformation: *mut *mut c_void,
     ) -> HRESULT {
-        let hr = unsafe {
+        if securityInformationBufferByteCount < size_of::<XNetworkingSecurityInformation>() as u64 {
+            return E_FAIL;
+        }
+        if !securityInformationBufferByteCountUsed.is_null() {
+            unsafe { *securityInformationBufferByteCountUsed = 0 };
+        }
+        match unsafe {
             get_result(
                 asyncBlock.cast(),
                 null_mut(),
                 securityInformationBuffer.cast::<XNetworkingSecurityInformation>(),
             )
-        };
-        if hr.is_ok() {
-            unsafe { *securityInformation = securityInformationBuffer.cast() };
-            S_OK
-        } else {
-            hr
+        } {
+            Ok(_) => {
+                if !securityInformationBufferByteCountUsed.is_null() {
+                    unsafe {
+                        *securityInformationBufferByteCountUsed =
+                            size_of::<XNetworkingSecurityInformation>()
+                    };
+                }
+                unsafe { *securityInformation = securityInformationBuffer.cast() };
+                S_OK
+            }
+            Err(hr) => hr,
         }
     }
 }
