@@ -175,7 +175,6 @@ unsafe fn begin(
             provider as *mut c_void,
         )
     };
-    std::mem::forget(xasync);
     hr
 }
 
@@ -185,7 +184,6 @@ unsafe fn schedule(async_block: *mut XAsyncBlock, delay_ms: u32) -> HRESULT {
         Err(hr) => return hr,
     };
     let hr = unsafe { xasync.XAsyncSchedule(async_block.cast(), delay_ms) };
-    std::mem::forget(xasync);
     hr
 }
 
@@ -195,7 +193,6 @@ unsafe fn complete(async_block: *mut XAsyncBlock, result: HRESULT, required_buff
         Err(_) => return,
     };
     unsafe { xasync.XAsyncComplete(async_block.cast(), result.0, required_buffer_size as u64) };
-    std::mem::forget(xasync);
 }
 
 pub(crate) unsafe fn get_result<T>(
@@ -217,7 +214,6 @@ pub(crate) unsafe fn get_result<T>(
             &mut buffer_used,
         )
     };
-    std::mem::forget(xasync);
     hr
 }
 
@@ -227,7 +223,6 @@ pub(crate) unsafe fn get_status(async_block: *mut XAsyncBlock, wait: bool) -> HR
         Err(hr) => return hr,
     };
     let hr = unsafe { xasync.XAsyncGetStatus(async_block.cast(), wait.into()) };
-    std::mem::forget(xasync);
     hr
 }
 
@@ -238,7 +233,6 @@ pub(crate) unsafe fn get_result_size(async_block: *mut XAsyncBlock) -> Result<us
     };
     let mut buffer_size: usize = 0;
     let hr = unsafe { xasync.XAsyncGetResultSize(async_block.cast(), &mut buffer_size) };
-    std::mem::forget(xasync);
     if hr == S_OK { Ok(buffer_size) } else { Err(hr) }
 }
 
