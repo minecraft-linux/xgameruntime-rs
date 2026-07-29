@@ -1,4 +1,5 @@
 use super::E_NOTIMPL;
+use std::env::temp_dir;
 use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
 use std::pin::Pin;
@@ -13,12 +14,13 @@ use windows_sys::core::BOOL;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
+const CLSID_XPERSISTENT_LOCAL_STORAGE: GUID = GUID::from_u128(0xf4faf4d4_2d04_4fce_b3e0_474a713a3e84);
 const STORE_SKU_ID_SIZE: usize = 18;
 const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 
 type XStoreContextHandle = u64;
 
-use crate::xasync::get_result;
+use crate::xasync::{XAsyncBlock, get_result};
 use crate::{E_FAIL, results::*, xasync};
 
 #[repr(C)]
@@ -90,6 +92,72 @@ pub struct XFeature;
 impl IXFeature_Impl for XFeature_Impl {
     unsafe fn XGameRuntimeIsFeatureAvailable(&self, feature: u32) -> bool {
         return true || feature != 10;
+    }
+}
+
+#[repr(C)]
+struct XPersistentLocalStorageSpaceInfo {
+availableFreeBytes: u64,
+totalFreeBytes: u64,
+usedBytes: u64,
+totalBytes: u64,
+}
+
+pub type XPackageMountHandle = u64;
+
+#[interface("41a4e10c-5a7e-41d9-8c37-37bde62a07d6")]
+pub unsafe trait IXPersistentLocalStorage: IUnknown {
+pub unsafe fn x_persistent_local_storage_get_path_size (self: &Self, path_size: *mut usize);
+pub unsafe fn x_persistent_local_storage_get_path (self: &Self, path_size: usize, path: *mut c_char, path_used: *mut usize);
+pub unsafe fn x_persistent_local_storage_get_space_info (self: &Self, info: *mut XPersistentLocalStorageSpaceInfo);
+pub unsafe fn x_persistent_local_storage_prompt_user_for_space_async (self: &Self, requested_bytes: u64, async_block: *mut XAsyncBlock);
+pub unsafe fn x_persistent_local_storage_prompt_user_for_space_result (self: &Self, async_block: *mut XAsyncBlock);
+pub unsafe fn x_persistent_local_storage_mount_for_package (self: &Self, package_identifier: *const c_char, mount_handle: *mut XPackageMountHandle);
+}
+
+#[implement(IXPersistentLocalStorage)]
+pub struct XPersistentLocalStorage {
+    tmp_path: String,
+}
+
+impl IXPersistentLocalStorage_Impl for XPersistentLocalStorage_Impl {
+    unsafe fn x_persistent_local_storage_get_path_size(&self,path_size: *mut usize) {
+        unsafe { *path_size = self.tmp_path.len() + 1; }
+    }
+
+    unsafe fn x_persistent_local_storage_get_path(&self,path_size: usize,path: *mut c_char,path_used: *mut usize) {
+        let bytes = self.tmp_path.as_bytes();
+        let len = bytes.len().min(path_size.saturating_sub(1));
+        for (index, byte) in bytes.iter().copied().take(len).enumerate() {
+            unsafe { *path.add(index) = byte as c_char; }
+        }
+        if path_size != 0 {
+            unsafe { *path.add(len) = 0; }
+        }
+        unsafe { *path_used = len + 1; }
+    }
+
+    unsafe fn x_persistent_local_storage_get_space_info(&self,info: *mut XPersistentLocalStorageSpaceInfo) {
+        unsafe {
+            *info = XPersistentLocalStorageSpaceInfo {
+                availableFreeBytes: 1024 * 1024 * 1024,
+                totalFreeBytes: 1024 * 1024 * 1024,
+                usedBytes: 512 * 1024 * 1024,
+                totalBytes: 2 * 1024 * 1024 * 1024,
+            };
+        }
+    }
+
+    unsafe fn x_persistent_local_storage_prompt_user_for_space_async(&self,requested_bytes: u64,async_block: *mut XAsyncBlock) {
+        todo!()
+    }
+
+    unsafe fn x_persistent_local_storage_prompt_user_for_space_result(&self,async_block: *mut XAsyncBlock) {
+        todo!()
+    }
+
+    unsafe fn x_persistent_local_storage_mount_for_package(&self,package_identifier: *const c_char,mount_handle: *mut XPackageMountHandle) {
+        todo!()
     }
 }
 
@@ -841,15 +909,31 @@ impl IXStoreAlias3_Impl for XStoreObject_Impl {}
 #[implement(IXNetworking, IXNetworking2)]
 pub struct XNetworkingObject;
 
+#[repr(u32)]
+enum XNetworkingConnectivityCostHint {
+    Unknown = 0,
+    Unrestricted = 1,
+    Fixed = 2,
+    Variable = 3,
+}
+#[repr(u32)]
+enum XNetworkingConnectivityLevelHint {
+    Unknown = 0,
+    None = 1,
+    LocalAccess = 2,
+    InternetAccess = 3,
+    ConstrainedInternetAccess = 4,
+}
+
 #[repr(C)]
 pub struct XNetworkingConnectivityHint {
-    pub connectivityLevel: u32,
-    pub connectivityCost: u32,
-    pub ianaInterfaceType: u32,
-    pub networkInitialized: u8,
-    pub approachingDataLimit: u8,
-    pub overDataLimit: u8,
-    pub roaming: u8,
+    pub connectivity_level: XNetworkingConnectivityLevelHint,
+    pub connectivity_cost: XNetworkingConnectivityCostHint,
+    pub iana_interface_type: u32,
+    pub network_initialized: bool,
+    pub approaching_data_limit: bool,
+    pub over_data_limit: bool,
+    pub roaming: bool,
 }
 
 #[repr(C)]
@@ -886,14 +970,14 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         }
         unsafe {
             *connectivityHint = XNetworkingConnectivityHint {
-                connectivityLevel: 3,
-                connectivityCost: 1,
-                ianaInterfaceType: 0,
-                networkInitialized: 1,
-                approachingDataLimit: 0,
-                overDataLimit: 0,
-                roaming: 0,
-            }
+                connectivity_level: XNetworkingConnectivityLevelHint::InternetAccess,
+                connectivity_cost: XNetworkingConnectivityCostHint::Unrestricted,
+                iana_interface_type: 6,
+                network_initialized: true,
+                approaching_data_limit: false,
+                over_data_limit: false,
+                roaming: false,
+            };
         }
         S_OK
     }
@@ -919,13 +1003,13 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
                 callback(
                     context,
                     &XNetworkingConnectivityHint {
-                        connectivityLevel: 3,
-                        connectivityCost: 1,
-                        ianaInterfaceType: 0,
-                        networkInitialized: 1,
-                        approachingDataLimit: 0,
-                        overDataLimit: 0,
-                        roaming: 0,
+                        connectivity_level: XNetworkingConnectivityLevelHint::InternetAccess,
+                        connectivity_cost: XNetworkingConnectivityCostHint::Unrestricted,
+                        iana_interface_type: 6,
+                        network_initialized: true,
+                        approaching_data_limit: false,
+                        over_data_limit: false,
+                        roaming: false,
                     },
                 )
             };
@@ -1104,6 +1188,12 @@ fn xnetworking_singleton() -> &'static IXNetworking {
         .0
 }
 
+fn xpersistent_local_storage_singleton() -> &'static IXPersistentLocalStorage {
+    &XPERSISTENT_LOCAL_STORAGE_SINGLETON
+        .get_or_init(|| GlobalInterface(XPersistentLocalStorage{ tmp_path: temp_dir().to_string_lossy().into_owned() }.into()))
+        .0
+}
+
 fn query<T: Interface + Clone>(
     object: &T,
     interface_id: *const GUID,
@@ -1153,6 +1243,9 @@ pub fn query_api_impl(
             //     unsafe { *interface_id }.to_u128()
             // );
             query(xnetworking_singleton(), interface_id, out)
+        }
+        CLSID_XPERSISTENT_LOCAL_STORAGE => {
+            query(xpersistent_local_storage_singleton(), interface_id, out)
         }
         _ => crate::delegated_query_api_impl(runtime_class_id, interface_id, out),
     };
