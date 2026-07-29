@@ -1240,11 +1240,11 @@ fn xnetworking_singleton() -> &'static IXNetworking {
 fn xpersistent_local_storage_singleton() -> &'static IXPersistentLocalStorage {
     &XPERSISTENT_LOCAL_STORAGE_SINGLETON
         .get_or_init(|| {
-GlobalInterface(
-XPersistentLocalStorage {
-tmp_path: temp_dir().to_string_lossy().into_owned(),
+            GlobalInterface(
+                XPersistentLocalStorage {
+                    tmp_path: temp_dir().to_string_lossy().into_owned(),
                 }
-.into(),
+                .into(),
             )
         })
         .0
