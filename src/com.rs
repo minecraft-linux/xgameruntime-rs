@@ -107,12 +107,31 @@ pub type XPackageMountHandle = u64;
 
 #[interface("41a4e10c-5a7e-41d9-8c37-37bde62a07d6")]
 pub unsafe trait IXPersistentLocalStorage: IUnknown {
-pub unsafe fn x_persistent_local_storage_get_path_size (self: &Self, path_size: *mut usize);
-pub unsafe fn x_persistent_local_storage_get_path (self: &Self, path_size: usize, path: *mut c_char, path_used: *mut usize);
-pub unsafe fn x_persistent_local_storage_get_space_info (self: &Self, info: *mut XPersistentLocalStorageSpaceInfo);
-pub unsafe fn x_persistent_local_storage_prompt_user_for_space_async (self: &Self, requested_bytes: u64, async_block: *mut XAsyncBlock);
-pub unsafe fn x_persistent_local_storage_prompt_user_for_space_result (self: &Self, async_block: *mut XAsyncBlock);
-pub unsafe fn x_persistent_local_storage_mount_for_package (self: &Self, package_identifier: *const c_char, mount_handle: *mut XPackageMountHandle);
+pub unsafe fn x_persistent_local_storage_get_path_size(self: &Self, path_size: *mut usize);
+pub unsafe fn x_persistent_local_storage_get_path(
+self: &Self,
+path_size: usize,
+path: *mut c_char,
+path_used: *mut usize,
+);
+pub unsafe fn x_persistent_local_storage_get_space_info(
+self: &Self,
+info: *mut XPersistentLocalStorageSpaceInfo,
+);
+pub unsafe fn x_persistent_local_storage_prompt_user_for_space_async(
+self: &Self,
+requested_bytes: u64,
+async_block: *mut XAsyncBlock,
+);
+pub unsafe fn x_persistent_local_storage_prompt_user_for_space_result(
+self: &Self,
+async_block: *mut XAsyncBlock,
+);
+pub unsafe fn x_persistent_local_storage_mount_for_package(
+self: &Self,
+package_identifier: *const c_char,
+mount_handle: *mut XPackageMountHandle,
+);
 }
 
 #[implement(IXPersistentLocalStorage)]
@@ -1169,6 +1188,8 @@ unsafe impl<T> Sync for GlobalInterface<T> {}
 static XFEATURE_SINGLETON: OnceLock<GlobalInterface<IXFeature>> = OnceLock::new();
 static XSTORE_SINGLETON: OnceLock<GlobalInterface<IXStore>> = OnceLock::new();
 static XNETWORKING_SINGLETON: OnceLock<GlobalInterface<IXNetworking>> = OnceLock::new();
+static XPERSISTENT_LOCAL_STORAGE_SINGLETON: OnceLock<GlobalInterface<IXPersistentLocalStorage>> =
+    OnceLock::new();
 
 fn xfeature_singleton() -> &'static IXFeature {
     &XFEATURE_SINGLETON
@@ -1190,7 +1211,14 @@ fn xnetworking_singleton() -> &'static IXNetworking {
 
 fn xpersistent_local_storage_singleton() -> &'static IXPersistentLocalStorage {
     &XPERSISTENT_LOCAL_STORAGE_SINGLETON
-        .get_or_init(|| GlobalInterface(XPersistentLocalStorage{ tmp_path: temp_dir().to_string_lossy().into_owned() }.into()))
+        .get_or_init(|| {
+GlobalInterface(
+XPersistentLocalStorage {
+tmp_path: temp_dir().to_string_lossy().into_owned(),
+                }
+.into(),
+            )
+        })
         .0
 }
 
