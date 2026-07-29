@@ -14,7 +14,8 @@ use windows_sys::core::BOOL;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
-const CLSID_XPERSISTENT_LOCAL_STORAGE: GUID = GUID::from_u128(0xf4faf4d4_2d04_4fce_b3e0_474a713a3e84);
+const CLSID_XPERSISTENT_LOCAL_STORAGE: GUID =
+    GUID::from_u128(0xf4faf4d4_2d04_4fce_b3e0_474a713a3e84);
 const STORE_SKU_ID_SIZE: usize = 18;
 const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 
@@ -97,41 +98,41 @@ impl IXFeature_Impl for XFeature_Impl {
 
 #[repr(C)]
 struct XPersistentLocalStorageSpaceInfo {
-availableFreeBytes: u64,
-totalFreeBytes: u64,
-usedBytes: u64,
-totalBytes: u64,
+    availableFreeBytes: u64,
+    totalFreeBytes: u64,
+    usedBytes: u64,
+    totalBytes: u64,
 }
 
 pub type XPackageMountHandle = u64;
 
 #[interface("41a4e10c-5a7e-41d9-8c37-37bde62a07d6")]
 pub unsafe trait IXPersistentLocalStorage: IUnknown {
-pub unsafe fn x_persistent_local_storage_get_path_size(self: &Self, path_size: *mut usize);
-pub unsafe fn x_persistent_local_storage_get_path(
-self: &Self,
-path_size: usize,
-path: *mut c_char,
-path_used: *mut usize,
-);
-pub unsafe fn x_persistent_local_storage_get_space_info(
-self: &Self,
-info: *mut XPersistentLocalStorageSpaceInfo,
-);
-pub unsafe fn x_persistent_local_storage_prompt_user_for_space_async(
-self: &Self,
-requested_bytes: u64,
-async_block: *mut XAsyncBlock,
-);
-pub unsafe fn x_persistent_local_storage_prompt_user_for_space_result(
-self: &Self,
-async_block: *mut XAsyncBlock,
-);
-pub unsafe fn x_persistent_local_storage_mount_for_package(
-self: &Self,
-package_identifier: *const c_char,
-mount_handle: *mut XPackageMountHandle,
-);
+    pub unsafe fn x_persistent_local_storage_get_path_size(self: &Self, path_size: *mut usize);
+    pub unsafe fn x_persistent_local_storage_get_path(
+        self: &Self,
+        path_size: usize,
+        path: *mut c_char,
+        path_used: *mut usize,
+    );
+    pub unsafe fn x_persistent_local_storage_get_space_info(
+        self: &Self,
+        info: *mut XPersistentLocalStorageSpaceInfo,
+    );
+    pub unsafe fn x_persistent_local_storage_prompt_user_for_space_async(
+        self: &Self,
+        requested_bytes: u64,
+        async_block: *mut XAsyncBlock,
+    );
+    pub unsafe fn x_persistent_local_storage_prompt_user_for_space_result(
+        self: &Self,
+        async_block: *mut XAsyncBlock,
+    );
+    pub unsafe fn x_persistent_local_storage_mount_for_package(
+        self: &Self,
+        package_identifier: *const c_char,
+        mount_handle: *mut XPackageMountHandle,
+    );
 }
 
 #[implement(IXPersistentLocalStorage)]
@@ -142,37 +143,37 @@ pub struct XPersistentLocalStorage {
 impl IXPersistentLocalStorage_Impl for XPersistentLocalStorage_Impl {
     unsafe fn x_persistent_local_storage_get_path_size(&self, path_size: *mut usize) {
         unsafe {
-*path_size = self.tmp_path.len() + 1;
-}
+            *path_size = self.tmp_path.len() + 1;
+        }
     }
 
     unsafe fn x_persistent_local_storage_get_path(
-&self,
-path_size: usize,
-path: *mut c_char,
-path_used: *mut usize,
-) {
+        &self,
+        path_size: usize,
+        path: *mut c_char,
+        path_used: *mut usize,
+    ) {
         let bytes = self.tmp_path.as_bytes();
         let len = bytes.len().min(path_size.saturating_sub(1));
         for (index, byte) in bytes.iter().copied().take(len).enumerate() {
             unsafe {
-*path.add(index) = byte as c_char;
-}
+                *path.add(index) = byte as c_char;
+            }
         }
         if path_size != 0 {
             unsafe {
-*path.add(len) = 0;
+                *path.add(len) = 0;
+            }
         }
-}
         unsafe {
-*path_used = len + 1;
-}
+            *path_used = len + 1;
+        }
     }
 
     unsafe fn x_persistent_local_storage_get_space_info(
-&self,
-info: *mut XPersistentLocalStorageSpaceInfo,
-) {
+        &self,
+        info: *mut XPersistentLocalStorageSpaceInfo,
+    ) {
         unsafe {
             *info = XPersistentLocalStorageSpaceInfo {
                 availableFreeBytes: 1024 * 1024 * 1024,
