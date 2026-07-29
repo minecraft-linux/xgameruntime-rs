@@ -140,23 +140,39 @@ pub struct XPersistentLocalStorage {
 }
 
 impl IXPersistentLocalStorage_Impl for XPersistentLocalStorage_Impl {
-    unsafe fn x_persistent_local_storage_get_path_size(&self,path_size: *mut usize) {
-        unsafe { *path_size = self.tmp_path.len() + 1; }
+    unsafe fn x_persistent_local_storage_get_path_size(&self, path_size: *mut usize) {
+        unsafe {
+*path_size = self.tmp_path.len() + 1;
+}
     }
 
-    unsafe fn x_persistent_local_storage_get_path(&self,path_size: usize,path: *mut c_char,path_used: *mut usize) {
+    unsafe fn x_persistent_local_storage_get_path(
+&self,
+path_size: usize,
+path: *mut c_char,
+path_used: *mut usize,
+) {
         let bytes = self.tmp_path.as_bytes();
         let len = bytes.len().min(path_size.saturating_sub(1));
         for (index, byte) in bytes.iter().copied().take(len).enumerate() {
-            unsafe { *path.add(index) = byte as c_char; }
+            unsafe {
+*path.add(index) = byte as c_char;
+}
         }
         if path_size != 0 {
-            unsafe { *path.add(len) = 0; }
+            unsafe {
+*path.add(len) = 0;
         }
-        unsafe { *path_used = len + 1; }
+}
+        unsafe {
+*path_used = len + 1;
+}
     }
 
-    unsafe fn x_persistent_local_storage_get_space_info(&self,info: *mut XPersistentLocalStorageSpaceInfo) {
+    unsafe fn x_persistent_local_storage_get_space_info(
+&self,
+info: *mut XPersistentLocalStorageSpaceInfo,
+) {
         unsafe {
             *info = XPersistentLocalStorageSpaceInfo {
                 availableFreeBytes: 1024 * 1024 * 1024,
@@ -167,15 +183,26 @@ impl IXPersistentLocalStorage_Impl for XPersistentLocalStorage_Impl {
         }
     }
 
-    unsafe fn x_persistent_local_storage_prompt_user_for_space_async(&self,requested_bytes: u64,async_block: *mut XAsyncBlock) {
+    unsafe fn x_persistent_local_storage_prompt_user_for_space_async(
+        &self,
+        requested_bytes: u64,
+        async_block: *mut XAsyncBlock,
+    ) {
         todo!()
     }
 
-    unsafe fn x_persistent_local_storage_prompt_user_for_space_result(&self,async_block: *mut XAsyncBlock) {
+    unsafe fn x_persistent_local_storage_prompt_user_for_space_result(
+        &self,
+        async_block: *mut XAsyncBlock,
+    ) {
         todo!()
     }
 
-    unsafe fn x_persistent_local_storage_mount_for_package(&self,package_identifier: *const c_char,mount_handle: *mut XPackageMountHandle) {
+    unsafe fn x_persistent_local_storage_mount_for_package(
+        &self,
+        package_identifier: *const c_char,
+        mount_handle: *mut XPackageMountHandle,
+    ) {
         todo!()
     }
 }
