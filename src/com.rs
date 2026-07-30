@@ -12,6 +12,8 @@ use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 use windows_core::{GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, implement, interface};
 use windows_sys::core::BOOL;
 
+use windows_core;
+
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
 const CLSID_XPERSISTENT_LOCAL_STORAGE: GUID =
@@ -1015,6 +1017,7 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         if connectivityHint.is_null() {
             return E_POINTER;
         }
+        println!("XNetworkingGetConnectivityHint");
         unsafe {
             *connectivityHint = XNetworkingConnectivityHint {
                 connectivity_level: XNetworkingConnectivityLevelHint::InternetAccess,
@@ -1034,6 +1037,7 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         requestHandle: *mut c_void,
         securityInformation: *mut c_void,
     ) -> HRESULT {
+        println!("XNetworkingVerifyServerCertificate");
         S_OK
     }
 
@@ -1045,7 +1049,7 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         token: *mut c_void,
     ) -> HRESULT {
         if let Some(callback) = callback {
-            // println!("XNetworkingRegisterConnectivityHintChanged");
+            println!("XNetworkingRegisterConnectivityHintChanged");
             unsafe {
                 callback(
                     context,
@@ -1070,7 +1074,10 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         asyncBlock: *mut c_void,
     ) -> HRESULT {
         let url = unsafe { CStr::from_ptr(url) };
-        // println!("XNetworkingQuerySecurityInformationForUrlAsync {}", url.to_string_lossy());
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlAsync {}",
+            url.to_string_lossy()
+        );
         unsafe {
             xasync::run_sync(asyncBlock.cast(), move || {
                 Ok(XNetworkingSecurityInformation {
@@ -1141,6 +1148,10 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         url: *mut u16,
         asyncBlock: *mut c_void,
     ) -> HRESULT {
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlUtf16Async {}",
+            windows_strings::PCWSTR::from_raw(url).to_string().unwrap()
+        );
         unsafe {
             xasync::run_sync(asyncBlock.cast(), move || {
                 Ok(XNetworkingSecurityInformation {
@@ -1311,15 +1322,20 @@ pub fn query_api_impl(
 #[cfg(test)]
 mod tests {
     use std::ffi::{c_char, c_void};
-    use std::ptr::null;
+    use std::ptr::{null, null_mut};
 
     use crate::com::{IXStore, XStoreGameLicense, get_result, query_api_impl};
     use crate::xasync::{XAsyncBlock, get_status, run};
     use crate::{
         E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test,
     };
-    use windows_core::{GUID, HRESULT, Interface};
-
+    use tokio::time;
+    use windows::Storage::Pickers::{FileOpenPicker, PickerLocationId, PickerViewMode};
+    use windows::Storage::{IStorageItem, StorageFile};
+    use windows::objbase::CoInitialize;
+    use windows::shobjidl_core::{IInitializeWithWindow, IInitializeWithWindow_Impl};
+    use windows::windef::HWND;
+    use windows_core::{GUID, HRESULT, HSTRING, IInspectable, Interface, implement};
     fn read_c_string(bytes: &[c_char]) -> String {
         let len = bytes
             .iter()
@@ -1350,120 +1366,81 @@ mod tests {
         };
     }
 
-    #[test]
-    #[ignore = "requires xgameruntime.gdk.dll delegate support in the Wine environment"]
-    fn query_game_license_async_blocks_via_xasync() {
-        let init_hr = InitializeApiImplEx2(2604, 100000, 10, std::ptr::null_mut());
-        assert_eq!(init_hr, HRESULT(0));
+    pub async fn pick_file(hwnd: HWND) -> windows_core::Result<StorageFile> {
+        let op: Result<IInspectable, windows_core::Error> =
+            windows_future::IAsyncOperation::spawn(|| {
+                // blocking or synchronous work performed on the Windows thread pool
+                // obtain_storage_file()
+                println!("starting wait");
 
-        let mut out = std::ptr::null_mut();
-        let hr = query_api_impl(
-            &crate::com::CLSID_XSTORE,
-            &crate::com::IXStore::IID,
-            &mut out,
-        );
-        assert_eq!(hr, HRESULT(0));
+                // tokio::time::sleep(std::time::Duration::from_secs(1)).into_future().await;
+                // std::thread::sleep(std::time::Duration::from_secs(5));
 
-        let store: IXStore = unsafe { IXStore::from_raw(out) };
-        let mut store_ctx: u64 = 0;
-        let hr = unsafe { store.XStoreCreateContext(0, &mut store_ctx) };
-        assert_eq!(hr, HRESULT(0));
+                println!("Returning error from async operation");
 
-        let mut async_block = XAsyncBlock {
-            queue: std::ptr::null_mut(),
-            context: std::ptr::null_mut(),
-            callback: None,
-            internal: [0; std::mem::size_of::<*mut c_void>() * 4],
-        };
-        let hr = unsafe {
-            store.XStoreQueryGameLicenseAsync(
-                store_ctx,
-                (&mut async_block as *mut XAsyncBlock).cast(),
-            )
-        };
-        assert_eq!(hr, HRESULT(0));
+                Err(windows_core::Error::from(HRESULT(200)))
+            })
+            .await;
+        op.expect_err("msg");
 
-        let status_hr = unsafe { get_status(&mut async_block, true) };
-        assert_eq!(status_hr, HRESULT(0));
+        let _: Result<IInspectable, windows_core::Error> =
+            windows_future::IAsyncOperation::spawn(|| {
+                // blocking or synchronous work performed on the Windows thread pool
+                // obtain_storage_file()
+                println!("starting wait");
 
-        let mut license = XStoreGameLicense::default();
-        let result_hr = unsafe {
-            store.XStoreQueryGameLicenseResult(
-                (&mut async_block as *mut XAsyncBlock).cast(),
-                (&mut license as *mut XStoreGameLicense).cast(),
-            )
-        };
-        assert_eq!(result_hr, HRESULT(0));
-        // assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
-        assert!(license.isActive);
-        assert!(!license.isTrialOwnedByThisUser);
-        assert!(!license.isTrial);
-        assert!(!license.isDiscLicense);
-        assert_eq!(license.trialTimeRemainingInSeconds, 0);
-        // assert_eq!(read_c_string(&license.trialUniqueId), "trial-license");
+                // tokio::time::sleep(std::time::Duration::from_secs(1)).into_future().await;
+                // std::thread::sleep(std::time::Duration::from_secs(5));
 
-        let mut async_block = XAsyncBlock {
-            queue: std::ptr::null_mut(),
-            context: std::ptr::null_mut(),
-            callback: None,
-            internal: [0; std::mem::size_of::<*mut c_void>() * 4],
-        };
+                println!("Returning error from async operation");
 
-        let tokio = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("failed to create Tokio runtime");
+                Err(windows_core::Error::from(HRESULT(0)))
+            })
+            .await;
 
-        let handle = tokio.handle().clone();
-        #[derive(Debug)]
-        struct Payload {
-            v: i32,
-            v2: i64,
-            v3: GUID,
+        let picker = windows_future::IAsyncOperation::spawn(|| {
+            // blocking or synchronous work performed on the Windows thread pool
+            // obtain_storage_file()
+            println!("starting wait");
+
+            // tokio::time::sleep(std::time::Duration::from_secs(1)).into_future().await;
+            // std::thread::sleep(std::time::Duration::from_secs(5));
+
+            println!("Returning error from async operation");
+
+            FileOpenPicker::new()
+        })
+        .await
+        .unwrap();
+
+        println!("let it crash");
+
+        // todo!("FileOpenPicker is not supported in Wine, so this test will fail. Consider using a different file picker implementation or mocking the picker for testing purposes."
+        // );
+
+        picker.SetViewMode(PickerViewMode::List)?;
+        picker.SetSuggestedStartLocation(PickerLocationId::DocumentsLibrary)?;
+
+        let filters = picker.FileTypeFilter()?;
+        filters.Append(&HSTRING::from(".xml"))?;
+        filters.Append(&HSTRING::from(".txt"))?;
+
+        // FileOpenPicker is a WinRT object, but desktop apps need to supply
+        // the owner HWND through this COM interop interface.
+        let initialize: IInitializeWithWindow = picker.cast()?;
+
+        unsafe {
+            initialize.Initialize(hwnd);
         }
 
-        let hr = unsafe {
-            run(&mut async_block, async move {
-                println!("starting");
+        let file = picker.PickSingleFileAsync()?.await?;
+        Ok(file)
+    }
 
-                let task = handle.spawn(async {
-                    let client = reqwest::Client::new();
-
-                    let response = client
-                        .get("http://google.com")
-                        .send()
-                        .await
-                        .map_err(|_| E_FAIL)?;
-
-                    println!("finished {}", response.status());
-
-                    Ok::<Payload, HRESULT>(Payload {
-                        v: 0,
-                        v2: 323,
-                        v3: GUID::zeroed(),
-                    })
-                });
-
-                task.await.map_err(|_| E_FAIL)?
-            })
-        };
-        assert_eq!(hr, HRESULT(0));
-
-        let status_hr = unsafe { get_status(&mut async_block, true) };
-        assert_eq!(status_hr, HRESULT(0));
-
-        let mut payload: Payload = Payload {
-            v: 0,
-            v2: 0,
-            v3: GUID::zeroed(),
-        };
-        let hr = unsafe { get_result(&mut async_block, null(), &mut payload) };
-        assert_eq!(hr, HRESULT(0));
-
-        println!("res {:?}", payload);
-
-        let uninit_hr = UninitializeApiImpl();
-        assert_eq!(uninit_hr, HRESULT(0));
-        set_delegated_dll_path_for_test(None);
+    #[tokio::test]
+    async fn test_picker() {
+        unsafe { CoInitialize(None) }.unwrap();
+        let file = pick_file(HWND(null_mut())).await.unwrap();
+        println!("{}", file.DisplayName().unwrap().to_string_lossy());
     }
 }

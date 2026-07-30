@@ -14,9 +14,14 @@ reqwest = { version = "0.13.2", default-features = false, features = [
     "json",
     "native-tls",
 ] }
-tokio = { version = "1.52.3", features = ["fs", "io-util", "rt-multi-thread"] }
+tokio = { version = "1.52.3", features = ["fs", "io-util", "rt-multi-thread", "test-util", "macros"] }
 
 [dependencies.windows-core]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-future]
 git = "https://github.com/microsoft/windows-rs"
 branch = "master"
 default-features = true
@@ -47,6 +52,16 @@ git = "https://github.com/microsoft/windows-rs"
 branch = "master"
 default-features = true
 
+[dependencies.windows-time]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
+[dependencies.windows-collections]
+git = "https://github.com/microsoft/windows-rs"
+branch = "master"
+default-features = true
+
 [dependencies.windows]
 git = "https://github.com/microsoft/windows-rs"
 branch = "master"
@@ -66,6 +81,8 @@ features = [
     "Security_Cryptography_DataProtection",
     "std",
     "Storage_Streams",
+    "Storage_Pickers",
+    "Storage_FileProperties",
     "UI",
     "Web_Syndication",
     "bits",
