@@ -180,6 +180,11 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
                 return Err(error);
             }
         };
+    
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .unwrap();
+
     Ok(DelegatedApi {
         module,
         initialize_api_impl_ex2,

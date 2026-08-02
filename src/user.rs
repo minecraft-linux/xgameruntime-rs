@@ -277,6 +277,7 @@ unsafe trait IXUserHandle : IUnknown {
     unsafe fn get_local_id(&self) -> XUserLocalId;
     // unsafe fn get_object(&self) -> *mut XUserHandleObject;
     unsafe fn get_auth(&self,) -> Arc<tokio::sync::Mutex<XUserHandleObject_Auth>>;
+    unsafe fn get_runtime(&self,) -> tokio::runtime::Handle;
 }
 
 struct XUserHandleObject_Auth {
@@ -292,6 +293,7 @@ struct XUserHandleObject {
     xuid: u64,
     local_id: XUserLocalId,
     auth: Arc<tokio::sync::Mutex<XUserHandleObject_Auth>>,
+    runtime: tokio::runtime::Runtime,
 }
 
 impl IXUserHandle_Impl for XUserHandleObject_Impl {
@@ -307,6 +309,10 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
     // }
     unsafe fn get_auth(&self,) -> Arc<tokio::sync::Mutex<XUserHandleObject_Auth>> {
         self.auth.clone()
+    }
+    
+    unsafe fn get_runtime(&self,) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
     }
 }
 
@@ -524,9 +530,6 @@ impl IXUser_Impl for XUser_Impl {
                     .build()
                     .unwrap()
                     .spawn(async {
-                        rustls::crypto::ring::default_provider()
-                            .install_default()
-                            .unwrap();
                         let client = reqwest::Client::builder()
                             // .use_native_tls()
                                 // .min_tls_version(Version::TLS_1_2)
@@ -538,9 +541,6 @@ impl IXUser_Impl for XUser_Impl {
                         // let client_id = "your_client_id".to_string();
                         // let title_id = "your_title_id".to_string();
                         // do_sisu(&client, manager, client_id, title_id).await?;
-                            env_logger::Builder::new()
-                            .filter_level(log::LevelFilter::Debug)
-                            .init();
                             std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
                             println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
                             secrets::init_secrets().expect("Unable to initialize credentials");
@@ -587,7 +587,11 @@ impl IXUser_Impl for XUser_Impl {
                                 policy,
                                 device_token: device,
                                 def_policy: SignaturePolicyCache::default(),
-                            }))
+                            })),
+                            runtime: tokio::runtime::Builder::new_multi_thread()
+                                .enable_all()
+                                .build()
+                                .unwrap()
                         };
                         let h: IXUserHandle = handle.into();
                         
@@ -676,16 +680,13 @@ impl IXUser_Impl for XUser_Impl {
     
     unsafe fn x_user_get_token_and_signature_async(&self,user: XUserHandle,options: XUserGetTokenAndSignatureOptions,method: *const c_char,url: *const c_char,header_count: usize,headers: *const XUserGetTokenAndSignatureHttpHeader,body_size: usize,body_buffer: *const c_void,async_: *mut XAsyncBlock) -> HRESULT {
         let user = unsafe { IXUserHandle::from_raw_borrowed(&user) };
+        let handle = user.map(|f|f.get_runtime().clone()).unwrap();
         let user = unsafe { user.unwrap().get_auth() };
         let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().to_string();
         println!("x_user_get_token_and_signature_async called with url: {}", url);
         unsafe { xasync::run(async_ as *mut XAsyncBlock, {
             async move {
-                let token = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap()
-                    .spawn(async move {
+                let token = handle.spawn(async move {
                 // let (device_token, title_token, user_token, pol) = {
                     let mut user = user.lock().await;
                     let device_token = user.device_token.clone();
