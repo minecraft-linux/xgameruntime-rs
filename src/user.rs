@@ -695,8 +695,8 @@ impl IXUser_Impl for XUser_Impl {
                 //     (device_token, title_token, user_token, pol)
                 // };
                 
-                let ra = pol.find_reling_party_for_url(&url).await;
-                let rb = user.def_policy.find_reling_party_for_url(&url).await;
+                let ra = pol.find_relying_party_for_url(&url).await;
+                let rb = user.def_policy.find_relying_party_for_url(&url).await;
                 let reling_party = match ra {
                     Ok(Some(rp)) => rp,
                     _ => match rb {
