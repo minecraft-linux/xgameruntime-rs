@@ -697,16 +697,16 @@ impl IXUser_Impl for XUser_Impl {
                 
                 let ra = pol.find_relying_party_for_url(&url).await;
                 let rb = user.def_policy.find_relying_party_for_url(&url).await;
-                let reling_party = match ra {
+                let relying_party = match ra {
                     Ok(Some(rp)) => rp,
                     _ => match rb {
                         Ok(Some(rp)) => rp,
                         _ => {
-                            panic!("No reling party found for url: {}", url);
+                            panic!("No relying party found for url: {}", url);
                         }
                     }
                 };
-                let token = user.authenticator.get_xsts_token(Some(&device_token), Some(&title_token), Some(&user_token), &reling_party).await.unwrap();
+                let token = user.authenticator.get_xsts_token(Some(&device_token), Some(&title_token), Some(&user_token), &relying_party).await.unwrap();
                 println!("token: {}", token.authorization_header_value());
                     token.authorization_header_value()
                 }).await.unwrap();
