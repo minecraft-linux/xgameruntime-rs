@@ -15,6 +15,8 @@ use windows_sys::minwindef::HMODULE;
 mod com;
 mod results;
 mod xasync;
+pub mod threading;
+pub mod user;
 
 type Ulong = u32;
 type Char = i8;
@@ -213,27 +215,27 @@ fn initialize_delegate(
         return hr;
     }
 
-    let mut out: *mut c_void = std::ptr::null_mut();
+    // let mut out: *mut c_void = std::ptr::null_mut();
 
-    let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
+    // let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
 
-    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUserPlatform::IID, &mut out) };
+    // let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUserPlatform::IID, &mut out) };
 
-    assert_eq!(hr, HRESULT(0));
-    assert!(!out.is_null());
+    // assert_eq!(hr, HRESULT(0));
+    // assert!(!out.is_null());
 
-    if let Some(platform) = unsafe { IXUserPlatform::from_raw_borrowed(&out) } {
-        let callback: XUserPlatformRemoteConnectEventHandlers =
-            XUserPlatformRemoteConnectEventHandlers {
-                show: Some(show),
-                close: Some(hide),
-                context: std::ptr::null_mut(),
-            };
-        let hr = unsafe {
-            platform.XUserPlatformRemoteConnectSetEventHandlers(std::ptr::null_mut(), &callback)
-        };
-        assert_eq!(hr, HRESULT(0));
-    }
+    // if let Some(platform) = unsafe { IXUserPlatform::from_raw_borrowed(&out) } {
+    //     let callback: XUserPlatformRemoteConnectEventHandlers =
+    //         XUserPlatformRemoteConnectEventHandlers {
+    //             show: Some(show),
+    //             close: Some(hide),
+    //             context: std::ptr::null_mut(),
+    //         };
+    //     let hr = unsafe {
+    //         platform.XUserPlatformRemoteConnectSetEventHandlers(std::ptr::null_mut(), &callback)
+    //     };
+    //     assert_eq!(hr, HRESULT(0));
+    // }
 
     state.ref_count = 1;
     state.api = Some(api);

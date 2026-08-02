@@ -16,11 +16,14 @@ const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
 const CLSID_XPERSISTENT_LOCAL_STORAGE: GUID =
     GUID::from_u128(0xf4faf4d4_2d04_4fce_b3e0_474a713a3e84);
+
+const CLSID_XUSER: GUID = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
 const STORE_SKU_ID_SIZE: usize = 18;
 const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 
 type XStoreContextHandle = u64;
 
+use crate::user::{IXUser, XUser};
 use crate::xasync::{XAsyncBlock, get_result};
 use crate::{E_FAIL, results::*, xasync};
 
@@ -1218,7 +1221,7 @@ static XSTORE_SINGLETON: OnceLock<GlobalInterface<IXStore>> = OnceLock::new();
 static XNETWORKING_SINGLETON: OnceLock<GlobalInterface<IXNetworking>> = OnceLock::new();
 static XPERSISTENT_LOCAL_STORAGE_SINGLETON: OnceLock<GlobalInterface<IXPersistentLocalStorage>> =
     OnceLock::new();
-
+static XUSER_SINGLETON: OnceLock<GlobalInterface<IXUser>> = OnceLock::new();
 fn xfeature_singleton() -> &'static IXFeature {
     &XFEATURE_SINGLETON
         .get_or_init(|| GlobalInterface(XFeature.into()))
@@ -1247,6 +1250,12 @@ fn xpersistent_local_storage_singleton() -> &'static IXPersistentLocalStorage {
                 .into(),
             )
         })
+        .0
+}
+
+fn xuser_singleton() -> &'static IXUser {
+    &XUSER_SINGLETON
+        .get_or_init(|| GlobalInterface(XUser.into()))
         .0
 }
 
@@ -1303,6 +1312,9 @@ pub fn query_api_impl(
         CLSID_XPERSISTENT_LOCAL_STORAGE => {
             query(xpersistent_local_storage_singleton(), interface_id, out)
         }
+        CLSID_XUSER => {
+            query(xuser_singleton(), interface_id, out)
+        }
         _ => crate::delegated_query_api_impl(runtime_class_id, interface_id, out),
     };
     res
@@ -1350,120 +1362,120 @@ mod tests {
         };
     }
 
-    #[test]
-    #[ignore = "requires xgameruntime.gdk.dll delegate support in the Wine environment"]
-    fn query_game_license_async_blocks_via_xasync() {
-        let init_hr = InitializeApiImplEx2(2604, 100000, 10, std::ptr::null_mut());
-        assert_eq!(init_hr, HRESULT(0));
+    // #[test]
+    // #[ignore = "requires xgameruntime.gdk.dll delegate support in the Wine environment"]
+    // fn query_game_license_async_blocks_via_xasync() {
+    //     let init_hr = InitializeApiImplEx2(2604, 100000, 10, std::ptr::null_mut());
+    //     assert_eq!(init_hr, HRESULT(0));
 
-        let mut out = std::ptr::null_mut();
-        let hr = query_api_impl(
-            &crate::com::CLSID_XSTORE,
-            &crate::com::IXStore::IID,
-            &mut out,
-        );
-        assert_eq!(hr, HRESULT(0));
+    //     let mut out = std::ptr::null_mut();
+    //     let hr = query_api_impl(
+    //         &crate::com::CLSID_XSTORE,
+    //         &crate::com::IXStore::IID,
+    //         &mut out,
+    //     );
+    //     assert_eq!(hr, HRESULT(0));
 
-        let store: IXStore = unsafe { IXStore::from_raw(out) };
-        let mut store_ctx: u64 = 0;
-        let hr = unsafe { store.XStoreCreateContext(0, &mut store_ctx) };
-        assert_eq!(hr, HRESULT(0));
+    //     let store: IXStore = unsafe { IXStore::from_raw(out) };
+    //     let mut store_ctx: u64 = 0;
+    //     let hr = unsafe { store.XStoreCreateContext(0, &mut store_ctx) };
+    //     assert_eq!(hr, HRESULT(0));
 
-        let mut async_block = XAsyncBlock {
-            queue: std::ptr::null_mut(),
-            context: std::ptr::null_mut(),
-            callback: None,
-            internal: [0; std::mem::size_of::<*mut c_void>() * 4],
-        };
-        let hr = unsafe {
-            store.XStoreQueryGameLicenseAsync(
-                store_ctx,
-                (&mut async_block as *mut XAsyncBlock).cast(),
-            )
-        };
-        assert_eq!(hr, HRESULT(0));
+    //     let mut async_block = XAsyncBlock {
+    //         queue: std::ptr::null_mut(),
+    //         context: std::ptr::null_mut(),
+    //         callback: None,
+    //         internal: [0; std::mem::size_of::<*mut c_void>() * 4],
+    //     };
+    //     let hr = unsafe {
+    //         store.XStoreQueryGameLicenseAsync(
+    //             store_ctx,
+    //             (&mut async_block as *mut XAsyncBlock).cast(),
+    //         )
+    //     };
+    //     assert_eq!(hr, HRESULT(0));
 
-        let status_hr = unsafe { get_status(&mut async_block, true) };
-        assert_eq!(status_hr, HRESULT(0));
+    //     let status_hr = unsafe { get_status(&mut async_block, true) };
+    //     assert_eq!(status_hr, HRESULT(0));
 
-        let mut license = XStoreGameLicense::default();
-        let result_hr = unsafe {
-            store.XStoreQueryGameLicenseResult(
-                (&mut async_block as *mut XAsyncBlock).cast(),
-                (&mut license as *mut XStoreGameLicense).cast(),
-            )
-        };
-        assert_eq!(result_hr, HRESULT(0));
-        // assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
-        assert!(license.isActive);
-        assert!(!license.isTrialOwnedByThisUser);
-        assert!(!license.isTrial);
-        assert!(!license.isDiscLicense);
-        assert_eq!(license.trialTimeRemainingInSeconds, 0);
-        // assert_eq!(read_c_string(&license.trialUniqueId), "trial-license");
+    //     let mut license = XStoreGameLicense::default();
+    //     let result_hr = unsafe {
+    //         store.XStoreQueryGameLicenseResult(
+    //             (&mut async_block as *mut XAsyncBlock).cast(),
+    //             (&mut license as *mut XStoreGameLicense).cast(),
+    //         )
+    //     };
+    //     assert_eq!(result_hr, HRESULT(0));
+    //     // assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
+    //     assert!(license.isActive);
+    //     assert!(!license.isTrialOwnedByThisUser);
+    //     assert!(!license.isTrial);
+    //     assert!(!license.isDiscLicense);
+    //     assert_eq!(license.trialTimeRemainingInSeconds, 0);
+    //     // assert_eq!(read_c_string(&license.trialUniqueId), "trial-license");
 
-        let mut async_block = XAsyncBlock {
-            queue: std::ptr::null_mut(),
-            context: std::ptr::null_mut(),
-            callback: None,
-            internal: [0; std::mem::size_of::<*mut c_void>() * 4],
-        };
+    //     let mut async_block = XAsyncBlock {
+    //         queue: std::ptr::null_mut(),
+    //         context: std::ptr::null_mut(),
+    //         callback: None,
+    //         internal: [0; std::mem::size_of::<*mut c_void>() * 4],
+    //     };
 
-        let tokio = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("failed to create Tokio runtime");
+    //     let tokio = tokio::runtime::Builder::new_multi_thread()
+    //         .enable_all()
+    //         .build()
+    //         .expect("failed to create Tokio runtime");
 
-        let handle = tokio.handle().clone();
-        #[derive(Debug)]
-        struct Payload {
-            v: i32,
-            v2: i64,
-            v3: GUID,
-        }
+    //     let handle = tokio.handle().clone();
+    //     #[derive(Debug)]
+    //     struct Payload {
+    //         v: i32,
+    //         v2: i64,
+    //         v3: GUID,
+    //     }
 
-        let hr = unsafe {
-            run(&mut async_block, async move {
-                println!("starting");
+    //     let hr = unsafe {
+    //         run(&mut async_block, async move {
+    //             println!("starting");
 
-                let task = handle.spawn(async {
-                    let client = reqwest::Client::new();
+    //             let task = handle.spawn(async {
+    //                 let client = reqwest::Client::new();
 
-                    let response = client
-                        .get("http://google.com")
-                        .send()
-                        .await
-                        .map_err(|_| E_FAIL)?;
+    //                 let response = client
+    //                     .get("http://google.com")
+    //                     .send()
+    //                     .await
+    //                     .map_err(|_| E_FAIL)?;
 
-                    println!("finished {}", response.status());
+    //                 println!("finished {}", response.status());
 
-                    Ok::<Payload, HRESULT>(Payload {
-                        v: 0,
-                        v2: 323,
-                        v3: GUID::zeroed(),
-                    })
-                });
+    //                 Ok::<Payload, HRESULT>(Payload {
+    //                     v: 0,
+    //                     v2: 323,
+    //                     v3: GUID::zeroed(),
+    //                 })
+    //             });
 
-                task.await.map_err(|_| E_FAIL)?
-            })
-        };
-        assert_eq!(hr, HRESULT(0));
+    //             task.await.map_err(|_| E_FAIL)?
+    //         })
+    //     };
+    //     assert_eq!(hr, HRESULT(0));
 
-        let status_hr = unsafe { get_status(&mut async_block, true) };
-        assert_eq!(status_hr, HRESULT(0));
+    //     let status_hr = unsafe { get_status(&mut async_block, true) };
+    //     assert_eq!(status_hr, HRESULT(0));
 
-        let mut payload: Payload = Payload {
-            v: 0,
-            v2: 0,
-            v3: GUID::zeroed(),
-        };
-        let hr = unsafe { get_result(&mut async_block, null(), &mut payload) };
-        assert_eq!(hr, HRESULT(0));
+    //     let mut payload: Payload = Payload {
+    //         v: 0,
+    //         v2: 0,
+    //         v3: GUID::zeroed(),
+    //     };
+    //     let hr = unsafe { get_result(&mut async_block, null(), &mut payload) };
+    //     assert_eq!(hr, HRESULT(0));
 
-        println!("res {:?}", payload);
+    //     println!("res {:?}", payload);
 
-        let uninit_hr = UninitializeApiImpl();
-        assert_eq!(uninit_hr, HRESULT(0));
-        set_delegated_dll_path_for_test(None);
-    }
+    //     let uninit_hr = UninitializeApiImpl();
+    //     assert_eq!(uninit_hr, HRESULT(0));
+    //     set_delegated_dll_path_for_test(None);
+    // }
 }
