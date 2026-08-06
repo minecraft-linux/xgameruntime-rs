@@ -8,8 +8,9 @@ use std::{
 };
 // use reqwest::tls::Version;
 use windows_core::{HRESULT, IUnknown, Interface, implement, interface};
-use xal::SignaturePolicyCache;
+use xal_new::SignaturePolicyCache;
 use xodus::{auth::do_sisu, secrets, tokens::TokenManager};
+use xal_xodus as xal;
 
 use crate::{
     E_FAIL,
@@ -754,7 +755,7 @@ impl IXUser_Impl for XUser_Impl {
                                 .send()
                                 .await
                                 .unwrap()
-                                .json::<xal::response::TitleEndpointsResponse>()
+                                .json::<xal_new::response::TitleEndpointsResponse>()
                                 .await
                                 .unwrap();
                             println!("{:?}", r);
