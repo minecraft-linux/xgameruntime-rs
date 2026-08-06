@@ -14,9 +14,9 @@ use windows_sys::minwindef::HMODULE;
 
 mod com;
 mod results;
-mod xasync;
 pub mod threading;
 pub mod user;
+mod xasync;
 
 type Ulong = u32;
 type Char = i8;
@@ -180,7 +180,7 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
                 return Err(error);
             }
         };
-    
+
     rustls::crypto::ring::default_provider()
         .install_default()
         .unwrap();
@@ -211,7 +211,7 @@ fn initialize_delegate(
         Err(error) => {
             println!("Failed to load delegated API: {:#X}", error.0);
             return error;
-        },
+        }
     };
 
     println!("Initializing delegated API...");
