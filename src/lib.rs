@@ -204,21 +204,30 @@ fn initialize_delegate(
         state.ref_count += 1;
         return S_OK;
     }
+    println!("Loading delegated API...");
 
     let api = match unsafe { load_delegated_api() } {
         Ok(api) => api,
-        Err(error) => return error,
+        Err(error) => {
+            println!("Failed to load delegated API: {:#X}", error.0);
+            return error;
+        },
     };
+
+    println!("Initializing delegated API...");
 
     let hr = unsafe {
         (api.initialize_api_impl_ex2)(gdk_ver, gs_ver, mode | 8 /* xplat mode */, options)
     };
     if hr != S_OK {
+        println!("Failed to initialize delegated API: {:#X}", hr.0);
         unsafe {
             FreeLibrary(api.module);
         }
         return hr;
     }
+
+    println!("Delegated API initialized successfully.");
 
     // let mut out: *mut c_void = std::ptr::null_mut();
 
