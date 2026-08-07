@@ -1,12 +1,12 @@
-use crate::S_OK;
 use crate::com::query_api_impl;
+use crate::{S_OK, threading};
 
 use crate::results::*;
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
 use std::pin::Pin;
 use std::ptr::null_mut;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Wake, Waker};
 use windows_core::{GUID, HRESULT, IUnknown, Interface, interface};
 use windows_sys::core::BOOL;
@@ -16,7 +16,7 @@ type XAsyncCompletionRoutine = unsafe extern "system" fn(async_block: *mut XAsyn
 type XAsyncProvider =
     unsafe extern "system" fn(op: XAsyncOp, data: *const XAsyncProviderData) -> HRESULT;
 
-const CLSID_XASYNC: GUID = GUID::from_u128(0x073b7dcb_1fcf_4030_94be_e3c9eb623428);
+pub const CLSID_XASYNC: GUID = GUID::from_u128(0x073b7dcb_1fcf_4030_94be_e3c9eb623428);
 
 #[repr(C)]
 pub struct XAsyncBlock {

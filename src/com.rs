@@ -4,7 +4,7 @@ use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
 use std::pin::Pin;
 use std::ptr::null_mut;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll, Wake, Waker};
 use windows::minwindef::LPARAM;
 use windows::windef::HWND;
@@ -24,8 +24,8 @@ const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 type XStoreContextHandle = u64;
 
 use crate::user::{IXUser, XUser};
-use crate::xasync::{XAsyncBlock, get_result};
-use crate::{E_FAIL, results::*, xasync};
+use crate::xasync::{IXAsync, XAsyncBlock, get_result};
+use crate::{E_FAIL, results::*, threading, xasync};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -1222,6 +1222,7 @@ static XNETWORKING_SINGLETON: OnceLock<GlobalInterface<IXNetworking>> = OnceLock
 static XPERSISTENT_LOCAL_STORAGE_SINGLETON: OnceLock<GlobalInterface<IXPersistentLocalStorage>> =
     OnceLock::new();
 static XUSER_SINGLETON: OnceLock<GlobalInterface<IXUser>> = OnceLock::new();
+static XASYNC_SINGLETON: OnceLock<GlobalInterface<IXAsync>> = OnceLock::new();
 fn xfeature_singleton() -> &'static IXFeature {
     &XFEATURE_SINGLETON
         .get_or_init(|| GlobalInterface(XFeature.into()))
@@ -1265,6 +1266,32 @@ fn xuser_singleton() -> &'static IXUser {
                 }
                 .into(),
             )
+        })
+        .0
+}
+
+fn xasync_singleton() -> &'static IXAsync {
+    &XASYNC_SINGLETON
+        .get_or_init(|| {
+            let async_: threading::IXAsync = threading::XAsync {
+                process_queue: Mutex::new(null_mut()),
+                runtime: tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap(),
+            }
+            .into();
+
+            let mut queue: *mut c_void = std::ptr::null_mut();
+            unsafe {
+                async_.x_task_queue_create(
+                    threading::XTaskQueueDispatchMode::ThreadPool,
+                    threading::XTaskQueueDispatchMode::ThreadPool,
+                    &mut queue,
+                )
+            };
+            unsafe { async_.x_task_queue_set_current_process_task_queue(queue) };
+            GlobalInterface(unsafe { xasync::IXAsync::from_raw(async_.into_raw()) })
         })
         .0
 }
@@ -1323,6 +1350,7 @@ pub fn query_api_impl(
             query(xpersistent_local_storage_singleton(), interface_id, out)
         }
         CLSID_XUSER => query(xuser_singleton(), interface_id, out),
+        xasync::CLSID_XASYNC => query(xasync_singleton(), interface_id, out),
         _ => crate::delegated_query_api_impl(runtime_class_id, interface_id, out),
     };
     res

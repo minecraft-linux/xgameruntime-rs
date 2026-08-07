@@ -21,8 +21,8 @@ use windows::{
     winnt::{self, PTP_CALLBACK_INSTANCE, PTP_WAIT, TP_WAIT_RESULT},
 };
 use windows_core::{
-    ComObjectInner, ComObjectInterface, HRESULT, IUnknown, Interface, InterfaceRef, implement,
-    interface,
+    AsImpl, ComObjectInner, ComObjectInterface, HRESULT, IUnknown, Interface, InterfaceRef,
+    implement, interface,
 };
 
 use crate::{
@@ -40,7 +40,7 @@ enum XAsyncOp {
 }
 
 #[repr(u32)]
-enum XTaskQueueDispatchMode {
+pub enum XTaskQueueDispatchMode {
     Manual,
     ThreadPool,
     SerializedThreadPool,
@@ -147,131 +147,6 @@ impl IXAsyncState_Impl for XAsyncState_Impl {
 struct XAsyncInternal {
     state: atomic::AtomicPtr<c_void>,
     magic_result: atomic::AtomicU64,
-}
-
-impl XAsyncBlock {
-    fn get_internal_raw(&self) -> &mut XAsyncInternal {
-        assert!(size_of::<XAsyncInternal>() <= self.internal.len());
-        unsafe { &mut *(self.internal.as_ptr() as *mut XAsyncInternal) }
-    }
-    fn get_state_ex(&self, detach: bool) -> (Option<IXAsyncState>, Option<HRESULT>) {
-        let internal = self.get_internal_raw();
-        let magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
-        if (magic_result >> 32) as u32 != XASYNC_INT_MAGIC {
-            return (None, None);
-        }
-
-        let result = HRESULT((magic_result & 0xFFFFFFFF) as i32);
-        let result = if result == E_PENDING {
-            None
-        } else {
-            Some(result)
-        };
-
-        let state_ptr = if detach {
-            internal.state.swap(null_mut(), Ordering::AcqRel)
-        } else {
-            internal.state.load(Ordering::Acquire)
-        };
-        if state_ptr.is_null() {
-            return (None, result);
-        }
-
-        if detach {
-            let state = unsafe { IXAsyncState::from_raw(state_ptr) };
-
-            let provider_block = unsafe { &*state.get_local_block() };
-            let state_ptr_2 = provider_block
-                .get_internal_raw()
-                .state
-                .swap(null_mut(), Ordering::AcqRel);
-            assert!(state_ptr_2 == state_ptr);
-            mem::drop(unsafe { IXAsyncState::from_raw(state_ptr) });
-            (Some(state), result)
-        } else {
-            let state = unsafe { IXAsyncState::from_raw_borrowed(&state_ptr) };
-
-            (state.map(|s| s.clone()), result)
-        }
-    }
-    fn get_state(&self) -> (Option<IXAsyncState>, Option<HRESULT>) {
-        self.get_state_ex(false)
-    }
-
-    fn create_state(&self, context: *mut c_void, provider: XAsyncProvider) -> Option<IXAsyncState> {
-        let internal = self.get_internal_raw();
-        let mut magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
-        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC {
-            return None;
-        }
-        loop {
-            if (magic_result >> 32) as u32 != XASYNC_INITIALIZE_MAGIC {
-                break;
-            }
-            magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
-        }
-
-        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC {
-            return None;
-        }
-
-        if internal
-            .magic_result
-            .compare_exchange(
-                magic_result,
-                (XASYNC_INITIALIZE_MAGIC as u64) << 32,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_err()
-        {
-            return None;
-        }
-
-        let state: IXAsyncState = XAsyncState {
-            local_block: *self,
-            user_block: self as *const _ as *mut XAsyncBlock,
-            provider_data: XAsyncProviderData {
-                async_: null_mut() as *mut XAsyncBlock,
-                buffer_size: 0,
-                buffer: null_mut(),
-                context: context,
-            },
-            provider: provider,
-            waiter: Arc::new((Mutex::new(0), Condvar::new())),
-            queue: if self.queue.is_null() {
-                todo!("provide a queue")
-            } else {
-                unsafe { ITaskQueue::from_raw_borrowed(&self.queue).unwrap().clone() }
-            },
-        }
-        .into();
-
-        internal
-            .state
-            .store(state.clone().into_raw(), Ordering::Release);
-
-        let local_block = unsafe { &*state.get_local_block() };
-
-        let local_internal = local_block.get_internal_raw();
-        local_internal.magic_result.store(
-            (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64),
-            Ordering::Release,
-        );
-        local_internal
-            .state
-            .store(state.clone().into_raw(), Ordering::Release);
-
-        let provider_data = unsafe { &mut *state.get_provider_data() };
-        provider_data.async_ = unsafe { state.get_local_block() };
-        // signal no garbage bytes are stored
-        internal.magic_result.store(
-            (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64),
-            Ordering::Release,
-        );
-
-        Some(state)
-    }
 }
 
 // pub unsafe fn x_task_queue_monitor_callback (self: &Self, context: *mut c_void, queue: XTaskQueueHandle, port: XTaskQueuePort);
@@ -431,6 +306,139 @@ pub unsafe trait IXAsync: IUnknown {
     pub unsafe fn x_thread_is_time_sensitive(self: &Self) -> bool;
 }
 
+impl XAsyncBlock {
+    fn get_internal_raw(&self) -> &mut XAsyncInternal {
+        assert!(size_of::<XAsyncInternal>() <= self.internal.len());
+        unsafe { &mut *(self.internal.as_ptr() as *mut XAsyncInternal) }
+    }
+    fn get_state_ex(&self, detach: bool) -> (Option<IXAsyncState>, Option<HRESULT>) {
+        let internal = self.get_internal_raw();
+        let magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
+        if (magic_result >> 32) as u32 != XASYNC_INT_MAGIC {
+            return (None, None);
+        }
+
+        let result = HRESULT((magic_result & 0xFFFFFFFF) as i32);
+        let result = if result == E_PENDING {
+            None
+        } else {
+            Some(result)
+        };
+
+        let state_ptr = if detach {
+            internal.state.swap(null_mut(), Ordering::AcqRel)
+        } else {
+            internal.state.load(Ordering::Acquire)
+        };
+        if state_ptr.is_null() {
+            return (None, result);
+        }
+
+        if detach {
+            let state = unsafe { IXAsyncState::from_raw(state_ptr) };
+
+            let provider_block = unsafe { &*state.get_local_block() };
+            let state_ptr_2 = provider_block
+                .get_internal_raw()
+                .state
+                .swap(null_mut(), Ordering::AcqRel);
+            assert!(state_ptr_2 == state_ptr);
+            mem::drop(unsafe { IXAsyncState::from_raw(state_ptr) });
+            (Some(state), result)
+        } else {
+            let state = unsafe { IXAsyncState::from_raw_borrowed(&state_ptr) };
+
+            (state.map(|s| s.clone()), result)
+        }
+    }
+    fn get_state(&self) -> (Option<IXAsyncState>, Option<HRESULT>) {
+        self.get_state_ex(false)
+    }
+
+    fn create_state(
+        &self,
+        static_: InterfaceRef<'_, IXAsync>,
+        context: *mut c_void,
+        provider: XAsyncProvider,
+    ) -> Option<IXAsyncState> {
+        let internal = self.get_internal_raw();
+        let mut magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
+        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC {
+            return None;
+        }
+        loop {
+            if (magic_result >> 32) as u32 != XASYNC_INITIALIZE_MAGIC {
+                break;
+            }
+            magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
+        }
+
+        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC {
+            return None;
+        }
+
+        if internal
+            .magic_result
+            .compare_exchange(
+                magic_result,
+                (XASYNC_INITIALIZE_MAGIC as u64) << 32,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            return None;
+        }
+
+        let state: IXAsyncState = XAsyncState {
+            local_block: *self,
+            user_block: self as *const _ as *mut XAsyncBlock,
+            provider_data: XAsyncProviderData {
+                async_: null_mut() as *mut XAsyncBlock,
+                buffer_size: 0,
+                buffer: null_mut(),
+                context: context,
+            },
+            provider: provider,
+            waiter: Arc::new((Mutex::new(0), Condvar::new())),
+            queue: if self.queue.is_null() {
+                // todo!("provide a queue")
+                let mut queue: XTaskQueueHandle = std::ptr::null_mut();
+                unsafe { static_.x_task_queue_get_current_process_task_queue(&mut queue) };
+                unsafe { ITaskQueue::from_raw(queue) }
+            } else {
+                unsafe { ITaskQueue::from_raw_borrowed(&self.queue).unwrap().clone() }
+            },
+        }
+        .into();
+
+        internal
+            .state
+            .store(state.clone().into_raw(), Ordering::Release);
+
+        let local_block = unsafe { &*state.get_local_block() };
+
+        let local_internal = local_block.get_internal_raw();
+        local_internal.magic_result.store(
+            (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64),
+            Ordering::Release,
+        );
+        local_internal
+            .state
+            .store(state.clone().into_raw(), Ordering::Release);
+
+        let provider_data = unsafe { &mut *state.get_provider_data() };
+        provider_data.async_ = unsafe { state.get_local_block() };
+        // signal no garbage bytes are stored
+        internal.magic_result.store(
+            (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64),
+            Ordering::Release,
+        );
+
+        Some(state)
+    }
+}
+
 unsafe extern "system" fn wait_callback(
     _instance: PTP_CALLBACK_INSTANCE,
     context: *mut c_void,
@@ -460,8 +468,8 @@ std::thread_local! {
 
 #[implement(IXAsync)]
 pub struct XAsync {
-    process_queue: Mutex<XTaskQueueHandle>,
-    runtime: tokio::runtime::Runtime,
+    pub process_queue: Mutex<XTaskQueueHandle>,
+    pub runtime: tokio::runtime::Runtime,
 }
 
 #[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
@@ -979,7 +987,7 @@ impl IXAsync_Impl for XAsync_Impl {
         let Some(provider) = provider else {
             return E_FAIL;
         };
-        let Some(state) = blk.create_state(context, provider) else {
+        let Some(state) = blk.create_state(self.as_interface_ref(), context, provider) else {
             return E_FAIL;
         };
 
@@ -1265,7 +1273,7 @@ impl IXAsync_Impl for XAsync_Impl {
         if a.is_err() {
             return E_FAIL;
         }
-        unsafe { *queue = *a.unwrap() };
+        unsafe { self.x_task_queue_duplicate_handle(*a.unwrap(), queue) };
         S_OK
     }
 
