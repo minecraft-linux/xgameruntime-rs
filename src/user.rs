@@ -1,3 +1,4 @@
+use reqwest::tls::Version;
 use rustls::lock::Mutex;
 use std::ptr::null_mut;
 use std::{
@@ -446,7 +447,9 @@ pub unsafe trait IXUser3: IXUser {
 }
 
 #[implement(IXUser, IXUser2, IXUser3)]
-pub struct XUser;
+pub struct XUser {
+    pub runtime: tokio::runtime::Runtime,
+}
 
 #[interface("01acd177-91f9-4763-a38e-ccbb55ce32e0")]
 unsafe trait IXUserHandle: IUnknown {
@@ -470,7 +473,7 @@ struct XUserHandleObject {
     xuid: u64,
     local_id: XUserLocalId,
     auth: Arc<tokio::sync::Mutex<XUserHandleObject_Auth>>,
-    runtime: tokio::runtime::Runtime,
+    runtime: tokio::runtime::Handle,
 }
 
 impl IXUserHandle_Impl for XUserHandleObject_Impl {
@@ -491,7 +494,7 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
     }
 
     unsafe fn get_runtime(&self) -> tokio::runtime::Handle {
-        self.runtime.handle().clone()
+        self.runtime.clone()
     }
 }
 
@@ -712,19 +715,21 @@ impl IXUser_Impl for XUser_Impl {
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_user_add_async called");
+        let handle = self.runtime.handle().clone();
+        let handle2 = self.runtime.handle().clone();
         unsafe {
             xasync::run(async_ as *mut XAsyncBlock, {
-                async {
-                    let user = tokio::runtime::Builder::new_multi_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap()
-                        .spawn(async {
+                async move {
+                    let user = handle
+                        .spawn(async move {
                             let client = reqwest::Client::builder()
                                 // .use_native_tls()
                                 // .min_tls_version(Version::TLS_1_2)
                                 //  .max_tls_version(Version::TLS_1_2)
+                                .use_rustls_tls()
                                 .http1_only()
+                                .connection_verbose(true)
+                                .pool_max_idle_per_host(0)
                                 .connect_timeout(std::time::Duration::from_secs(5))
                                 .timeout(std::time::Duration::from_secs(10))
                                 .build()
@@ -760,7 +765,19 @@ impl IXUser_Impl for XUser_Impl {
                                 .unwrap();
                             println!("{:?}", r);
 
-                            let mut policy = SignaturePolicyCache::new(r);
+                            let policy = SignaturePolicyCache::new(r);
+
+                            let r = client
+                                .get("https://title.mgt.xboxlive.com/titles/default/endpoints?type=1")
+                                .send()
+                                .await
+                                .unwrap()
+                                .json::<xal_new::response::TitleEndpointsResponse>()
+                                .await
+                                .unwrap();
+                            println!("{:?}", r);
+
+                            let def_policy = SignaturePolicyCache::new(r);
 
                             let xid = resp
                                 .authorization_token
@@ -777,12 +794,9 @@ impl IXUser_Impl for XUser_Impl {
                                     auth: resp,
                                     policy,
                                     device_token: device,
-                                    def_policy: SignaturePolicyCache::default(),
+                                    def_policy: def_policy,
                                 })),
-                                runtime: tokio::runtime::Builder::new_multi_thread()
-                                    .enable_all()
-                                    .build()
-                                    .unwrap(),
+                                runtime: handle2,
                             };
                             let h: IXUserHandle = handle.into();
 

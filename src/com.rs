@@ -1255,7 +1255,10 @@ fn xpersistent_local_storage_singleton() -> &'static IXPersistentLocalStorage {
 
 fn xuser_singleton() -> &'static IXUser {
     &XUSER_SINGLETON
-        .get_or_init(|| GlobalInterface(XUser.into()))
+        .get_or_init(|| GlobalInterface(XUser{ runtime: tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap() }.into()))
         .0
 }
 

@@ -204,6 +204,7 @@ fn initialize_delegate(
         state.ref_count += 1;
         return S_OK;
     }
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
     println!("Loading delegated API...");
 
     let api = match unsafe { load_delegated_api() } {
