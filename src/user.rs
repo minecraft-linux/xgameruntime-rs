@@ -10,8 +10,8 @@ use std::{
 // use reqwest::tls::Version;
 use windows_core::{HRESULT, IUnknown, Interface, implement, interface};
 use xal_new::SignaturePolicyCache;
-use xodus::{auth::do_sisu, secrets, tokens::TokenManager};
 use xal_xodus as xal;
+use xodus::{auth::do_sisu, secrets, tokens::TokenManager};
 
 use crate::{
     E_FAIL,

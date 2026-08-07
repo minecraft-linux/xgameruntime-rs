@@ -5,14 +5,18 @@ use std::{
     os::{raw::c_void, windows::raw::HANDLE},
     ptr::null_mut,
     sync::{
-        Mutex,
-        atomic::{self, Ordering},
+        Arc, Mutex,
+        atomic::{self, AtomicU64, Ordering},
     },
 };
 
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use windows::{
-    threadpoolapiset::{CreateThreadpoolWait, SetThreadpoolWait, WaitForThreadpoolWaitCallbacks},
+    threadpoolapiset::{
+        CloseThreadpoolWait, CreateThreadpoolWait, SetThreadpoolWait,
+        WaitForThreadpoolWaitCallbacks,
+    },
     winbase::WAIT_OBJECT_0,
     winnt::{self, PTP_CALLBACK_INSTANCE, PTP_WAIT, TP_WAIT_RESULT},
 };
@@ -42,6 +46,7 @@ enum XTaskQueueDispatchMode {
     SerializedThreadPool,
     Immediate,
 }
+#[derive(Debug, Clone, Copy)]
 #[repr(u32)]
 enum XTaskQueuePort {
     Work,
@@ -308,7 +313,7 @@ pub unsafe trait IXAsync: IUnknown {
         port: XTaskQueuePort,
         wait_handle: HANDLE,
         callback_context: *mut c_void,
-        callback: *mut XTaskQueueCallback,
+        callback: Option<XTaskQueueCallback>,
         token: *mut XTaskQueueRegistrationToken,
     );
     pub unsafe fn x_task_queue_unregister_waiter(
@@ -328,7 +333,7 @@ pub unsafe trait IXAsync: IUnknown {
         self: &Self,
         queue: XTaskQueueHandle,
         callback_context: *mut c_void,
-        callback: *mut XTaskQueueMonitorCallback,
+        callback: Option<XTaskQueueMonitorCallback>,
         token: *mut XTaskQueueRegistrationToken,
     );
     pub unsafe fn x_task_queue_unregister_monitor(
@@ -354,61 +359,27 @@ pub unsafe trait IXAsync: IUnknown {
     pub unsafe fn x_thread_is_time_sensitive(self: &Self) -> bool;
 }
 
-struct ThreadPoolTaskQueuePort {
-    runtime: tokio::runtime::Runtime,
-}
-
-impl ThreadPoolTaskQueuePort {
-    fn new_thread_pool() -> io::Result<Self> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()?;
-        Ok(Self { runtime })
-    }
-    fn new_serialized_thread_pool() -> io::Result<Self> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()?;
-        Ok(Self { runtime })
-    }
-}
-
-// unsafe impl Sync for XTaskQueueCallback;
-
-#[derive(Clone, Copy)]
-struct SendContext(*mut c_void);
-
-// SAFETY:
-// The caller guarantees that:
-// 1. the pointed-to context remains valid until the callback finishes;
-// 2. it may legally be accessed from the runtime worker thread;
-// 3. concurrent access, if any, is synchronized by the caller.
-unsafe impl Send for SendContext {}
-
 unsafe extern "system" fn wait_callback(
     _instance: PTP_CALLBACK_INSTANCE,
     context: *mut c_void,
-    _wait: PTP_WAIT,
+    wait: PTP_WAIT,
     result: TP_WAIT_RESULT,
 ) {
     if result.0 != WAIT_OBJECT_0 || context.is_null() {
         return;
     }
 
-    // let registration = unsafe {
-    //     &*(context.cast::<WaitRegistration>())
-    // };
+    let wctx = unsafe { &*(context.cast::<WaitCallbackContext>()) };
+    // register the wait again, because it is a one-shot callback
+    unsafe { SetThreadpoolWait(wait, Some(winnt::HANDLE(wctx.wait_handle)), None) };
 
-    // let entry = QueueEntry {
-    //     callback: registration.callback,
-    //     context: SendContext(registration.callback_context),
-    //     kind: EntryKind::Waiter {
-    //         registration: context as usize,
-    //     },
-    // };
-
-    // let _ = registration.port.submit(entry);
+    unsafe {
+        wctx.port.submit_callback(
+            wctx.tracker.clone(),
+            wctx.context as *mut c_void,
+            wctx.callback,
+        )
+    };
 }
 
 std::thread_local! {
@@ -417,7 +388,8 @@ std::thread_local! {
 
 #[implement(IXAsync)]
 pub struct XAsync {
-    ProcessQueue: Mutex<XTaskQueueHandle>,
+    process_queue: Mutex<XTaskQueueHandle>,
+    runtime: tokio::runtime::Runtime,
 }
 
 #[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
@@ -438,14 +410,30 @@ unsafe trait ITaskQueue: IUnknown {
         callback_context: *mut c_void,
         callback: Option<XTaskQueueTerminatedCallback>,
     );
+    unsafe fn register_monitor(
+        &self,
+        callback_context: *mut c_void,
+        callback: Option<XTaskQueueMonitorCallback>,
+        token: *mut XTaskQueueRegistrationToken,
+    );
+    unsafe fn unregister_monitor(&self, token: XTaskQueueRegistrationToken);
+    unsafe fn register_waiter(
+        &self,
+        port: XTaskQueuePort,
+        wait_handle: HANDLE,
+        callback_context: *mut c_void,
+        callback: Option<XTaskQueueCallback>,
+        token: *mut XTaskQueueRegistrationToken,
+    );
+    unsafe fn unregister_waiter(&self, queue: XTaskQueueHandle, token: XTaskQueueRegistrationToken);
 }
 
 #[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
 unsafe trait ITaskQueuePort: IUnknown {
     unsafe fn get_handle(&self) -> XTaskQueuePortHandle;
-    unsafe fn submit_delayed_callback(
+    unsafe fn submit_callback(
         &self,
-        delay_ms: u32,
+        tracker: tokio_util::task::TaskTracker,
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT;
@@ -474,10 +462,6 @@ impl TaskQueuePort {
             .build()?;
         Ok(Self { runtime }.into())
     }
-
-    fn call(callback: XTaskQueueCallback, context: SendContext, cancel: bool) {
-        unsafe { callback(context.0 as *mut c_void, cancel) };
-    }
 }
 
 impl ITaskQueuePort_Impl for TaskQueuePort_Impl {
@@ -486,30 +470,25 @@ impl ITaskQueuePort_Impl for TaskQueuePort_Impl {
         unk.as_raw()
     }
 
-    unsafe fn submit_delayed_callback(
+    unsafe fn submit_callback(
         &self,
-        delay_ms: u32,
+        tracker: tokio_util::task::TaskTracker,
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT {
-        let ctx = SendContext(callback_context);
-        self.runtime.spawn(async move {
-            // println!("Entering tokio");
-            // let ctx = ctx.clone();
-            // if delay_ms > 0 {
-            //     tokio::time::sleep(std::time::Duration::from_millis(delay_ms as u64)).await;
-            // }
-            if let Some(cb) = callback.as_ref() {
-                TaskQueuePort::call(*cb, ctx, false);
-            }
-            // println!("Exiting tokio");
-        });
+        let ctx = callback_context as u64;
+        tracker.clone().spawn_on(
+            async move {
+                if let Some(cb) = callback.as_ref() {
+                    unsafe { cb(ctx as *mut c_void, tracker.is_closed()) };
+                }
+            },
+            self.runtime.handle(),
+        );
         S_OK
     }
 
-    unsafe fn dispatch(&self, timeout_in_ms: u32) {
-        todo!()
-    }
+    unsafe fn dispatch(&self, _timeout_in_ms: u32) {}
 }
 
 #[implement(ITaskQueuePort)]
@@ -528,24 +507,25 @@ impl ITaskQueuePort_Impl for ImmediateTaskQueuePort_Impl {
         unk.as_raw()
     }
 
-    unsafe fn submit_delayed_callback(
+    unsafe fn submit_callback(
         &self,
-        delay_ms: u32,
+        tracker: tokio_util::task::TaskTracker,
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT {
-        callback.map(|f| f(callback_context, false));
+        let token = tracker.token();
+        callback.map(|f| f(callback_context, tracker.is_closed()));
+        mem::drop(token);
         S_OK
     }
 
-    unsafe fn dispatch(&self, timeout_in_ms: u32) {
-        // E_NOTIMPL
-    }
+    unsafe fn dispatch(&self, timeout_in_ms: u32) {}
 }
 
 struct QueueEntry {
+    token: tokio_util::task::task_tracker::TaskTrackerToken,
     callback: Option<XTaskQueueCallback>,
-    context: SendContext,
+    context: u64,
 }
 
 #[implement(ITaskQueuePort)]
@@ -563,14 +543,13 @@ impl ManualTaskQueuePort {
 
 impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
     unsafe fn get_handle(&self) -> XTaskQueuePortHandle {
-        // &self.this as *const _ as XTaskQueuePortHandle
         let unk: InterfaceRef<ITaskQueuePort> = self.as_interface_ref();
         unk.as_raw()
     }
 
-    unsafe fn submit_delayed_callback(
+    unsafe fn submit_callback(
         &self,
-        delay_ms: u32,
+        tracker: tokio_util::task::TaskTracker,
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT {
@@ -578,7 +557,8 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
         self.tx
             .send(QueueEntry {
                 callback,
-                context: SendContext(callback_context),
+                context: callback_context as u64,
+                token: tracker.token(),
             })
             .map_err(|_| E_FAIL)
             .unwrap();
@@ -589,7 +569,12 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
         self.rx
             .recv_timeout(std::time::Duration::from_millis(timeout_in_ms as u64))
             .map(|entry| {
-                entry.callback.map(|f| unsafe { f(entry.context.0, false) });
+                entry.callback.map(|f| unsafe {
+                    f(
+                        entry.context as *mut c_void,
+                        entry.token.task_tracker().is_closed(),
+                    )
+                });
             })
             .ok();
     }
@@ -599,12 +584,58 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
 struct TaskQueue {
     work: ITaskQueuePort,
     completion: ITaskQueuePort,
+    tracker: tokio_util::task::TaskTracker,
+    handle: tokio::runtime::Handle,
+    close_token: CancellationToken,
+    // TODO lockless handles + generation
+    monitor_handles: Arc<Mutex<Vec<(XTaskQueueRegistrationToken, XTaskQueueMonitorCallback, u64)>>>,
+    next_handle: AtomicU64,
+    waiter_handles: Arc<
+        Mutex<
+            Vec<(
+                XTaskQueueRegistrationToken,
+                *mut winnt::TP_WAIT,
+                Box<WaitCallbackContext>,
+            )>,
+        >,
+    >,
+    next_waiter_handle: AtomicU64,
 }
 
 impl TaskQueue {
-    fn new(work: ITaskQueuePort, completion: ITaskQueuePort) -> ITaskQueue {
-        Self { work, completion }.into()
+    fn new(
+        handle: tokio::runtime::Handle,
+        work: ITaskQueuePort,
+        completion: ITaskQueuePort,
+    ) -> ITaskQueue {
+        Self {
+            work,
+            completion,
+            tracker: tokio_util::task::TaskTracker::new(),
+            handle,
+            close_token: CancellationToken::new(),
+            monitor_handles: Arc::new(Mutex::new(Vec::new())),
+            next_handle: AtomicU64::new(0),
+            waiter_handles: Arc::new(Mutex::new(Vec::new())),
+            next_waiter_handle: AtomicU64::new(0),
+        }
+        .into()
     }
+
+    fn get_port(&self, port: XTaskQueuePort) -> &ITaskQueuePort {
+        match port {
+            XTaskQueuePort::Work => &self.work,
+            XTaskQueuePort::Completion => &self.completion,
+        }
+    }
+}
+
+struct WaitCallbackContext {
+    port: ITaskQueuePort,
+    wait_handle: HANDLE,
+    callback: Option<XTaskQueueCallback>,
+    context: u64,
+    tracker: tokio_util::task::TaskTracker,
 }
 
 impl ITaskQueue_Impl for TaskQueue_Impl {
@@ -620,28 +651,59 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT {
-        match port {
-            XTaskQueuePort::Work => {
-                self.work
-                    .submit_delayed_callback(delay_ms, callback_context, callback)
-            }
-            XTaskQueuePort::Completion => {
-                self.completion
-                    .submit_delayed_callback(delay_ms, callback_context, callback)
-            }
+        let tracker = self.tracker.clone();
+        let oport = self.get_port(port);
+        if delay_ms == 0 {
+            self.monitor_handles
+                .lock()
+                .unwrap()
+                .iter()
+                .for_each(|(_, callback, context)| {
+                    unsafe { callback(*context as *mut c_void, self.get_handle(), port) };
+                });
+            unsafe { oport.submit_callback(tracker, callback_context, callback) }
+        } else {
+            let callback_context = callback_context as u64;
+            let oport = oport.clone().into_raw() as u64;
+            let cancel_token = self.close_token.clone();
+            let monitor_handles = self.monitor_handles.clone();
+            let handle = unsafe { self.get_handle() } as u64;
+            self.tracker.spawn_on(
+                async move {
+                    cancel_token
+                        .run_until_cancelled(tokio::time::sleep(std::time::Duration::from_millis(
+                            delay_ms as u64,
+                        )))
+                        .await;
+                    monitor_handles
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .for_each(|(_, callback, context)| {
+                            unsafe {
+                                callback(*context as *mut c_void, handle as XTaskQueueHandle, port)
+                            };
+                        });
+                    unsafe {
+                        ITaskQueuePort::from_raw(oport as *mut c_void).submit_callback(
+                            tracker,
+                            callback_context as *mut c_void,
+                            callback,
+                        )
+                    };
+                },
+                &self.handle,
+            );
+            S_OK
         }
     }
 
     unsafe fn dispatch(&self, port: XTaskQueuePort, timeout_in_ms: u32) {
-        todo!()
+        unsafe { self.get_port(port).dispatch(timeout_in_ms) }
     }
 
     unsafe fn get_port_handle(&self, port: XTaskQueuePort) -> XTaskQueuePortHandle {
-        let port = match port {
-            XTaskQueuePort::Work => self.work.clone(),
-            XTaskQueuePort::Completion => self.completion.clone(),
-        };
-        unsafe { port.get_handle() }
+        unsafe { self.get_port(port).get_handle() }
     }
 
     unsafe fn terminate(
@@ -650,13 +712,94 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         callback_context: *mut c_void,
         callback: Option<XTaskQueueTerminatedCallback>,
     ) {
-        todo!()
+        let callback_context = callback_context as u64;
+        let tracker = self.tracker.clone();
+        let future = async move {
+            tracker.wait().await;
+            if let Some(cb) = callback.as_ref() {
+                unsafe { cb(callback_context as *mut c_void) };
+            }
+        };
+        self.tracker.close();
+        self.close_token.cancel();
+        if wait {
+            self.handle.block_on(future);
+        } else {
+            self.handle.spawn(future);
+        }
     }
-}
 
-impl XAsync_Impl {
-    fn call(callback: XTaskQueueCallback, context: SendContext, cancel: bool) {
-        unsafe { callback(context.0 as *mut c_void, cancel) };
+    unsafe fn register_monitor(
+        &self,
+        callback_context: *mut c_void,
+        callback: Option<XTaskQueueMonitorCallback>,
+        token: *mut XTaskQueueRegistrationToken,
+    ) {
+        let Some(callback) = callback else {
+            return;
+        };
+        let mut monitor_handles = self.monitor_handles.lock().unwrap();
+        let handle = self.next_handle.fetch_add(1, Ordering::SeqCst);
+        monitor_handles.push((handle, callback, callback_context as u64));
+        if !token.is_null() {
+            unsafe {
+                *token = handle;
+            }
+        }
+    }
+
+    unsafe fn unregister_monitor(&self, token: XTaskQueueRegistrationToken) {
+        let mut monitor_handles = self.monitor_handles.lock().unwrap();
+        if let Some(pos) = monitor_handles.iter().position(|(h, _, _)| *h == token) {
+            monitor_handles.remove(pos);
+        }
+    }
+
+    unsafe fn register_waiter(
+        &self,
+        port: XTaskQueuePort,
+        wait_handle: HANDLE,
+        callback_context: *mut c_void,
+        callback: Option<XTaskQueueCallback>,
+        token: *mut XTaskQueueRegistrationToken,
+    ) {
+        let mut waiter_handles = self.waiter_handles.lock().unwrap();
+
+        let oport = self.get_port(port);
+        let wctx = Box::new(WaitCallbackContext {
+            port: oport.clone(),
+            wait_handle,
+            callback,
+            context: callback_context as u64,
+            tracker: self.tracker.clone(),
+        });
+        let raw = Box::into_raw(wctx);
+        let wctx = unsafe { Box::from_raw(raw) };
+
+        let wait =
+            unsafe { CreateThreadpoolWait(Some(wait_callback), Some(raw as *mut c_void), None) };
+        unsafe { SetThreadpoolWait(wait, Some(winnt::HANDLE(wait_handle)), None) };
+        let handle = self.next_waiter_handle.fetch_add(1, Ordering::SeqCst);
+        waiter_handles.push((handle, wait, wctx));
+        if !token.is_null() {
+            unsafe {
+                *token = handle;
+            }
+        }
+    }
+
+    unsafe fn unregister_waiter(
+        &self,
+        queue: XTaskQueueHandle,
+        token: XTaskQueueRegistrationToken,
+    ) {
+        let mut waiter_handles = self.waiter_handles.lock().unwrap();
+        if let Some(pos) = waiter_handles.iter().position(|h| h.0 == token) {
+            let (_, waiter, _) = waiter_handles.remove(pos);
+            unsafe { SetThreadpoolWait(waiter, None, None) };
+            unsafe { WaitForThreadpoolWaitCallbacks(waiter, true) };
+            unsafe { CloseThreadpoolWait(waiter) };
+        }
     }
 }
 
@@ -769,7 +912,8 @@ impl IXAsync_Impl for XAsync_Impl {
             }
             XTaskQueueDispatchMode::Immediate => ImmediateTaskQueuePort::new(),
         };
-        let task_queue: ITaskQueue = TaskQueue::new(work, completion);
+        let task_queue: ITaskQueue =
+            TaskQueue::new(self.runtime.handle().clone(), work, completion);
         unsafe {
             *queue = task_queue.get_handle();
         }
@@ -790,7 +934,11 @@ impl IXAsync_Impl for XAsync_Impl {
             }
             return E_FAIL;
         };
-        let task_queue: ITaskQueue = TaskQueue::new(work.clone(), completion.clone());
+        let task_queue: ITaskQueue = TaskQueue::new(
+            self.runtime.handle().clone(),
+            work.clone(),
+            completion.clone(),
+        );
         unsafe {
             *queue = task_queue.get_handle();
         }
@@ -870,14 +1018,6 @@ impl IXAsync_Impl for XAsync_Impl {
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT {
-        // let ctx = SendContext(callback_context);
-        // tokio::runtime::Builder::new_multi_thread().worker_threads(1).build().unwrap().spawn(async move {
-        //     let ctx = ctx.clone();
-        //     tokio::time::sleep(std::time::Duration::from_millis(delay_ms as u64)).await;
-        //     if let Some(cb) = callback.as_ref() {
-        //         Self::call(*cb, ctx, false);
-        //     }
-        // });
         let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
         handle.map(|f| f.submit_delayed_callback(port, delay_ms, callback_context, callback));
 
@@ -890,27 +1030,13 @@ impl IXAsync_Impl for XAsync_Impl {
         port: XTaskQueuePort,
         wait_handle: HANDLE,
         callback_context: *mut c_void,
-        callback: *mut XTaskQueueCallback,
+        callback: Option<XTaskQueueCallback>,
         token: *mut XTaskQueueRegistrationToken,
     ) {
-        todo!()
-        // let wait = CreateThreadpoolWait(Some(wait_callback), Some(callback_context), None);
-        // // SetThreadpoolWait(PTP_WAIT::default(), None, None);
-
-        // SetThreadpoolWait(wait, Some(winnt::HANDLE(wait_handle)), None);
-        // WaitForThreadpoolWaitCallbacks(
-        //     wait,
-        //     true,
-        // );
-
-        // // Wait for Tokio/queue callbacks that already escaped
-        // // the native wait callback.
-        // wait_until_in_flight_is_zero();
-
-        // CloseThreadpoolWait(registration.wait);
-
-        // do this on shutdown / unregister
-        //WaitForThreadpoolWaitCallbacks(wait, true);
+        let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
+        handle.map(|f| unsafe {
+            f.register_waiter(port, wait_handle, callback_context, callback, token)
+        });
     }
 
     unsafe fn x_task_queue_unregister_waiter(
@@ -918,7 +1044,8 @@ impl IXAsync_Impl for XAsync_Impl {
         queue: XTaskQueueHandle,
         token: XTaskQueueRegistrationToken,
     ) {
-        todo!()
+        let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
+        handle.map(|f| unsafe { f.unregister_waiter(queue, token) });
     }
 
     unsafe fn x_task_queue_terminate(
@@ -929,17 +1056,18 @@ impl IXAsync_Impl for XAsync_Impl {
         callback: Option<XTaskQueueTerminatedCallback>,
     ) {
         let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
-        handle.map(|f| f.terminate(wait, callback_context, callback));
+        handle.map(|f| unsafe { f.terminate(wait, callback_context, callback) });
     }
 
     unsafe fn x_task_queue_register_monitor(
         &self,
         queue: XTaskQueueHandle,
         callback_context: *mut c_void,
-        callback: *mut XTaskQueueMonitorCallback,
+        callback: Option<XTaskQueueMonitorCallback>,
         token: *mut XTaskQueueRegistrationToken,
     ) {
-        todo!()
+        let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
+        handle.map(|f| f.register_monitor(callback_context, callback, token));
     }
 
     unsafe fn x_task_queue_unregister_monitor(
@@ -947,14 +1075,15 @@ impl IXAsync_Impl for XAsync_Impl {
         queue: XTaskQueueHandle,
         token: XTaskQueueRegistrationToken,
     ) {
-        todo!()
+        let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
+        handle.map(|f| f.unregister_monitor(token));
     }
 
     unsafe fn x_task_queue_get_current_process_task_queue(
         &self,
         queue: *mut XTaskQueueHandle,
     ) -> HRESULT {
-        let a = self.ProcessQueue.lock();
+        let a = self.process_queue.lock();
         if a.is_err() {
             return E_FAIL;
         }
@@ -966,7 +1095,7 @@ impl IXAsync_Impl for XAsync_Impl {
         &self,
         queue: XTaskQueueHandle,
     ) -> HRESULT {
-        let mut lck = self.ProcessQueue.lock().unwrap();
+        let mut lck = self.process_queue.lock().unwrap();
         *lck = queue;
         S_OK
     }
@@ -1002,7 +1131,11 @@ unsafe extern "system" fn callback(ctx: *mut c_void, cancel: bool) {
 #[test]
 fn test_x_async() {
     let xasync: IXAsync = XAsync {
-        ProcessQueue: Mutex::new(null_mut()),
+        process_queue: Mutex::new(null_mut()),
+        runtime: tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap(),
     }
     .into();
     let mut queue: XTaskQueueHandle = null_mut();
@@ -1034,7 +1167,7 @@ fn test_x_async() {
 
         xasync.x_task_queue_create_composite(port_handle, port_handle, &mut queue2);
 
-        // xasync.x_task_queue_terminate(queue, true, null_mut(), None);
+        xasync.x_task_queue_terminate(queue, true, null_mut(), None);
 
         xasync.x_task_queue_close_handle(queue);
 
@@ -1048,14 +1181,16 @@ fn test_x_async() {
         xasync.x_task_queue_submit_delayed_callback(
             queue2,
             XTaskQueuePort::Work,
-            10,
+            1000,
             null_mut(),
             Some(callback),
         );
 
+        xasync.x_task_queue_terminate(queue2, true, null_mut(), None);
+
         xasync.x_task_queue_close_handle(queue2);
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // std::thread::sleep(std::time::Duration::from_millis(100));
         println!("Test completed.");
     };
 }
