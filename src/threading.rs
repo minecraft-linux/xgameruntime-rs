@@ -95,6 +95,7 @@ unsafe trait IXAsyncState: IUnknown {
     unsafe fn set_result_size(&self, required_buffer_size: usize);
     unsafe fn get_provider(&self) -> XAsyncProvider;
     unsafe fn get_waiter(&self) -> Arc<(Mutex<usize>, Condvar)>;
+    unsafe fn get_queue(&self) -> ITaskQueue;
 }
 
 #[implement(IXAsyncState)]
@@ -104,6 +105,7 @@ struct XAsyncState {
     provider_data: XAsyncProviderData,
     provider: XAsyncProvider,
     waiter: Arc<(Mutex<usize>, Condvar)>,
+    queue: ITaskQueue,
 }
 
 impl IXAsyncState_Impl for XAsyncState_Impl {
@@ -134,7 +136,10 @@ impl IXAsyncState_Impl for XAsyncState_Impl {
     unsafe fn set_result_size(&self, required_buffer_size: usize) {
         let mut res_size = self.waiter.0.lock().unwrap();
         *res_size = required_buffer_size;
-        self.waiter.1.notify_all();
+    }
+
+    unsafe fn get_queue(&self) -> ITaskQueue {
+        self.queue.clone()
     }
 }
 
@@ -234,6 +239,11 @@ impl XAsyncBlock {
             },
             provider: provider,
             waiter: Arc::new((Mutex::new(0), Condvar::new())),
+            queue: if self.queue.is_null() {
+                todo!("provide a queue")
+            } else {
+                unsafe { ITaskQueue::from_raw_borrowed(&self.queue).unwrap().clone() }
+            },
         }
         .into();
 
@@ -861,6 +871,45 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
     }
 }
 
+unsafe extern "system" fn x_async_work_callback(context: *mut c_void, cancel: bool) {
+    println!(
+        "x_async_work_callback called with context: {:?}, cancel: {} {:?}",
+        context,
+        cancel,
+        std::thread::current().id()
+    );
+    let state = unsafe { IXAsyncState::from_raw(context) };
+    let provider_data = unsafe { &*state.get_provider_data() };
+    let provider = unsafe { state.get_provider() };
+    let _ = unsafe {
+        provider(
+            if cancel {
+                XAsyncOp::Cancel
+            } else {
+                XAsyncOp::DoWork
+            },
+            provider_data,
+        )
+    };
+    mem::drop(state);
+}
+
+unsafe extern "system" fn x_async_complete_callback(context: *mut c_void, cancel: bool) {
+    println!(
+        "x_async_complete_callback called with context: {:?}, cancel: {} {:?}",
+        context,
+        cancel,
+        std::thread::current().id()
+    );
+    let state = unsafe { IXAsyncState::from_raw(context) };
+    let blk = unsafe { &*state.get_local_block() };
+    if let Some(blk) = blk.callback {
+        unsafe { blk(state.get_user_block()) };
+    }
+    unsafe { state.get_waiter() }.1.notify_all();
+    mem::drop(state);
+}
+
 impl IXAsync_Impl for XAsync_Impl {
     unsafe fn x_async_get_status(&self, async_block: *mut XAsyncBlock, wait: bool) -> HRESULT {
         let blk = unsafe { &mut *async_block };
@@ -943,11 +992,19 @@ impl IXAsync_Impl for XAsync_Impl {
     }
 
     unsafe fn x_async_schedule(&self, async_block: *mut XAsyncBlock, delay_in_ms: u32) {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        rt.spawn(async {});
-        todo!()
+        let blk = unsafe { &mut *async_block };
+        let (Some(state), _) = blk.get_state() else {
+            return;
+        };
+        let queue = unsafe { state.get_queue() };
+        let _ = unsafe {
+            queue.submit_delayed_callback(
+                XTaskQueuePort::Work,
+                delay_in_ms,
+                state.clone().into_raw() as *mut c_void,
+                Some(x_async_work_callback),
+            )
+        };
     }
 
     unsafe fn x_async_complete(
@@ -976,7 +1033,17 @@ impl IXAsync_Impl for XAsync_Impl {
             )
             .is_ok()
         {
+            // TODO bug we should wait for complete to run
             unsafe { state.set_result_size(required_buffer_size) };
+            let queue = unsafe { state.get_queue() };
+            let _ = unsafe {
+                queue.submit_delayed_callback(
+                    XTaskQueuePort::Completion,
+                    0,
+                    state.clone().into_raw() as *mut c_void,
+                    Some(x_async_complete_callback),
+                )
+            };
         }
     }
 
@@ -1314,3 +1381,6 @@ fn test_x_async2() {
     let obj = unsafe { ITaskQueuePort::from_raw_borrowed(&handle) };
     let nh = unsafe { obj.unwrap().get_handle() };
 }
+
+#[test]
+fn test_x_async3() {}
