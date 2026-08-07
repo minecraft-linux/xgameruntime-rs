@@ -5,7 +5,7 @@ use std::{
     os::{raw::c_void, windows::raw::HANDLE},
     ptr::null_mut,
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{self, AtomicU64, Ordering},
     },
 };
@@ -74,6 +74,7 @@ pub type XTaskQueueMonitorCallback =
 pub type XTaskQueueRegistrationToken = u64;
 
 const XASYNC_INT_MAGIC: u32 = 0x5853594e; // "XSYN"
+const XASYNC_INITIALIZE_MAGIC: u32 = 0x5853394e; // "XSIN"
 const XASYNC_STATE_MAGIC: u32 = 0x5853594f; // "XSYO"
 
 #[repr(C)]
@@ -85,86 +86,62 @@ pub struct XAsyncBlock {
     pub internal: [u8; size_of::<*mut c_void>() * 4],
 }
 
-struct XAsyncState {
-    magic: u32,
-    lock: atomic::AtomicBool,
-    result_size: usize,
-    queue: XTaskQueueHandle,
-    context: *mut c_void,
-    callback: Option<XAsyncCompletionRoutine>,
-    ref_count: atomic::AtomicI32,
-    user_block: *mut XAsyncBlock,
-    async_block: XAsyncBlock,
-    provider_data: XAsyncProviderData,
-    async_provider: XAsyncProvider,
+#[interface("073b7dcb-1fcf-5030-94be-e3c9eb623428")]
+unsafe trait IXAsyncState: IUnknown {
+    unsafe fn get_local_block(&self) -> *mut XAsyncBlock;
+    unsafe fn get_user_block(&self) -> *mut XAsyncBlock;
+    unsafe fn get_provider_data(&self) -> *mut XAsyncProviderData;
+    unsafe fn get_result_size(&self) -> usize;
+    unsafe fn set_result_size(&self, required_buffer_size: usize);
+    unsafe fn get_provider(&self) -> XAsyncProvider;
+    unsafe fn get_waiter(&self) -> Arc<(Mutex<usize>, Condvar)>;
 }
 
-impl XAsyncState {
-    fn new(
-        queue: XTaskQueueHandle,
-        context: *mut c_void,
-        callback: Option<XAsyncCompletionRoutine>,
-        async_block: *mut XAsyncBlock,
-        async_provider: XAsyncProvider,
-    ) -> Self {
-        let user_internal = unsafe { &*async_block }.get_internal_raw();
-        user_internal.magic = XASYNC_INT_MAGIC;
-        user_internal.state = null_mut();
-        user_internal.result = S_OK;
-        user_internal.lock = atomic::AtomicBool::new(true);
-        let provider_block = unsafe { *async_block };
-        let internal = provider_block.get_internal_raw();
-        XAsyncState {
-            magic: XASYNC_STATE_MAGIC,
-            lock: atomic::AtomicBool::new(false),
-            result_size: 0,
-            queue,
-            context,
-            callback,
-            ref_count: atomic::AtomicI32::new(1),
-            user_block: async_block,
-            async_block: provider_block,
-            async_provider: async_provider,
-            provider_data: XAsyncProviderData {
-                async_: async_block,
-                buffer_size: 0,
-                buffer: null_mut(),
-                context,
-            },
-        }
+#[implement(IXAsyncState)]
+struct XAsyncState {
+    local_block: XAsyncBlock,
+    user_block: *mut XAsyncBlock,
+    provider_data: XAsyncProviderData,
+    provider: XAsyncProvider,
+    waiter: Arc<(Mutex<usize>, Condvar)>,
+}
+
+impl IXAsyncState_Impl for XAsyncState_Impl {
+    unsafe fn get_local_block(&self) -> *mut XAsyncBlock {
+        &self.local_block as *const _ as *mut XAsyncBlock
+    }
+
+    unsafe fn get_user_block(&self) -> *mut XAsyncBlock {
+        self.user_block
+    }
+
+    unsafe fn get_provider_data(&self) -> *mut XAsyncProviderData {
+        &self.provider_data as *const _ as *mut XAsyncProviderData
+    }
+
+    unsafe fn get_result_size(&self) -> usize {
+        self.waiter.0.lock().unwrap().clone()
+    }
+
+    unsafe fn get_provider(&self) -> XAsyncProvider {
+        self.provider
+    }
+
+    unsafe fn get_waiter(&self) -> Arc<(Mutex<usize>, Condvar)> {
+        self.waiter.clone()
+    }
+
+    unsafe fn set_result_size(&self, required_buffer_size: usize) {
+        let mut res_size = self.waiter.0.lock().unwrap();
+        *res_size = required_buffer_size;
+        self.waiter.1.notify_all();
     }
 }
 
 #[repr(C)]
 struct XAsyncInternal {
-    magic: u32,
-    lock: atomic::AtomicBool,
-    state: *mut XAsyncState,
-    result: HRESULT,
-}
-
-struct XAsyncStateRef {
-    state: *mut XAsyncState,
-}
-
-impl XAsyncStateRef {
-    fn new(state: *mut XAsyncState) -> Self {
-        unsafe { (*state).ref_count.fetch_add(1, Ordering::Relaxed) };
-        XAsyncStateRef { state }
-    }
-}
-
-impl Drop for XAsyncStateRef {
-    fn drop(&mut self) {
-        unsafe {
-            self.state.as_mut().map(|f| {
-                if f.ref_count.fetch_sub(1, Ordering::Release) == 1 {
-                    // Clean up the state if the reference count reaches zero
-                    Box::from_raw(f);
-                }
-            })
-        };
-    }
+    state: atomic::AtomicPtr<c_void>,
+    magic_result: atomic::AtomicU64,
 }
 
 impl XAsyncBlock {
@@ -172,41 +149,118 @@ impl XAsyncBlock {
         assert!(size_of::<XAsyncInternal>() <= self.internal.len());
         unsafe { &mut *(self.internal.as_ptr() as *mut XAsyncInternal) }
     }
-    fn get_internal(&self) -> Option<&mut XAsyncInternal> {
+    fn get_state_ex(&self, detach: bool) -> (Option<IXAsyncState>, Option<HRESULT>) {
         let internal = self.get_internal_raw();
-        if internal.magic != XASYNC_INT_MAGIC {
-            return None;
-        }
-        Some(internal)
-    }
-    fn Lock(&self) -> Option<XAsyncStateRef> {
-        let Some(internal) = self.get_internal() else {
-            return None;
-        };
-        while internal
-            .lock
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            std::hint::spin_loop();
+        let magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
+        if (magic_result >> 32) as u32 != XASYNC_INT_MAGIC {
+            return (None, None);
         }
 
-        let state = internal.state;
+        let result = HRESULT((magic_result & 0xFFFFFFFF) as i32);
+        let result = if result == E_PENDING {
+            None
+        } else {
+            Some(result)
+        };
+
+        let state_ptr = if detach {
+            internal.state.swap(null_mut(), Ordering::AcqRel)
+        } else {
+            internal.state.load(Ordering::Acquire)
+        };
+        if state_ptr.is_null() {
+            return (None, result);
+        }
+
+        if detach {
+            let state = unsafe { IXAsyncState::from_raw(state_ptr) };
+
+            let provider_block = unsafe { &*state.get_local_block() };
+            let state_ptr_2 = provider_block
+                .get_internal_raw()
+                .state
+                .swap(null_mut(), Ordering::AcqRel);
+            assert!(state_ptr_2 == state_ptr);
+            mem::drop(unsafe { IXAsyncState::from_raw(state_ptr) });
+            (Some(state), result)
+        } else {
+            let state = unsafe { IXAsyncState::from_raw_borrowed(&state_ptr) };
+
+            (state.map(|s| s.clone()), result)
+        }
+    }
+    fn get_state(&self) -> (Option<IXAsyncState>, Option<HRESULT>) {
+        self.get_state_ex(false)
+    }
+
+    fn create_state(&self, context: *mut c_void, provider: XAsyncProvider) -> Option<IXAsyncState> {
+        let internal = self.get_internal_raw();
+        let mut magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
+        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC {
+            return None;
+        }
+        loop {
+            if (magic_result >> 32) as u32 != XASYNC_INITIALIZE_MAGIC {
+                break;
+            }
+            magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
+        }
+
+        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC {
+            return None;
+        }
+
+        if internal
+            .magic_result
+            .compare_exchange(
+                magic_result,
+                (XASYNC_INITIALIZE_MAGIC as u64) << 32,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            return None;
+        }
+
+        let state: IXAsyncState = XAsyncState {
+            local_block: *self,
+            user_block: self as *const _ as *mut XAsyncBlock,
+            provider_data: XAsyncProviderData {
+                async_: null_mut() as *mut XAsyncBlock,
+                buffer_size: 0,
+                buffer: null_mut(),
+                context: context,
+            },
+            provider: provider,
+            waiter: Arc::new((Mutex::new(0), Condvar::new())),
+        }
+        .into();
 
         internal
-            .lock
-            .compare_exchange(true, false, Ordering::Release, Ordering::Relaxed)
-            .unwrap();
+            .state
+            .store(state.clone().into_raw(), Ordering::Release);
 
-        // Here the original code tries to aquire the lock of the internat state copy
-        while unsafe { &(*state).lock }
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            std::hint::spin_loop();
-        }
+        let local_block = unsafe { &*state.get_local_block() };
 
-        Some(XAsyncStateRef::new(state))
+        let local_internal = local_block.get_internal_raw();
+        local_internal.magic_result.store(
+            (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64),
+            Ordering::Release,
+        );
+        local_internal
+            .state
+            .store(state.clone().into_raw(), Ordering::Release);
+
+        let provider_data = unsafe { &mut *state.get_provider_data() };
+        provider_data.async_ = unsafe { state.get_local_block() };
+        // signal no garbage bytes are stored
+        internal.magic_result.store(
+            (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64),
+            Ordering::Release,
+        );
+
+        Some(state)
     }
 }
 
@@ -215,17 +269,25 @@ impl XAsyncBlock {
 #[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
 pub unsafe trait IXAsync: IUnknown {
     // get status / wait for completion.
-    pub unsafe fn x_async_get_status(self: &Self, async_block: *mut XAsyncBlock, wait: bool);
+    pub unsafe fn x_async_get_status(
+        self: &Self,
+        async_block: *mut XAsyncBlock,
+        wait: bool,
+    ) -> HRESULT;
     // Access stored result size, maybe return an error once it is fetched
     pub unsafe fn x_async_get_result_size(
         self: &Self,
         async_block: *mut XAsyncBlock,
         buffer_size: *mut usize,
-    );
+    ) -> HRESULT;
     // Call cancel of the provider, everything else seems to be up to the receiver
-    pub unsafe fn x_async_cancel(self: &Self, async_block: *mut XAsyncBlock);
+    pub unsafe fn x_async_cancel(self: &Self, async_block: *mut XAsyncBlock) -> HRESULT;
     // Just a wrapper of x_async_begin with only work callback
-    pub unsafe fn x_async_run(self: &Self, async_block: *mut XAsyncBlock, work: *mut XAsyncWork);
+    pub unsafe fn x_async_run(
+        self: &Self,
+        async_block: *mut XAsyncBlock,
+        work: *mut XAsyncWork,
+    ) -> HRESULT;
     // Calls begin of provider synchronously, may already be completed on return of immediate mode
     pub unsafe fn x_async_begin(
         self: &Self,
@@ -234,7 +296,7 @@ pub unsafe trait IXAsync: IUnknown {
         identity: *mut c_void,
         identity_name: *const c_char,
         provider: Option<XAsyncProvider>,
-    );
+    ) -> HRESULT;
     // No clue
     pub unsafe fn ___1(self: &Self);
     // Wrapper of x_task_queue_submit_delayed_callback that invokes provider with DoWork
@@ -254,7 +316,7 @@ pub unsafe trait IXAsync: IUnknown {
         buffer_size: usize,
         buffer: *mut c_void,
         buffer_used: *mut usize,
-    );
+    ) -> HRESULT;
     // create two task queue ports
     pub unsafe fn x_task_queue_create(
         self: &Self,
@@ -425,7 +487,7 @@ unsafe trait ITaskQueue: IUnknown {
         callback: Option<XTaskQueueCallback>,
         token: *mut XTaskQueueRegistrationToken,
     );
-    unsafe fn unregister_waiter(&self, queue: XTaskQueueHandle, token: XTaskQueueRegistrationToken);
+    unsafe fn unregister_waiter(&self, token: XTaskQueueRegistrationToken);
 }
 
 #[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
@@ -788,11 +850,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         }
     }
 
-    unsafe fn unregister_waiter(
-        &self,
-        queue: XTaskQueueHandle,
-        token: XTaskQueueRegistrationToken,
-    ) {
+    unsafe fn unregister_waiter(&self, token: XTaskQueueRegistrationToken) {
         let mut waiter_handles = self.waiter_handles.lock().unwrap();
         if let Some(pos) = waiter_handles.iter().position(|h| h.0 == token) {
             let (_, waiter, _) = waiter_handles.remove(pos);
@@ -804,33 +862,59 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
 }
 
 impl IXAsync_Impl for XAsync_Impl {
-    unsafe fn x_async_get_status(&self, async_block: *mut XAsyncBlock, wait: bool) {
-        let (tx, rx) = mpsc::channel(1);
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .build()
-            .unwrap()
-            .block_on(async {
-                // Simulate some async work
-                tx.send(0).await.unwrap();
+    unsafe fn x_async_get_status(&self, async_block: *mut XAsyncBlock, wait: bool) -> HRESULT {
+        let blk = unsafe { &mut *async_block };
+        match blk.get_state() {
+            (Some(state), hr) => {
+                // Use state and hr as needed
+                if wait {
+                    let waiter = unsafe { state.get_waiter() };
 
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            });
+                    let lck = waiter.0.lock().unwrap();
+                    let _lck = waiter
+                        .1
+                        .wait_while(lck, |_| blk.get_state().1.is_none())
+                        .unwrap();
+
+                    blk.get_state().1.unwrap()
+                } else {
+                    hr.unwrap_or(E_PENDING)
+                }
+            }
+            (None, Some(hr)) => hr,
+            _ => E_FAIL,
+        }
     }
 
     unsafe fn x_async_get_result_size(
         &self,
         async_block: *mut XAsyncBlock,
         buffer_size: *mut usize,
-    ) {
-        todo!()
+    ) -> HRESULT {
+        let blk = unsafe { &mut *async_block };
+        let (Some(state), _) = blk.get_state() else {
+            return E_FAIL;
+        };
+        if buffer_size.is_null() {
+            return E_FAIL;
+        }
+        unsafe {
+            *buffer_size = state.get_result_size();
+        }
+        S_OK
     }
 
-    unsafe fn x_async_cancel(&self, async_block: *mut XAsyncBlock) {
-        todo!()
+    unsafe fn x_async_cancel(&self, async_block: *mut XAsyncBlock) -> HRESULT {
+        let blk = unsafe { &mut *async_block };
+        let (Some(state), _) = blk.get_state() else {
+            return E_FAIL;
+        };
+        let provider_data = unsafe { &*state.get_provider_data() };
+        let provider = unsafe { state.get_provider() };
+        unsafe { provider(XAsyncOp::Cancel, provider_data) }
     }
 
-    unsafe fn x_async_run(&self, async_block: *mut XAsyncBlock, work: *mut XAsyncWork) {
+    unsafe fn x_async_run(&self, async_block: *mut XAsyncBlock, work: *mut XAsyncWork) -> HRESULT {
         todo!()
     }
 
@@ -838,24 +922,20 @@ impl IXAsync_Impl for XAsync_Impl {
         &self,
         async_block: *mut XAsyncBlock,
         context: *mut c_void,
-        identity: *mut c_void,
-        identity_name: *const c_char,
+        _identity: *mut c_void,
+        _identity_name: *const c_char,
         provider: Option<XAsyncProvider>,
-    ) {
+    ) -> HRESULT {
         let blk = unsafe { &mut *async_block };
-        // blk.
-        let state_ref = blk.Lock();
+        let Some(provider) = provider else {
+            return E_FAIL;
+        };
+        let Some(state) = blk.create_state(context, provider) else {
+            return E_FAIL;
+        };
 
-        provider.map(|provider| {
-            let data = XAsyncProviderData {
-                async_: async_block,
-                buffer_size: 0,
-                buffer: null_mut(),
-                context,
-            };
-            unsafe { provider(XAsyncOp::Begin, &data) };
-        });
-        todo!()
+        let provider_data = unsafe { &*state.get_provider_data() };
+        unsafe { provider(XAsyncOp::Begin, provider_data) }
     }
 
     unsafe fn ___1(&self) {
@@ -876,7 +956,28 @@ impl IXAsync_Impl for XAsync_Impl {
         result: HRESULT,
         required_buffer_size: usize,
     ) {
-        todo!()
+        let blk = unsafe { &mut *async_block };
+        // required_buffer_size == 0 => cleanup state as no result is expected, otherwise the state is kept until x_async_get_result is called
+        let (Some(state), _) = blk.get_state_ex(required_buffer_size == 0) else {
+            return;
+        };
+        if result == E_PENDING {
+            return;
+        }
+        let user_block = unsafe { &*state.get_user_block() };
+        if user_block
+            .get_internal_raw()
+            .magic_result
+            .compare_exchange(
+                (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64),
+                (XASYNC_INT_MAGIC as u64) << 32 | (result.0 as u64),
+                Ordering::Release,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+        {
+            unsafe { state.set_result_size(required_buffer_size) };
+        }
     }
 
     unsafe fn x_async_get_result(
@@ -886,8 +987,18 @@ impl IXAsync_Impl for XAsync_Impl {
         buffer_size: usize,
         buffer: *mut c_void,
         buffer_used: *mut usize,
-    ) {
-        todo!()
+    ) -> HRESULT {
+        let blk = unsafe { &mut *async_block };
+        let (Some(state), Some(hr)) = blk.get_state_ex(true) else {
+            return E_FAIL;
+        };
+        let provider_data = unsafe { &mut *state.get_provider_data() };
+        let provider = unsafe { state.get_provider() };
+        provider_data.buffer = buffer;
+        provider_data.buffer_size = buffer_size;
+        let _ = unsafe { provider(XAsyncOp::GetResult, provider_data) };
+
+        hr
     }
 
     unsafe fn x_task_queue_create(
@@ -1045,7 +1156,7 @@ impl IXAsync_Impl for XAsync_Impl {
         token: XTaskQueueRegistrationToken,
     ) {
         let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
-        handle.map(|f| unsafe { f.unregister_waiter(queue, token) });
+        handle.map(|f| unsafe { f.unregister_waiter(token) });
     }
 
     unsafe fn x_task_queue_terminate(
