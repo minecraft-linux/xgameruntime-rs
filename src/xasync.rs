@@ -2,7 +2,7 @@ use crate::S_OK;
 use crate::com::query_api_impl;
 
 use crate::results::*;
-use crate::threading::{IXAsync, XAsyncBlock, XAsyncOp, XAsyncProvider, XAsyncProviderData};
+pub use crate::threading::{IXAsync, XAsyncBlock, XAsyncOp, XAsyncProvider, XAsyncProviderData};
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
 use std::pin::Pin;

@@ -7,7 +7,7 @@ use windows::minwindef::LPARAM;
 use windows::windef::HWND;
 use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 
-use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
+use crate::user::{IXUser3, XUserPlatformRemoteConnectEventHandler};
 use windows_core::{GUID, HRESULT, Interface};
 use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
 use windows_sys::minwindef::HMODULE;
@@ -230,27 +230,29 @@ fn initialize_delegate(
 
     println!("Delegated API initialized successfully.");
 
-    // let mut out: *mut c_void = std::ptr::null_mut();
+    let mut out: *mut c_void = std::ptr::null_mut();
 
-    // let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
+    let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
 
-    // let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUserPlatform::IID, &mut out) };
+    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUser3::IID, &mut out) };
 
-    // assert_eq!(hr, HRESULT(0));
-    // assert!(!out.is_null());
+    assert_eq!(hr, HRESULT(0));
+    assert!(!out.is_null());
 
-    // if let Some(platform) = unsafe { IXUserPlatform::from_raw_borrowed(&out) } {
-    //     let callback: XUserPlatformRemoteConnectEventHandlers =
-    //         XUserPlatformRemoteConnectEventHandlers {
-    //             show: Some(show),
-    //             close: Some(hide),
-    //             context: std::ptr::null_mut(),
-    //         };
-    //     let hr = unsafe {
-    //         platform.XUserPlatformRemoteConnectSetEventHandlers(std::ptr::null_mut(), &callback)
-    //     };
-    //     assert_eq!(hr, HRESULT(0));
-    // }
+    if let Some(platform) = unsafe { IXUser3::from_raw_borrowed(&out) } {
+        let mut callback = XUserPlatformRemoteConnectEventHandler {
+            show: Some(show),
+            close: Some(hide),
+            context: std::ptr::null_mut(),
+        };
+        let hr = unsafe {
+            platform.x_user_platform_remote_connect_set_event_handlers(
+                std::ptr::null_mut(),
+                &mut callback,
+            )
+        };
+        assert_eq!(hr, HRESULT(0));
+    }
 
     state.ref_count = 1;
     state.api = Some(api);

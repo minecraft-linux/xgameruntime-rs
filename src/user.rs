@@ -159,10 +159,22 @@ pub struct XUserGetTokenAndSignatureUtf16HttpHeader {
 pub struct XUserLocalId {
     pub value: u64,
 }
+
+pub type XUserPlatformRemoteConnectShowPromptEventHandler = unsafe extern "system" fn(
+    context: *const c_void,
+    userIdentifier: u32,
+    operation: u32,
+    url: *const c_char,
+    code: *const c_char,
+    qrCodeSize: usize,
+    qrCode: *const c_char,
+);
+pub type XUserPlatformRemoteConnectClosePromptEventHandler = unsafe extern "system" fn();
+
 #[repr(C)]
 pub struct XUserPlatformRemoteConnectEventHandler {
-    pub show: *mut c_void,
-    pub close: *mut c_void,
+    pub show: Option<XUserPlatformRemoteConnectShowPromptEventHandler>,
+    pub close: Option<XUserPlatformRemoteConnectClosePromptEventHandler>,
     pub context: *mut c_void,
 }
 
