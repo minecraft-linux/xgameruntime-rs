@@ -1319,7 +1319,7 @@ fn xasync_singleton() -> &'static IXAsync {
                 )
             };
             unsafe { async_.x_task_queue_set_current_process_task_queue(queue) };
-            GlobalInterface(unsafe { IXAsync::from_raw(async_.into_raw()) })
+            GlobalInterface(async_)
         })
         .0
 }
