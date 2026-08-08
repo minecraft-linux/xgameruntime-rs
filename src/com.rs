@@ -1156,15 +1156,17 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
     ) -> HRESULT {
         let url = unsafe { PCWSTR::from_raw(url) };
         println!(
-            "XNetworkingQuerySecurityInformationForUrlUtf16Async {}",
-            url.to_string().unwrap()
+            "XNetworkingQuerySecurityInformationForUrlUtf16Async {} thread: {:?}",
+            url.to_string().unwrap(),
+            std::thread::current().id(),
         );
         unsafe {
             let storage = url.to_string().unwrap();
             xasync::run_sync(asyncBlock.cast(), move || {
                 println!(
-                    "XNetworkingQuerySecurityInformationForUrlUtf16Async: storage: {}",
-                    storage
+                    "XNetworkingQuerySecurityInformationForUrlUtf16Async: storage: {} thread: {:?}",
+                    storage,
+                    std::thread::current().id()
                 );
                 Ok(XNetworkingSecurityInformation {
                     enabledHttpSecurityProtocolFlags: 0x00000080
@@ -1183,6 +1185,10 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         asyncBlock: *mut c_void,
         securityInformationBufferByteCount: *mut usize,
     ) -> HRESULT {
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlUtf16AsyncResultSize thread: {:?}",
+            std::thread::current().id()
+        );
         let r = unsafe { xasync::get_result_size(asyncBlock.cast()) };
         match r {
             Ok(size) => unsafe {
@@ -1201,6 +1207,10 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         securityInformationBuffer: *mut u8,
         securityInformation: *mut *mut c_void,
     ) -> HRESULT {
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult thread: {:?}",
+            std::thread::current().id()
+        );
         if securityInformationBufferByteCount < size_of::<XNetworkingSecurityInformation>() as u64 {
             return E_FAIL;
         }
@@ -1222,6 +1232,10 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
                     };
                 }
                 unsafe { *securityInformation = securityInformationBuffer.cast() };
+                println!(
+                    "XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult: OK thread: {:?}",
+                    std::thread::current().id()
+                );
                 S_OK
             }
             Err(hr) => hr,
