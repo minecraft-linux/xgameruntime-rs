@@ -877,7 +877,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             );
             let monitor_handles: Vec<_> = {
                 let hd = self.monitor_handles.lock().unwrap();
-                hd.iter().map(|f|f.clone()).collect()
+                hd.iter().map(|f| f.clone()).collect()
             };
             monitor_handles.iter().for_each(|(_, callback, context)| {
                 println!(
@@ -912,7 +912,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
                         .await;
                     let monitor_handles: Vec<_> = {
                         let hd = monitor_handles.lock().unwrap();
-                        hd.iter().map(|f|f.clone()).collect()
+                        hd.iter().map(|f| f.clone()).collect()
                     };
                     monitor_handles.iter().for_each(|(_, callback, context)| {
                         unsafe {
