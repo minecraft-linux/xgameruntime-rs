@@ -26,27 +26,27 @@ use crate::{E_FAIL, results::*, threading, xasync};
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct XStoreGameLicense {
-    pub skuStoreId: [c_char; STORE_SKU_ID_SIZE],
-    pub isActive: bool,
-    pub isTrialOwnedByThisUser: bool,
-    pub isDiscLicense: bool,
-    pub isTrial: bool,
-    pub trialTimeRemainingInSeconds: u32,
-    pub trialUniqueId: [c_char; TRIAL_UNIQUE_ID_MAX_SIZE],
-    pub expirationDate: i64,
+    pub sku_store_id: [c_char; STORE_SKU_ID_SIZE],
+    pub is_active: bool,
+    pub is_trial_owned_by_this_user: bool,
+    pub is_disc_license: bool,
+    pub is_trial: bool,
+    pub trial_time_remaining_in_seconds: u32,
+    pub trial_unique_id: [c_char; TRIAL_UNIQUE_ID_MAX_SIZE],
+    pub expiration_date: i64,
 }
 
 impl Default for XStoreGameLicense {
     fn default() -> Self {
         Self {
-            skuStoreId: [0; STORE_SKU_ID_SIZE],
-            isActive: false,
-            isTrialOwnedByThisUser: false,
-            isDiscLicense: false,
-            isTrial: false,
-            trialTimeRemainingInSeconds: 0,
-            trialUniqueId: [0; TRIAL_UNIQUE_ID_MAX_SIZE],
-            expirationDate: 0,
+            sku_store_id: [0; STORE_SKU_ID_SIZE],
+            is_active: false,
+            is_trial_owned_by_this_user: false,
+            is_disc_license: false,
+            is_trial: false,
+            trial_time_remaining_in_seconds: 0,
+            trial_unique_id: [0; TRIAL_UNIQUE_ID_MAX_SIZE],
+            expiration_date: 0,
         }
     }
 }
@@ -63,16 +63,16 @@ fn write_c_string<const N: usize>(dst: &mut [c_char; N], value: &[u8]) {
 
 fn build_trial_game_license() -> XStoreGameLicense {
     let mut license = XStoreGameLicense {
-        isActive: true,
-        isTrialOwnedByThisUser: true,
-        isDiscLicense: false,
-        isTrial: true,
-        trialTimeRemainingInSeconds: 3600,
-        expirationDate: 4_102_444_800,
+        is_active: true,
+        is_trial_owned_by_this_user: true,
+        is_disc_license: false,
+        is_trial: true,
+        trial_time_remaining_in_seconds: 3600,
+        expiration_date: 4_102_444_800,
         ..XStoreGameLicense::default()
     };
-    write_c_string(&mut license.skuStoreId, b"TRIAL-SKU-001");
-    write_c_string(&mut license.trialUniqueId, b"trial-license");
+    write_c_string(&mut license.sku_store_id, b"TRIAL-SKU-001");
+    write_c_string(&mut license.trial_unique_id, b"trial-license");
     license
 }
 
