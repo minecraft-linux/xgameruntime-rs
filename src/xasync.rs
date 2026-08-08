@@ -11,9 +11,9 @@ use std::task::{Context, Poll, Wake, Waker};
 use windows_core::{GUID, HRESULT, IUnknown, Interface, interface};
 use windows_sys::core::BOOL;
 
-type XTaskQueueHandle = *mut c_void;
-type XAsyncCompletionRoutine = unsafe extern "system" fn(async_block: *mut XAsyncBlock);
-type XAsyncProvider =
+pub type XTaskQueueHandle = *mut c_void;
+pub type XAsyncCompletionRoutine = unsafe extern "system" fn(async_block: *mut XAsyncBlock);
+pub type XAsyncProvider =
     unsafe extern "system" fn(op: XAsyncOp, data: *const XAsyncProviderData) -> HRESULT;
 
 pub const CLSID_XASYNC: GUID = GUID::from_u128(0x073b7dcb_1fcf_4030_94be_e3c9eb623428);
