@@ -52,7 +52,7 @@ pub unsafe trait IXAsync: IUnknown {
         asyncBlock: *mut c_void,
         bufferSize: *mut usize,
     ) -> HRESULT;
-    unsafe fn XAsyncCancel(&self, asyncBlock: *mut c_void) -> ();
+    unsafe fn XAsyncCancel(&self, asyncBlock: *mut c_void) -> HRESULT;
     unsafe fn XAsyncRun(&self, asyncBlock: *mut c_void, work: *mut c_void) -> HRESULT;
     unsafe fn XAsyncBegin(
         &self,
