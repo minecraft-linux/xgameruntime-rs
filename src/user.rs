@@ -1,23 +1,20 @@
-use reqwest::tls::Version;
-use rustls::lock::Mutex;
 use std::ptr::null_mut;
 use std::{
-    ffi::{CStr, CString, c_char},
-    mem,
-    os::{raw::c_void, windows::raw::HANDLE},
+    ffi::{CStr, c_char},
+    os::raw::c_void,
     sync::Arc,
 };
-// use reqwest::tls::Version;
 use windows_core::{HRESULT, IUnknown, Interface, implement, interface};
 use xal_new::SignaturePolicyCache;
 use xal_xodus as xal;
 use xodus::{auth::do_sisu, secrets, tokens::TokenManager};
 
+use crate::threading::XAsyncBlock;
 use crate::{
     E_FAIL,
     results::S_OK,
     threading::{XTaskQueueHandle, XTaskQueueRegistrationToken},
-    xasync::{self, XAsyncBlock},
+    xasync,
 };
 
 #[repr(u32)]

@@ -55,17 +55,17 @@ pub enum XTaskQueuePort {
 
 #[repr(C)]
 pub struct XAsyncProviderData {
-    async_: *mut XAsyncBlock,
-    buffer_size: usize,
-    buffer: *mut c_void,
-    context: *mut c_void,
+    pub async_: *mut XAsyncBlock,
+    pub buffer_size: usize,
+    pub buffer: *mut c_void,
+    pub context: *mut c_void,
 }
 
 pub type XTaskQueueHandle = *mut c_void;
 pub type XTaskQueuePortHandle = *mut c_void;
 pub type XAsyncCompletionRoutine = unsafe extern "system" fn(*mut XAsyncBlock);
 pub type XAsyncWork = unsafe extern "system" fn(*mut XAsyncBlock) -> HRESULT;
-type XAsyncProvider =
+pub type XAsyncProvider =
     unsafe extern "system" fn(op: XAsyncOp, data: *const XAsyncProviderData) -> HRESULT;
 pub type XTaskQueueCallback = unsafe extern "system" fn(context: *mut c_void, cancelled: bool);
 pub type XTaskQueueTerminatedCallback = unsafe extern "system" fn(context: *mut c_void);
@@ -1080,11 +1080,9 @@ unsafe extern "system" fn x_async_work_callback(context: *mut c_void, cancel: bo
     );
     if E_PENDING != hr {
         unsafe {
-            xasync::interface().unwrap().XAsyncComplete(
-                state.get_local_block() as *mut c_void,
-                hr.0 as i32,
-                0,
-            )
+            xasync::interface()
+                .unwrap()
+                .x_async_complete(state.get_local_block(), hr, 0)
         };
     }
     mem::drop(state);
@@ -1924,7 +1922,7 @@ fn test_x_async2() {
 
 #[test]
 fn test_x_async3() {
-    let mut async_ = xasync::XAsyncBlock {
+    let mut async_ = XAsyncBlock {
         callback: None,
         context: null_mut(),
         queue: null_mut(),
@@ -1944,7 +1942,7 @@ fn test_x_async3() {
 
 #[test]
 fn test_x_async4() {
-    let mut async_ = xasync::XAsyncBlock {
+    let mut async_ = XAsyncBlock {
         callback: None,
         context: null_mut(),
         queue: null_mut(),
@@ -1975,7 +1973,7 @@ fn test_x_async4() {
 
 #[test]
 fn test_x_async5() {
-    let mut async_ = xasync::XAsyncBlock {
+    let mut async_ = XAsyncBlock {
         callback: None,
         context: null_mut(),
         queue: null_mut(),
@@ -2000,10 +1998,16 @@ fn test_x_async5() {
 fn test_x_async6() {
     let xasync_ = xasync::interface().unwrap();
 
-    let mut queue = 0;
-    unsafe { xasync_.XTaskQueueCreate(3, 3, &mut queue) };
+    let mut queue = null_mut();
+    unsafe {
+        xasync_.x_task_queue_create(
+            XTaskQueueDispatchMode::Immediate,
+            XTaskQueueDispatchMode::Immediate,
+            &mut queue,
+        )
+    };
 
-    let mut async_ = xasync::XAsyncBlock {
+    let mut async_ = XAsyncBlock {
         callback: None,
         context: null_mut(),
         queue: queue as *mut c_void,
@@ -2029,10 +2033,16 @@ fn test_x_async6() {
 fn test_x_async7() {
     let xasync_ = xasync::interface().unwrap();
 
-    let mut queue = 0;
-    unsafe { xasync_.XTaskQueueCreate(2, 2, &mut queue) };
+    let mut queue = null_mut();
+    unsafe {
+        xasync_.x_task_queue_create(
+            XTaskQueueDispatchMode::SerializedThreadPool,
+            XTaskQueueDispatchMode::SerializedThreadPool,
+            &mut queue,
+        )
+    };
 
-    let mut async_ = xasync::XAsyncBlock {
+    let mut async_ = XAsyncBlock {
         callback: None,
         context: null_mut(),
         queue: queue as *mut c_void,

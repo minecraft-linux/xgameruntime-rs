@@ -2,16 +2,9 @@ use super::E_NOTIMPL;
 use std::env::temp_dir;
 use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
-use std::pin::Pin;
 use std::ptr::null_mut;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::task::{Context, Poll, Wake, Waker};
-use windows::minwindef::LPARAM;
-use windows::windef::HWND;
-use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
-use windows_core::{
-    GUID, HRESULT, HSTRING, IUnknown, IUnknown_Vtbl, Interface, PCWSTR, PWSTR, implement, interface,
-};
+use std::sync::{Mutex, OnceLock};
+use windows_core::{GUID, HRESULT, IUnknown, Interface, PCWSTR, implement, interface};
 use windows_sys::core::BOOL;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
@@ -25,8 +18,9 @@ const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 
 type XStoreContextHandle = u64;
 
+use crate::threading::{IXAsync, XAsyncBlock};
 use crate::user::{IXUser, XUser};
-use crate::xasync::{IXAsync, XAsyncBlock, get_result};
+use crate::xasync::get_result;
 use crate::{E_FAIL, results::*, threading, xasync};
 
 #[repr(C)]
@@ -1325,7 +1319,7 @@ fn xasync_singleton() -> &'static IXAsync {
                 )
             };
             unsafe { async_.x_task_queue_set_current_process_task_queue(queue) };
-            GlobalInterface(unsafe { xasync::IXAsync::from_raw(async_.into_raw()) })
+            GlobalInterface(unsafe { IXAsync::from_raw(async_.into_raw()) })
         })
         .0
 }
@@ -1393,10 +1387,8 @@ pub fn query_api_impl(
 #[cfg(test)]
 mod tests {
     use std::ffi::{c_char, c_void};
-    use std::ptr::null;
 
     use crate::com::{IXStore, XStoreGameLicense, get_result, query_api_impl};
-    use crate::xasync::{XAsyncBlock, get_status, run};
     use crate::{
         E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test,
     };
