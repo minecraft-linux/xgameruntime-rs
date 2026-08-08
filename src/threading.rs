@@ -870,11 +870,32 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         let tracker = self.tracker.clone();
         let oport = self.get_port(port);
         let r = if delay_ms == 0 {
-            let hd = self.monitor_handles.lock().unwrap();
-            let monitor_handles: Vec<_> = hd.iter().collect();
+            println!(
+                "TaskQueue::submit_delayed_callback executing monitor callbacks for port: {:?}, thread id: {:?}",
+                port,
+                std::thread::current().id()
+            );
+            let monitor_handles: Vec<_> = {
+                let hd = self.monitor_handles.lock().unwrap();
+                hd.iter().map(|f|f.clone()).collect()
+            };
             monitor_handles.iter().for_each(|(_, callback, context)| {
+                println!(
+                    "TaskQueue::submit_delayed_callback executing monitor callback with context: {:p}, queue handle: {:x}, port: {:?}, thread id: {:?}",
+                    *context as *mut c_void,
+                    self.get_handle() as u64,
+                    port,
+                    std::thread::current().id()
+                );
                 unsafe { callback(*context as *mut c_void, self.get_handle(), port) };
             });
+            println!(
+                "TaskQueue::submit_delayed_callback submitting callback with context: {:p}, queue handle: {:x}, port: {:?}, thread id: {:?}",
+                callback_context,
+                self.get_handle() as u64,
+                port,
+                std::thread::current().id()
+            );
             unsafe { oport.submit_callback(tracker, callback_context, callback) }
         } else {
             let callback_context = callback_context as u64;
@@ -889,8 +910,10 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
                             delay_ms as u64,
                         )))
                         .await;
-                    let hd = monitor_handles.lock().unwrap();
-                    let monitor_handles: Vec<_> = hd.iter().collect();
+                    let monitor_handles: Vec<_> = {
+                        let hd = monitor_handles.lock().unwrap();
+                        hd.iter().map(|f|f.clone()).collect()
+                    };
                     monitor_handles.iter().for_each(|(_, callback, context)| {
                         unsafe {
                             callback(*context as *mut c_void, handle as XTaskQueueHandle, port)
@@ -1436,6 +1459,13 @@ impl IXAsync_Impl for XAsync_Impl {
                     Some(x_async_complete_callback),
                 )
             };
+            println!(
+                "x_async_complete: submitted completion callback for async_block: {:?}, result: {:?}, required_buffer_size: {}, thread id: {:?}",
+                async_block,
+                result,
+                required_buffer_size,
+                std::thread::current().id()
+            );
         }
     }
 
@@ -1980,6 +2010,7 @@ fn test_x_async6() {
     };
     let hr = unsafe {
         xasync::run(&mut async_, async {
+            println!("Running async operation...");
             return Err::<(), HRESULT>(E_FAIL);
         })
     };
