@@ -1801,7 +1801,8 @@ impl IXAsync_Impl for XAsync_Impl {
         if a.is_err() {
             return BOOL(0);
         }
-        unsafe { self.x_task_queue_duplicate_handle(*a.unwrap(), queue) };
+        // TODO
+        let _hr = unsafe { self.x_task_queue_duplicate_handle(*a.unwrap(), queue) };
         BOOL(1)
     }
 
@@ -2001,6 +2002,35 @@ fn test_x_async6() {
 
     let mut queue = 0;
     unsafe { xasync_.XTaskQueueCreate(3, 3, &mut queue) };
+
+    let mut async_ = xasync::XAsyncBlock {
+        callback: None,
+        context: null_mut(),
+        queue: queue as *mut c_void,
+        internal: [0; 32],
+    };
+    let hr = unsafe {
+        xasync::run(&mut async_, async {
+            println!("Running async operation...");
+            return Err::<(), HRESULT>(E_FAIL);
+        })
+    };
+    assert_eq!(hr, S_OK);
+
+    let hr = unsafe { xasync::get_status(&mut async_, true) }.unwrap_err();
+    assert_eq!(hr, E_FAIL);
+
+    let mut out = ();
+    let hr = unsafe { xasync::get_result(&mut async_, null_mut(), &mut out) }.unwrap_err();
+    assert_eq!(hr, E_FAIL);
+}
+
+#[test]
+fn test_x_async7() {
+    let xasync_ = xasync::interface().unwrap();
+
+    let mut queue = 0;
+    unsafe { xasync_.XTaskQueueCreate(2, 2, &mut queue) };
 
     let mut async_ = xasync::XAsyncBlock {
         callback: None,
