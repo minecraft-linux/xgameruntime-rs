@@ -121,20 +121,20 @@ pub enum XUserPlatformSpopOperationResult {
     Canceled = 3,
 }
 
-pub struct APP_LOCAL_DEVICE_ID {
+pub struct AppLocalDeviceId {
     pub value: [u8; 16],
 }
 
 #[repr(C)]
 pub struct XUserDeviceAssociationChange {
-    pub deviceId: APP_LOCAL_DEVICE_ID,
-    pub oldUser: XUserLocalId,
-    pub newUser: XUserLocalId,
+    pub device_id: AppLocalDeviceId,
+    pub old_user: XUserLocalId,
+    pub new_user: XUserLocalId,
 }
 #[repr(C)]
 pub struct XUserGetTokenAndSignatureData {
-    pub tokenSize: usize,
-    pub signatureSize: usize,
+    pub token_size: usize,
+    pub signature_size: usize,
     pub token: *const c_char,
     pub signature: *const c_char,
 }
@@ -145,8 +145,8 @@ pub struct XUserGetTokenAndSignatureHttpHeader {
 }
 #[repr(C)]
 pub struct XUserGetTokenAndSignatureUtf16Data {
-    pub tokenCount: usize,
-    pub signatureCount: usize,
+    pub token_count: usize,
+    pub signature_count: usize,
     pub token: *const u16,
     pub signature: *const u16,
 }
@@ -418,11 +418,11 @@ pub struct XUser {
 unsafe trait IXUserHandle: IUnknown {
     unsafe fn get_xuid(&self) -> u64;
     unsafe fn get_local_id(&self) -> XUserLocalId;
-    unsafe fn get_auth(&self) -> Arc<tokio::sync::Mutex<XUserHandleObject_Auth>>;
+    unsafe fn get_auth(&self) -> Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>;
     unsafe fn get_runtime(&self) -> tokio::runtime::Handle;
 }
 
-struct XUserHandleObject_Auth {
+struct XuserHandleObjectAuth {
     authenticator: xal::XalAuthenticator,
     auth: xal::response::SisuRPSAuthorizationResponse,
     policy: SignaturePolicyCache,
@@ -434,7 +434,7 @@ struct XUserHandleObject_Auth {
 struct XUserHandleObject {
     xuid: u64,
     local_id: XUserLocalId,
-    auth: Arc<tokio::sync::Mutex<XUserHandleObject_Auth>>,
+    auth: Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>,
     runtime: tokio::runtime::Handle,
 }
 
@@ -451,7 +451,7 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
     // unsafe fn get_object(&self,) -> *mut XUserHandleObject {
     //     &mut self.this as *mut XUserHandleObject
     // }
-    unsafe fn get_auth(&self) -> Arc<tokio::sync::Mutex<XUserHandleObject_Auth>> {
+    unsafe fn get_auth(&self) -> Arc<tokio::sync::Mutex<XuserHandleObjectAuth>> {
         self.auth.clone()
     }
 
@@ -501,11 +501,11 @@ impl IXUser_Impl for XUser_Impl {
         let (Some(a), Some(b)) = (a, b) else {
             return 1;
         };
-        a.get_xuid().cmp(&b.get_xuid()) as u32
+        (unsafe { a.get_xuid().cmp(&b.get_xuid()) }) as u32
     }
 
     unsafe fn x_user_get_max_users(&self, max_users: *mut u32) -> HRESULT {
-        *max_users = 4;
+        unsafe { *max_users = 4 };
         S_OK
     }
 
@@ -589,7 +589,7 @@ impl IXUser_Impl for XUser_Impl {
                             let handle = XUserHandleObject {
                                 xuid: xid.parse::<u64>().unwrap(),
                                 local_id: XUserLocalId { value: 987654321 },
-                                auth: Arc::new(tokio::sync::Mutex::new(XUserHandleObject_Auth {
+                                auth: Arc::new(tokio::sync::Mutex::new(XuserHandleObjectAuth {
                                     authenticator: c,
                                     auth: resp,
                                     policy,
@@ -616,7 +616,7 @@ impl IXUser_Impl for XUser_Impl {
         new_user: *mut XUserHandle,
     ) -> HRESULT {
         println!("x_user_add_result called");
-        xasync::get_result(async_ as *mut XAsyncBlock, null_mut(), new_user).unwrap();
+        unsafe { xasync::get_result(async_ as *mut XAsyncBlock, null_mut(), new_user).unwrap() };
         // *new_user = h.into_raw();
         S_OK
     }
@@ -626,12 +626,12 @@ impl IXUser_Impl for XUser_Impl {
         user: XUserHandle,
         user_local_id: *mut XUserLocalId,
     ) -> HRESULT {
-        IXUserHandle::from_raw_borrowed(&user)
+        unsafe { IXUserHandle::from_raw_borrowed(&user)
             .map(|f| {
                 *user_local_id = f.get_local_id();
                 S_OK
             })
-            .unwrap_or(E_FAIL)
+            .unwrap_or(E_FAIL) }
     }
 
     unsafe fn x_user_find_user_by_local_id(
@@ -816,8 +816,8 @@ impl IXUser_Impl for XUser_Impl {
 
                     Ok::<_, HRESULT>(XUserGetTokenAndSignatureDataWrapper {
                         data: XUserGetTokenAndSignatureData {
-                            tokenSize: token.len() + 1, // include null terminator
-                            signatureSize: 0,
+                            token_size: token.len() + 1, // include null terminator
+                            signature_size: 0,
                             token: std::ptr::null() as *const c_char,
                             signature: std::ptr::null() as *const c_char,
                         },
@@ -848,8 +848,8 @@ impl IXUser_Impl for XUser_Impl {
     ) -> HRESULT {
         println!("x_user_get_token_and_signature_result a");
         let data = XUserGetTokenAndSignatureData {
-            tokenSize: 6,
-            signatureSize: 0,
+            token_size: 6,
+            signature_size: 0,
             token: c"token".as_ptr() as *const c_char,
             signature: std::ptr::null() as *const c_char,
         };
@@ -862,15 +862,15 @@ impl IXUser_Impl for XUser_Impl {
         println!("x_user_get_token_and_signature_result b");
         println!(
             "x_user_get_token_and_signature_result b {}",
-            (*pbuf).data.tokenSize
+            (*pbuf).data.token_size
         );
         // println!("token a {}", (*pbuf).token[0]);
         // println!("token b {}", (*pbuf).token[1]);
-        let parts = &(&*pbuf).token[..(&*pbuf).data.tokenSize - 1];
+        let parts = &(&*pbuf).token[..(&*pbuf).data.token_size - 1];
 
         println!("token b {}", std::str::from_utf8(parts).unwrap());
 
-        println!("token c {}", (&*pbuf).token[(&*pbuf).data.tokenSize - 1]);
+        println!("token c {}", (&*pbuf).token[(&*pbuf).data.token_size - 1]);
 
         unsafe {
             (*pbuf).data.token = (*pbuf).token.as_ptr() as *const c_char;
@@ -939,8 +939,8 @@ impl IXUser_Impl for XUser_Impl {
         buffer_used: *mut usize,
     ) -> HRESULT {
         let data = XUserGetTokenAndSignatureUtf16Data {
-            tokenCount: 6,
-            signatureCount: 0,
+            token_count: 6,
+            signature_count: 0,
             token: windows::core::w!("token").as_ptr() as *const u16,
             signature: std::ptr::null() as *const u16,
         };
