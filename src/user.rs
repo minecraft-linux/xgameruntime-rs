@@ -21,21 +21,21 @@ use crate::{
 };
 
 #[repr(u32)]
-enum XUserAddOptions {
+pub enum XUserAddOptions {
     None = 0x00,
     AddDefaultUserSilently = 0x01,
     AllowGuests = 0x02,
     AddDefaultUserAllowingUI = 0x04,
 }
 #[repr(u32)]
-enum XUserAgeGroup {
+pub enum XUserAgeGroup {
     Unknown = 0,
     Child = 1,
     Teen = 2,
     Adult = 3,
 }
 #[repr(u32)]
-enum XUserChangeEvent {
+pub enum XUserChangeEvent {
     SignedInAgain = 0,
     SigningOut = 1,
     SignedOut = 2,
@@ -44,36 +44,36 @@ enum XUserChangeEvent {
     Privileges = 5,
 }
 #[repr(u32)]
-enum XUserDefaultAudioEndpointKind {
+pub enum XUserDefaultAudioEndpointKind {
     CommunicationRender = 0,
     CommunicationCapture = 1,
 }
 #[repr(u32)]
-enum XUserGamerPictureSize {
+pub enum XUserGamerPictureSize {
     Small = 0,
     Medium = 1,
     Large = 2,
     ExtraLarge = 3,
 }
 #[repr(u32)]
-enum XUserGamertagComponent {
+pub enum XUserGamertagComponent {
     Classic = 0,
     Modern = 1,
     ModernSuffix = 2,
     UniqueModern = 3,
 }
 #[repr(u32)]
-enum XUserGetMsaTokenSilentlyOptions {
+pub enum XUserGetMsaTokenSilentlyOptions {
     None = 0x00,
 }
 #[repr(u32)]
-enum XUserGetTokenAndSignatureOptions {
+pub enum XUserGetTokenAndSignatureOptions {
     None = 0x00,
     ForceRefresh = 0x01,
     AllUsers = 0x02,
 }
 #[repr(u32)]
-enum XUserPrivilege {
+pub enum XUserPrivilege {
     CrossPlay = 185,
     Clubs = 188,
     Sessions = 189,
@@ -91,7 +91,7 @@ enum XUserPrivilege {
     AddFriends = 255,
 }
 #[repr(u32)]
-enum XUserPrivilegeDenyReason {
+pub enum XUserPrivilegeDenyReason {
     None = 0,
     PurchaseRequired = 1,
     Restricted = 2,
@@ -99,74 +99,74 @@ enum XUserPrivilegeDenyReason {
     Unknown = 0xFFFFFFFF,
 }
 #[repr(u32)]
-enum XUserPrivilegeOptions {
+pub enum XUserPrivilegeOptions {
     None = 0x00,
     AllUsers = 0x01,
 }
 #[repr(u32)]
-enum XUserState {
+pub enum XUserState {
     SignedIn = 0,
     SigningOut = 1,
     SignedOut = 2,
 }
 #[repr(u32)]
-enum XUserPlatformOperationResult {
+pub enum XUserPlatformOperationResult {
     Success = 0,
     Failure = 1,
     Canceled = 2,
 }
 
 #[repr(u32)]
-enum XUserPlatformSpopOperationResult {
+pub enum XUserPlatformSpopOperationResult {
     SignInHere = 0,
     SwitchAccount = 1,
     Failure = 2,
     Canceled = 3,
 }
 
-struct APP_LOCAL_DEVICE_ID {
-    value: [u8; 16],
+pub struct APP_LOCAL_DEVICE_ID {
+    pub value: [u8; 16],
 }
 
 #[repr(C)]
-struct XUserDeviceAssociationChange {
-    deviceId: APP_LOCAL_DEVICE_ID,
-    oldUser: XUserLocalId,
-    newUser: XUserLocalId,
+pub struct XUserDeviceAssociationChange {
+    pub deviceId: APP_LOCAL_DEVICE_ID,
+    pub oldUser: XUserLocalId,
+    pub newUser: XUserLocalId,
 }
 #[repr(C)]
-struct XUserGetTokenAndSignatureData {
-    tokenSize: usize,
-    signatureSize: usize,
-    token: *const c_char,
-    signature: *const c_char,
+pub struct XUserGetTokenAndSignatureData {
+    pub tokenSize: usize,
+    pub signatureSize: usize,
+    pub token: *const c_char,
+    pub signature: *const c_char,
 }
 #[repr(C)]
-struct XUserGetTokenAndSignatureHttpHeader {
-    name: *const c_char,
-    value: *const c_char,
+pub struct XUserGetTokenAndSignatureHttpHeader {
+    pub name: *const c_char,
+    pub value: *const c_char,
 }
 #[repr(C)]
-struct XUserGetTokenAndSignatureUtf16Data {
-    tokenCount: usize,
-    signatureCount: usize,
-    token: *const u16,
-    signature: *const u16,
+pub struct XUserGetTokenAndSignatureUtf16Data {
+    pub tokenCount: usize,
+    pub signatureCount: usize,
+    pub token: *const u16,
+    pub signature: *const u16,
 }
 #[repr(C)]
-struct XUserGetTokenAndSignatureUtf16HttpHeader {
-    name: *const u16,
-    value: *const u16,
+pub struct XUserGetTokenAndSignatureUtf16HttpHeader {
+    pub name: *const u16,
+    pub value: *const u16,
 }
 #[repr(C)]
-struct XUserLocalId {
-    value: u64,
+pub struct XUserLocalId {
+    pub value: u64,
 }
 #[repr(C)]
-struct XUserPlatformRemoteConnectEventHandler {
-    show: *mut c_void,
-    close: *mut c_void,
-    context: *mut c_void,
+pub struct XUserPlatformRemoteConnectEventHandler {
+    pub show: *mut c_void,
+    pub close: *mut c_void,
+    pub context: *mut c_void,
 }
 
 pub type XUserHandle = *mut c_void;
@@ -398,53 +398,7 @@ pub unsafe trait IXUser2: IUnknown {
 }
 
 #[interface("26f3c674-a2fe-44fa-b6c4-a323bc94ff53")]
-pub unsafe trait IXUser3: IXUser {
-    // unsafe fn __reserved_slot_3(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_4(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_5(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_6(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_7(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_8(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_9(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_10(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_11(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_12(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_13(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_14(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_15(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_16(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_17(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_18(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_19(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_20(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_21(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_22(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_23(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_24(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_25(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_26(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_27(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_28(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_29(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_30(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_31(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_32(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_33(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_34(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_35(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_36(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_37(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_38(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_39(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_40(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_41(&self) -> HRESULT;
-    // unsafe fn __reserved_slot_42(&self) -> HRESULT;
-    // pub unsafe fn XUserPlatformRemoteConnectSetEventHandlers(
-    //     &self,
-    //     queue: *mut c_void,
-    //     handler: *const c_void,
-    // ) -> HRESULT;
-}
+pub unsafe trait IXUser3: IXUser {}
 
 #[implement(IXUser, IXUser2, IXUser3)]
 pub struct XUser {
@@ -455,7 +409,6 @@ pub struct XUser {
 unsafe trait IXUserHandle: IUnknown {
     unsafe fn get_xuid(&self) -> u64;
     unsafe fn get_local_id(&self) -> XUserLocalId;
-    // unsafe fn get_object(&self) -> *mut XUserHandleObject;
     unsafe fn get_auth(&self) -> Arc<tokio::sync::Mutex<XUserHandleObject_Auth>>;
     unsafe fn get_runtime(&self) -> tokio::runtime::Handle;
 }
@@ -504,171 +457,7 @@ impl IXUser2_Impl for XUser_Impl {
     }
 }
 
-impl IXUser3_Impl for XUser_Impl {
-    // unsafe fn __reserved_slot_3(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_4(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_5(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_6(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_7(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_8(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_9(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_10(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_11(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_12(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_13(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_14(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_15(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_16(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_17(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_18(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_19(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_20(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_21(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_22(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_23(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_24(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_25(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_26(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_27(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_28(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_29(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_30(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_31(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_32(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_33(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_34(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_35(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_36(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_37(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_38(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_39(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_40(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_41(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn __reserved_slot_42(&self,) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn XUserPlatformRemoteConnectSetEventHandlers(&self,queue: *mut c_void,handler: *const c_void) -> HRESULT {
-    //     todo!()
-    // }
-}
+impl IXUser3_Impl for XUser_Impl {}
 
 #[repr(C)]
 struct XUserGetTokenAndSignatureDataWrapper {
@@ -683,16 +472,18 @@ impl IXUser_Impl for XUser_Impl {
         handle: XUserHandle,
         duplicated_handle: *mut XUserHandle,
     ) -> HRESULT {
-        IXUserHandle::from_raw_borrowed(&handle)
-            .map(|f| {
-                *duplicated_handle = f.clone().into_raw();
-                S_OK
-            })
-            .unwrap_or(E_FAIL)
+        unsafe {
+            IXUserHandle::from_raw_borrowed(&handle)
+                .map(|f| {
+                    *duplicated_handle = f.clone().into_raw();
+                    S_OK
+                })
+                .unwrap_or(E_FAIL)
+        }
     }
 
     unsafe fn x_user_close_handle(&self, handle: XUserHandle) {
-        IXUserHandle::from_raw(handle);
+        unsafe { IXUserHandle::from_raw(handle) };
     }
 
     unsafe fn x_user_compare(&self, user1: XUserHandle, user2: XUserHandle) -> u32 {
@@ -1271,176 +1062,4 @@ impl IXUser_Impl for XUser_Impl {
     ) -> HRESULT {
         todo!()
     }
-    // unsafe fn x_user_duplicate_handle(&self,handle: XUserHandle,duplicated_handle: *mut XUserHandle) -> HRESULT {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_close_handle(&self,handle: XUserHandle) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_compare(&self,user1: XUserHandle,user2: XUserHandle) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_max_users(&self,max_users: *mut u32) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_add_async(&self,options: XUserAddOptions,async_: *mut XAsyncBlock) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_add_result(&self,async_: *mut XAsyncBlock,new_user: *mut XUserHandle) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_local_id(&self,user: XUserHandle,user_local_id: *mut XUserLocalId) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_find_user_by_local_id(&self,user_local_id: XUserLocalId,handle: *mut XUserHandle) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_id(&self,user: XUserHandle,user_id: *mut u64) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_find_user_by_id(&self,) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_is_guest(&self,user: XUserHandle,is_guest: *mut bool) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_state(&self,user: XUserHandle,state: *mut XUserState) {
-    //     todo!()
-    // }
-
-    // unsafe fn ___1(&self,) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_gamer_picture_async(&self,user: XUserHandle,picture_size: XUserGamerPictureSize,async_: *mut XAsyncBlock) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_gamer_picture_result_size(&self,async_: *mut XAsyncBlock,buffer_size: *mut usize) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_gamer_picture_result(&self,async_: *mut XAsyncBlock,buffer_size: usize,buffer: *mut c_void,buffer_used: *mut usize) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_age_group(&self,user: XUserHandle,age_group: *mut XUserAgeGroup) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_check_privilege(&self,user: XUserHandle,options: XUserPrivilegeOptions,privilege: XUserPrivilege,has_privilege: *mut bool,reason: *mut XUserPrivilegeDenyReason) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_resolve_privilege_with_ui_async(&self,user: XUserHandle,options: XUserPrivilegeOptions,privilege: XUserPrivilege,async_: *mut XAsyncBlock) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_resolve_privilege_with_ui_result(&self,async_: *mut XAsyncBlock) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_token_and_signature_async(&self,user: XUserHandle,options: XUserGetTokenAndSignatureOptions,method: *const c_char,url: *const c_char,header_count: usize,headers: *const XUserGetTokenAndSignatureHttpHeader,body_size: usize,body_buffer: *const c_void,async_: *mut XAsyncBlock) -> HRESULT {
-    //     let method: String = CStr::from_ptr(method).to_string_lossy().into_owned();
-    //     unsafe { xasync::run(async_ as *mut XAsyncBlock, {
-    //         async {
-    //             Ok::<_, HRESULT>(())
-    //         }
-    //     }) }
-    // }
-
-    // unsafe fn x_user_get_token_and_signature_result_size(&self,async_: *mut XAsyncBlock,buffer_size: *mut usize) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_token_and_signature_result(&self,async_: *mut XAsyncBlock,buffer_size: usize,buffer: *mut c_void,ptr_to_buffer: *mut *mut XUserGetTokenAndSignatureData,buffer_used: *mut usize) {
-
-    // }
-
-    // unsafe fn x_user_get_token_and_signature_utf16_async(&self,user: XUserHandle,options: XUserGetTokenAndSignatureOptions,method: *const u16,url: *const u16,header_count: usize,headers: *const XUserGetTokenAndSignatureUtf16HttpHeader,body_size: usize,body_buffer: *const c_void,async_: *mut XAsyncBlock) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_token_and_signature_utf16_result_size(&self,async_: *mut XAsyncBlock,buffer_size: *mut usize) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_token_and_signature_utf16_result(&self,async_: *mut XAsyncBlock,buffer_size: usize,buffer: *mut c_void,ptr_to_buffer: *mut *mut XUserGetTokenAndSignatureUtf16Data,buffer_used: *mut usize) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_resolve_issue_with_ui_async(&self,user: XUserHandle,url: *const c_char,async_: *mut XAsyncBlock) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_resolve_issue_with_ui_result(&self,async_: *mut XAsyncBlock) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_resolve_issue_with_ui_utf16_async(&self,user: XUserHandle,url: *const u16,async_: *mut XAsyncBlock) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_resolve_issue_with_ui_utf16_result(&self,async_: *mut XAsyncBlock) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_register_for_change_event(&self,queue: XTaskQueueHandle,context: *mut c_void,callback: *mut XUserChangeEventCallback,token: *mut XTaskQueueRegistrationToken) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_unregister_for_change_event(&self,token: XTaskQueueRegistrationToken,wait: bool) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_get_sign_out_deferral(&self,deferral: *mut XUserSignOutDeferralHandle) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_close_sign_out_deferral_handle(&self,deferral: XUserSignOutDeferralHandle) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_register_for_device_association_changed(&self,queue: XTaskQueueHandle,context: *mut c_void,callback: *mut XUserDeviceAssociationChangedCallback,token: *mut XTaskQueueRegistrationToken) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_unregister_for_device_association_changed(&self,token: XTaskQueueRegistrationToken,wait: bool) {
-    //     todo!()
-    // }
-
-    // unsafe fn ___2(&self,) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_is_store_user(&self,user: XUserHandle) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_platform_remote_connect_set_event_handlers(&self,queue: XTaskQueueHandle,handlers: *mut XUserPlatformRemoteConnectEventHandler) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_platform_remote_connect_cancel_prompt(&self,operation: XUserPlatformOperation) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_platform_spop_prompt_set_event_handlers(&self,queue: XTaskQueueHandle,handler: *mut XUserPlatformSpopPromptEventHandlers,context: *mut c_void) {
-    //     todo!()
-    // }
-
-    // unsafe fn x_user_platform_spop_prompt_complete(&self,operation: XUserPlatformOperation,result: XUserPlatformSpopOperationResult) {
-    //     todo!()
-    // }
 }

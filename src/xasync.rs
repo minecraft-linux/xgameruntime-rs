@@ -1,12 +1,12 @@
+use crate::S_OK;
 use crate::com::query_api_impl;
-use crate::{S_OK, threading};
 
 use crate::results::*;
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
 use std::pin::Pin;
 use std::ptr::null_mut;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context, Poll, Wake, Waker};
 use windows_core::{GUID, HRESULT, IUnknown, Interface, interface};
 use windows_sys::core::BOOL;
@@ -39,7 +39,7 @@ pub enum XAsyncOp {
 #[repr(C)]
 pub struct XAsyncProviderData {
     pub async_: *mut XAsyncBlock,
-    pub bufferSize: usize,
+    pub buffer_size: usize,
     pub buffer: *mut c_void,
     pub context: *mut c_void,
 }
@@ -243,7 +243,7 @@ unsafe impl Send for XAsyncWaker {}
 
 impl Wake for XAsyncWaker {
     fn wake(self: Arc<Self>) {
-        unsafe { schedule(self.block, 0) };
+        let _ = unsafe { schedule(self.block, 0) };
     }
 }
 

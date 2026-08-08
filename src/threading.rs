@@ -10,7 +10,6 @@ use std::{
     },
 };
 
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use windows::{
     threadpoolapiset::{
@@ -21,18 +20,17 @@ use windows::{
     winnt::{self, PTP_CALLBACK_INSTANCE, PTP_WAIT, TP_WAIT_RESULT},
 };
 use windows_core::{
-    AsImpl, BOOL, ComObjectInner, ComObjectInterface, HRESULT, IUnknown, Interface, InterfaceRef,
-    implement, interface,
+    BOOL, ComObjectInterface, HRESULT, IUnknown, Interface, InterfaceRef, implement, interface,
 };
 
 use crate::{
-    E_FAIL, E_NOTIMPL,
+    E_FAIL,
     results::{E_ABORT, E_PENDING, E_POINTER, S_OK},
-    xasync::{self, schedule},
+    xasync,
 };
 
 #[repr(u32)]
-enum XAsyncOp {
+pub enum XAsyncOp {
     Begin,
     DoWork,
     GetResult,
@@ -50,13 +48,13 @@ pub enum XTaskQueueDispatchMode {
 }
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
-enum XTaskQueuePort {
+pub enum XTaskQueuePort {
     Work,
     Completion,
 }
 
 #[repr(C)]
-struct XAsyncProviderData {
+pub struct XAsyncProviderData {
     async_: *mut XAsyncBlock,
     buffer_size: usize,
     buffer: *mut c_void,
@@ -77,7 +75,6 @@ pub type XTaskQueueRegistrationToken = u64;
 
 const XASYNC_INT_MAGIC: u32 = 0x5853594e; // "XSYN"
 const XASYNC_INITIALIZE_MAGIC: u32 = 0x5853394e; // "XSIN"
-const XASYNC_STATE_MAGIC: u32 = 0x5853594f; // "XSYO"
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -88,7 +85,7 @@ pub struct XAsyncBlock {
     pub internal: [u8; size_of::<*mut c_void>() * 4],
 }
 
-#[interface("073b7dcb-1fcf-5030-94be-e3c9eb623428")]
+#[interface("ECD1C26B-E34D-4E41-987E-C4C349C667CF")]
 unsafe trait IXAsyncState: IUnknown {
     unsafe fn get_local_block(&self) -> *mut XAsyncBlock;
     unsafe fn get_user_block(&self) -> *mut XAsyncBlock;
@@ -538,7 +535,8 @@ unsafe extern "system" fn wait_callback(
     // register the wait again, because it is a one-shot callback
     unsafe { SetThreadpoolWait(wait, Some(winnt::HANDLE(wctx.wait_handle)), None) };
 
-    unsafe {
+    // TODO: what to do with the result
+    let _hr = unsafe {
         wctx.port.submit_callback(
             wctx.tracker.clone(),
             wctx.context as *mut c_void,
@@ -557,7 +555,7 @@ pub struct XAsync {
     pub runtime: tokio::runtime::Runtime,
 }
 
-#[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
+#[interface("4445B64E-24E7-45DB-98FB-27BD64E66612")]
 unsafe trait ITaskQueue: IUnknown {
     unsafe fn get_handle(&self) -> XTaskQueueHandle;
     unsafe fn submit_delayed_callback(
@@ -593,7 +591,7 @@ unsafe trait ITaskQueue: IUnknown {
     unsafe fn unregister_waiter(&self, token: XTaskQueueRegistrationToken);
 }
 
-#[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
+#[interface("EE5DCC10-6B84-4058-8349-5AA5195FC0F0")]
 unsafe trait ITaskQueuePort: IUnknown {
     unsafe fn get_handle(&self) -> XTaskQueuePortHandle;
     unsafe fn submit_callback(
@@ -883,7 +881,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
                 println!(
                     "TaskQueue::submit_delayed_callback executing monitor callback with context: {:p}, queue handle: {:x}, port: {:?}, thread id: {:?}",
                     *context as *mut c_void,
-                    self.get_handle() as u64,
+                    unsafe { self.get_handle() as u64 },
                     port,
                     std::thread::current().id()
                 );
@@ -892,7 +890,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             println!(
                 "TaskQueue::submit_delayed_callback submitting callback with context: {:p}, queue handle: {:x}, port: {:?}, thread id: {:?}",
                 callback_context,
-                self.get_handle() as u64,
+                unsafe { self.get_handle() as u64 },
                 port,
                 std::thread::current().id()
             );
@@ -919,7 +917,8 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
                             callback(*context as *mut c_void, handle as XTaskQueueHandle, port)
                         };
                     });
-                    unsafe {
+                    // TODO what to do with the result?
+                    let _hr = unsafe {
                         ITaskQueuePort::from_raw(oport as *mut c_void).submit_callback(
                             tracker,
                             callback_context as *mut c_void,
@@ -1080,12 +1079,13 @@ unsafe extern "system" fn x_async_work_callback(context: *mut c_void, cancel: bo
         std::thread::current().id()
     );
     if E_PENDING != hr {
-        xasync::interface().unwrap().XAsyncComplete(
-            state.get_local_block() as *mut c_void,
-            hr.0 as i32,
-            0,
-        );
-        //todo!("We need to call complete here {}", hr);
+        unsafe {
+            xasync::interface().unwrap().XAsyncComplete(
+                state.get_local_block() as *mut c_void,
+                hr.0 as i32,
+                0,
+            )
+        };
     }
     mem::drop(state);
 }
