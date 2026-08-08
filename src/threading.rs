@@ -763,7 +763,7 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
             self.get_handle() as u64,
         );
         let rv: BOOL = self.rx
-            .recv_timeout(std::time::Duration::from_millis(timeout_in_ms as u64 + 10))
+            .recv_timeout(std::time::Duration::from_millis(timeout_in_ms as u64))
             .map(|entry| {
                 entry.callback.map(|f| unsafe {
                     println!(
