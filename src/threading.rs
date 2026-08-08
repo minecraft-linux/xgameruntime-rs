@@ -320,6 +320,10 @@ impl XAsyncBlock {
         unsafe { &mut *(self.internal.as_ptr() as *mut XAsyncInternal) }
     }
     fn get_state_ex(&self, detach: bool) -> (Option<IXAsyncState>, Option<HRESULT>) {
+        println!(
+            "XAsyncBlock::get_state_ex called with async_block: {:p}, detach: {}",
+            &self, detach
+        );
         let internal = self.get_internal_raw();
         let magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
         if (magic_result >> 32) as u32 != XASYNC_INT_MAGIC {
@@ -1061,6 +1065,10 @@ where
 
 impl IXAsync_Impl for XAsync_Impl {
     unsafe fn x_async_get_status(&self, async_block: *mut XAsyncBlock, wait: bool) -> HRESULT {
+        println!(
+            "x_async_get_status called with async_block: {:?}, wait: {}",
+            async_block, wait
+        );
         let blk = unsafe { &mut *async_block };
         match blk.get_state() {
             (Some(state), hr) => {
@@ -1074,13 +1082,30 @@ impl IXAsync_Impl for XAsync_Impl {
                         .wait_while(lck, |_| blk.get_state().1.is_none())
                         .unwrap();
 
+                    println!(
+                        "x_async_get_status: wait completed, state: {:?}, hr: {:?}",
+                        blk.get_state().0,
+                        blk.get_state().1
+                    );
+
                     blk.get_state().1.unwrap()
                 } else {
+                    println!(
+                        "x_async_get_status: non-wait, state: {:?}, hr: {:?}",
+                        blk.get_state().0,
+                        blk.get_state().1
+                    );
                     hr.unwrap_or(E_PENDING)
                 }
             }
-            (None, Some(hr)) => hr,
-            _ => E_FAIL,
+            (None, Some(hr)) => {
+                println!("x_async_get_status: no state, hr: {:?}", hr);
+                hr
+            }
+            _ => {
+                println!("x_async_get_status: no state and no hr, returning E_FAIL");
+                E_FAIL
+            }
         }
     }
 
@@ -1148,8 +1173,16 @@ impl IXAsync_Impl for XAsync_Impl {
             return E_FAIL;
         };
         let Some(state) = blk.create_state(self.as_interface_ref(), context, provider) else {
+            println!(
+                "x_async_begin: failed to create state for async_block: {:?}, context: {:?}, provider: {:?}",
+                async_block, context, provider
+            );
             return E_FAIL;
         };
+        println!(
+            "x_async_begin start with async_block: {:?}, context: {:?}, provider: {:?}",
+            async_block, context, provider
+        );
 
         let provider_data = unsafe { &*state.get_provider_data() };
         let hr = unsafe { provider(XAsyncOp::Begin, provider_data) };
@@ -1174,11 +1207,13 @@ impl IXAsync_Impl for XAsync_Impl {
             return E_FAIL;
         };
         let queue = unsafe { state.get_queue() };
+        let context = state.clone().into_raw() as *mut c_void;
+        println!("x_async_schedule: context: {:?}", context);
         let _ = unsafe {
             queue.submit_delayed_callback(
                 XTaskQueuePort::Work,
                 delay_in_ms,
-                state.clone().into_raw() as *mut c_void,
+                context,
                 Some(x_async_work_callback),
             )
         };
@@ -1209,7 +1244,7 @@ impl IXAsync_Impl for XAsync_Impl {
             .magic_result
             .compare_exchange(
                 (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64 & 0xFFFFFFFF),
-                (XASYNC_INT_MAGIC as u64) << 32 | (result.0 as u64),
+                (XASYNC_INT_MAGIC as u64) << 32 | (result.0 as u64 & 0xFFFFFFFF),
                 Ordering::Release,
                 Ordering::Relaxed,
             )

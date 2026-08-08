@@ -9,7 +9,9 @@ use std::task::{Context, Poll, Wake, Waker};
 use windows::minwindef::LPARAM;
 use windows::windef::HWND;
 use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
-use windows_core::{GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, implement, interface};
+use windows_core::{
+    GUID, HRESULT, HSTRING, IUnknown, IUnknown_Vtbl, Interface, PCWSTR, PWSTR, implement, interface,
+};
 use windows_sys::core::BOOL;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
@@ -1073,9 +1075,17 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         asyncBlock: *mut c_void,
     ) -> HRESULT {
         let url = unsafe { CStr::from_ptr(url) };
-        // println!("XNetworkingQuerySecurityInformationForUrlAsync {}", url.to_string_lossy());
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlAsync {}",
+            url.to_string_lossy()
+        );
         unsafe {
+            let storage = url.to_str().unwrap_or_default();
             xasync::run_sync(asyncBlock.cast(), move || {
+                println!(
+                    "XNetworkingQuerySecurityInformationForUrlAsync: storage: {}",
+                    storage
+                );
                 Ok(XNetworkingSecurityInformation {
                     enabledHttpSecurityProtocolFlags: 0x00000080
                         | 0x00000200
@@ -1144,8 +1154,18 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         url: *mut u16,
         asyncBlock: *mut c_void,
     ) -> HRESULT {
+        let url = unsafe { PCWSTR::from_raw(url) };
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlUtf16Async {}",
+            url.to_string().unwrap()
+        );
         unsafe {
+            let storage = url.to_string().unwrap();
             xasync::run_sync(asyncBlock.cast(), move || {
+                println!(
+                    "XNetworkingQuerySecurityInformationForUrlUtf16Async: storage: {}",
+                    storage
+                );
                 Ok(XNetworkingSecurityInformation {
                     enabledHttpSecurityProtocolFlags: 0x00000080
                         | 0x00000200
