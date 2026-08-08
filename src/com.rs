@@ -886,14 +886,14 @@ impl IXStoreAlias3_Impl for XStoreObject_Impl {}
 pub struct XNetworkingObject;
 
 #[repr(u32)]
-enum XNetworkingConnectivityCostHint {
+pub enum XNetworkingConnectivityCostHint {
     Unknown = 0,
     Unrestricted = 1,
     Fixed = 2,
     Variable = 3,
 }
 #[repr(u32)]
-enum XNetworkingConnectivityLevelHint {
+pub enum XNetworkingConnectivityLevelHint {
     Unknown = 0,
     None = 1,
     LocalAccess = 2,
