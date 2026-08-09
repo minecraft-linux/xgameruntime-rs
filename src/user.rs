@@ -1,3 +1,4 @@
+#[allow(improper_ctypes_definitions)]
 use std::ptr::null_mut;
 use std::{
     ffi::{CStr, c_char},
@@ -496,8 +497,8 @@ impl IXUser_Impl for XUser_Impl {
     }
 
     unsafe fn x_user_compare(&self, user1: XUserHandle, user2: XUserHandle) -> u32 {
-        let a = IXUserHandle::from_raw_borrowed(&user1);
-        let b = IXUserHandle::from_raw_borrowed(&user2);
+        let a = unsafe { IXUserHandle::from_raw_borrowed(&user1) };
+        let b = unsafe { IXUserHandle::from_raw_borrowed(&user2) };
         let (Some(a), Some(b)) = (a, b) else {
             return 1;
         };
@@ -511,7 +512,7 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_add_async(
         &self,
-        options: XUserAddOptions,
+        _options: XUserAddOptions,
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_user_add_async called");
@@ -636,33 +637,33 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_find_user_by_local_id(
         &self,
-        user_local_id: XUserLocalId,
-        handle: *mut XUserHandle,
+        _user_local_id: XUserLocalId,
+        _handle: *mut XUserHandle,
     ) -> HRESULT {
         E_FAIL
     }
 
     unsafe fn x_user_get_id(&self, user: XUserHandle, user_id: *mut u64) -> HRESULT {
-        IXUserHandle::from_raw_borrowed(&user)
+        unsafe { IXUserHandle::from_raw_borrowed(&user)
             .map(|f| {
                 *user_id = f.get_xuid();
                 S_OK
             })
-            .unwrap_or(E_FAIL)
+            .unwrap_or(E_FAIL) }
     }
 
-    unsafe fn x_user_find_user_by_id(&self, user_id: u64, handle: *mut XUserHandle) -> HRESULT {
+    unsafe fn x_user_find_user_by_id(&self, _user_id: u64, _handle: *mut XUserHandle) -> HRESULT {
         E_FAIL
     }
 
-    unsafe fn x_user_get_is_guest(&self, user: XUserHandle, is_guest: *mut bool) -> HRESULT {
+    unsafe fn x_user_get_is_guest(&self, _user: XUserHandle, is_guest: *mut bool) -> HRESULT {
         unsafe {
             *is_guest = false;
         };
         S_OK
     }
 
-    unsafe fn x_user_get_state(&self, user: XUserHandle, state: *mut XUserState) -> HRESULT {
+    unsafe fn x_user_get_state(&self, _user: XUserHandle, state: *mut XUserState) -> HRESULT {
         unsafe {
             *state = XUserState::SignedIn;
         };
@@ -675,34 +676,34 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_get_gamer_picture_async(
         &self,
-        user: XUserHandle,
-        picture_size: XUserGamerPictureSize,
-        async_: *mut XAsyncBlock,
+        _user: XUserHandle,
+        _picture_size: XUserGamerPictureSize,
+        _async_: *mut XAsyncBlock,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_get_gamer_picture_result_size(
         &self,
-        async_: *mut XAsyncBlock,
-        buffer_size: *mut usize,
+        _async_: *mut XAsyncBlock,
+        _buffer_size: *mut usize,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_get_gamer_picture_result(
         &self,
-        async_: *mut XAsyncBlock,
-        buffer_size: usize,
-        buffer: *mut c_void,
-        buffer_used: *mut usize,
+        _async_: *mut XAsyncBlock,
+        _buffer_size: usize,
+        _buffer: *mut c_void,
+        _buffer_used: *mut usize,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_get_age_group(
         &self,
-        user: XUserHandle,
+        _user: XUserHandle,
         age_group: *mut XUserAgeGroup,
     ) -> HRESULT {
         unsafe {
@@ -713,9 +714,9 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_check_privilege(
         &self,
-        user: XUserHandle,
-        options: XUserPrivilegeOptions,
-        privilege: XUserPrivilege,
+        _user: XUserHandle,
+        _options: XUserPrivilegeOptions,
+        _privilege: XUserPrivilege,
         has_privilege: *mut bool,
         reason: *mut XUserPrivilegeDenyReason,
     ) -> HRESULT {
@@ -730,15 +731,15 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_resolve_privilege_with_ui_async(
         &self,
-        user: XUserHandle,
-        options: XUserPrivilegeOptions,
-        privilege: XUserPrivilege,
-        async_: *mut XAsyncBlock,
+        _user: XUserHandle,
+        _options: XUserPrivilegeOptions,
+        _privilege: XUserPrivilege,
+        _async_: *mut XAsyncBlock,
     ) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_user_resolve_privilege_with_ui_result(&self, async_: *mut XAsyncBlock) -> HRESULT {
+    unsafe fn x_user_resolve_privilege_with_ui_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
         todo!()
     }
 
@@ -747,17 +748,17 @@ impl IXUser_Impl for XUser_Impl {
     unsafe fn x_user_get_token_and_signature_async(
         &self,
         user: XUserHandle,
-        options: XUserGetTokenAndSignatureOptions,
-        method: *const c_char,
+        _options: XUserGetTokenAndSignatureOptions,
+        _method: *const c_char,
         url: *const c_char,
-        header_count: usize,
-        headers: *const XUserGetTokenAndSignatureHttpHeader,
-        body_size: usize,
-        body_buffer: *const c_void,
+        _header_count: usize,
+        _headers: *const XUserGetTokenAndSignatureHttpHeader,
+        _body_size: usize,
+        _body_buffer: *const c_void,
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         let user = unsafe { IXUserHandle::from_raw_borrowed(&user) };
-        let handle = user.map(|f| f.get_runtime().clone()).unwrap();
+        let handle = user.map(|f| unsafe { f.get_runtime().clone() }).unwrap();
         let user = unsafe { user.unwrap().get_auth() };
         let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().to_string();
         println!(
@@ -831,10 +832,10 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_get_token_and_signature_result_size(
         &self,
-        async_: *mut XAsyncBlock,
+        _async_: *mut XAsyncBlock,
         buffer_size: *mut usize,
     ) -> HRESULT {
-        *buffer_size = std::mem::size_of::<XUserGetTokenAndSignatureDataWrapper>();
+        unsafe { *buffer_size = std::mem::size_of::<XUserGetTokenAndSignatureDataWrapper>() };
         S_OK
     }
 
@@ -847,45 +848,29 @@ impl IXUser_Impl for XUser_Impl {
         buffer_used: *mut usize,
     ) -> HRESULT {
         println!("x_user_get_token_and_signature_result a");
-        let data = XUserGetTokenAndSignatureData {
-            token_size: 6,
-            signature_size: 0,
-            token: c"token".as_ptr() as *const c_char,
-            signature: std::ptr::null() as *const c_char,
-        };
-        // xasync::get_result(async_ as *mut XAsyncBlock, null_mut(), buffer).unwrap();
+        if buffer_size < std::mem::size_of::<XUserGetTokenAndSignatureDataWrapper>() {
+            return E_FAIL;
+        }
         let pbuf = buffer.cast::<XUserGetTokenAndSignatureDataWrapper>();
-        xasync::get_result(async_ as *mut XAsyncBlock, null_mut(), pbuf).unwrap();
-        // let data = unsafe { std::ptr::read(buffer as *const XUserGetTokenAndSignatureDataWrapper) };
-        // unsafe { std::ptr::write(buffer as *mut XUserGetTokenAndSignatureData, data) };
-        // TODO
+        unsafe { xasync::get_result(async_ as *mut XAsyncBlock, null_mut(), pbuf).unwrap() };
         println!("x_user_get_token_and_signature_result b");
         println!(
             "x_user_get_token_and_signature_result b {}",
-            (*pbuf).data.token_size
+            unsafe { &*pbuf }.data.token_size
         );
-        // println!("token a {}", (*pbuf).token[0]);
-        // println!("token b {}", (*pbuf).token[1]);
-        let parts = &(&*pbuf).token[..(&*pbuf).data.token_size - 1];
+        let parts = &unsafe { &*pbuf }.token[..unsafe { &*pbuf }.data.token_size - 1];
 
         println!("token b {}", std::str::from_utf8(parts).unwrap());
 
-        println!("token c {}", (&*pbuf).token[(&*pbuf).data.token_size - 1]);
+        println!("token c {}", unsafe { &*pbuf }.token[unsafe { &*pbuf }.data.token_size - 1]);
 
         unsafe {
             (*pbuf).data.token = (*pbuf).token.as_ptr() as *const c_char;
-            // (*pbuf).data.token = c"token".as_ptr() as *const c_char;
-            // (*pbuf).data.tokenSize = 5;
-            // (*pbuf).data.signatureSize = 0;
-            // (*pbuf).data.signature = std::ptr::null() as *const c_char;
             // (*pbuf).data.signature = (*pbuf).signature.as_ptr() as *const c_char;
         }
-        // println!("token b2 {}", String::from_utf8_lossy(std::slice::from_raw_parts((*pbuf).data.token as *const u8, (*pbuf).data.tokenSize)));
-
-        // println!("token c2 {}", (&*pbuf).data.token[(&*pbuf).data.tokenSize-1]);
         println!(
             "x_user_get_token_and_signature_result c {}",
-            CStr::from_ptr((*pbuf).data.token).to_string_lossy()
+            unsafe { CStr::from_ptr((*pbuf).data.token) }.to_string_lossy()
         );
 
         println!("x_user_get_token_and_signature_result c");
@@ -901,39 +886,39 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_get_token_and_signature_utf16_async(
         &self,
-        user: XUserHandle,
-        options: XUserGetTokenAndSignatureOptions,
-        method: *const u16,
+        _user: XUserHandle,
+        _options: XUserGetTokenAndSignatureOptions,
+        _method: *const u16,
         url: *const u16,
-        header_count: usize,
-        headers: *const XUserGetTokenAndSignatureUtf16HttpHeader,
-        body_size: usize,
-        body_buffer: *const c_void,
+        _header_count: usize,
+        _headers: *const XUserGetTokenAndSignatureUtf16HttpHeader,
+        _body_size: usize,
+        _body_buffer: *const c_void,
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         let url = windows_strings::PCWSTR::from_raw(url);
         println!(
             "x_user_get_token_and_signature_utf16_async called with url: {}",
-            url.to_string().unwrap()
+            unsafe { url.to_string() }.unwrap()
         );
-        xasync::run(async_ as *mut XAsyncBlock, {
+        unsafe { xasync::run(async_ as *mut XAsyncBlock, {
             async { Ok::<_, HRESULT>(()) }
-        })
+        }) }
     }
 
     unsafe fn x_user_get_token_and_signature_utf16_result_size(
         &self,
-        async_: *mut XAsyncBlock,
+        _async_: *mut XAsyncBlock,
         buffer_size: *mut usize,
     ) -> HRESULT {
-        *buffer_size = std::mem::size_of::<XUserGetTokenAndSignatureUtf16Data>();
+        unsafe { *buffer_size = std::mem::size_of::<XUserGetTokenAndSignatureUtf16Data>() };
         S_OK
     }
 
     unsafe fn x_user_get_token_and_signature_utf16_result(
         &self,
-        async_: *mut XAsyncBlock,
-        buffer_size: usize,
+        _async_: *mut XAsyncBlock,
+        _buffer_size: usize,
         buffer: *mut c_void,
         ptr_to_buffer: *mut *mut XUserGetTokenAndSignatureUtf16Data,
         buffer_used: *mut usize,
@@ -954,39 +939,39 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_resolve_issue_with_ui_async(
         &self,
-        user: XUserHandle,
-        url: *const c_char,
-        async_: *mut XAsyncBlock,
+        _user: XUserHandle,
+        _url: *const c_char,
+        _async_: *mut XAsyncBlock,
     ) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_user_resolve_issue_with_ui_result(&self, async_: *mut XAsyncBlock) -> HRESULT {
+    unsafe fn x_user_resolve_issue_with_ui_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_resolve_issue_with_ui_utf16_async(
         &self,
-        user: XUserHandle,
-        url: *const u16,
-        async_: *mut XAsyncBlock,
+        _user: XUserHandle,
+        _url: *const u16,
+        _async_: *mut XAsyncBlock,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_resolve_issue_with_ui_utf16_result(
         &self,
-        async_: *mut XAsyncBlock,
+        _async_: *mut XAsyncBlock,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_register_for_change_event(
         &self,
-        queue: XTaskQueueHandle,
-        context: *mut c_void,
-        callback: *mut XUserChangeEventCallback,
-        token: *mut XTaskQueueRegistrationToken,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: *mut XUserChangeEventCallback,
+        _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT {
         println!("x_user_register_for_change_event called");
         S_OK
@@ -994,40 +979,40 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_unregister_for_change_event(
         &self,
-        token: XTaskQueueRegistrationToken,
-        wait: bool,
+        _token: XTaskQueueRegistrationToken,
+        _wait: bool,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_get_sign_out_deferral(
         &self,
-        deferral: *mut XUserSignOutDeferralHandle,
+        _deferral: *mut XUserSignOutDeferralHandle,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_close_sign_out_deferral_handle(
         &self,
-        deferral: XUserSignOutDeferralHandle,
+        _deferral: XUserSignOutDeferralHandle,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_register_for_device_association_changed(
         &self,
-        queue: XTaskQueueHandle,
-        context: *mut c_void,
-        callback: *mut XUserDeviceAssociationChangedCallback,
-        token: *mut XTaskQueueRegistrationToken,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: *mut XUserDeviceAssociationChangedCallback,
+        _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_unregister_for_device_association_changed(
         &self,
-        token: XTaskQueueRegistrationToken,
-        wait: bool,
+        _token: XTaskQueueRegistrationToken,
+        _wait: bool,
     ) -> HRESULT {
         todo!()
     }
@@ -1036,38 +1021,38 @@ impl IXUser_Impl for XUser_Impl {
         todo!()
     }
 
-    unsafe fn x_user_is_store_user(&self, user: XUserHandle) -> HRESULT {
+    unsafe fn x_user_is_store_user(&self, _user: XUserHandle) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_platform_remote_connect_set_event_handlers(
         &self,
-        queue: XTaskQueueHandle,
-        handlers: *mut XUserPlatformRemoteConnectEventHandler,
+        _queue: XTaskQueueHandle,
+        _handlers: *mut XUserPlatformRemoteConnectEventHandler,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_platform_remote_connect_cancel_prompt(
         &self,
-        operation: XUserPlatformOperation,
+        _operation: XUserPlatformOperation,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_platform_spop_prompt_set_event_handlers(
         &self,
-        queue: XTaskQueueHandle,
-        handler: *mut XUserPlatformSpopPromptEventHandlers,
-        context: *mut c_void,
+        _queue: XTaskQueueHandle,
+        _handler: *mut XUserPlatformSpopPromptEventHandlers,
+        _context: *mut c_void,
     ) -> HRESULT {
         todo!()
     }
 
     unsafe fn x_user_platform_spop_prompt_complete(
         &self,
-        operation: XUserPlatformOperation,
-        result: XUserPlatformSpopOperationResult,
+        _operation: XUserPlatformOperation,
+        _result: XUserPlatformSpopOperationResult,
     ) -> HRESULT {
         todo!()
     }
