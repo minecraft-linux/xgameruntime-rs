@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let (Some(name), Some(ty), Some(body)) = (res.get(1), res.get(2), res.get(3)) {
             if known.insert(name.as_str()) {
                 // TODO normalize the name + body so it follows naming conventions
-                print!("#[repr({})]\nenum {} {{", to_rust_type(ty.as_str()), name.as_str());
+                print!("#[repr({})]\npub enum {} {{", to_rust_type(ty.as_str()), name.as_str());
                 println!("{}", body.as_str());
                 println!("}}");
             }
@@ -107,11 +107,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let (Some(name), Some(body)) = (res.get(1), res.get(2)) {
             if known.insert(name.as_str()) {
                 // TODO normalize the name + body so it follows naming conventions
-                println!("#[repr(C)]\nstruct {} {{", name.as_str());
+                println!("#[repr(C)]\npub struct {} {{", name.as_str());
                 // println!("{}", body.as_str());
                 for field in bodyre.captures_iter(body.as_str()) {
                     if let (Some(field), Some(ty)) = (field.get(3), field.get(1)) {
-                        println!("{}: {},", field.as_str(), to_rust_type(ty.as_str().trim()));
+                        println!("pub {}: {},", field.as_str(), to_rust_type(ty.as_str().trim()));
                     }
                 }
                 println!("}}");
