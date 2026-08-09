@@ -627,12 +627,14 @@ impl IXUser_Impl for XUser_Impl {
         user: XUserHandle,
         user_local_id: *mut XUserLocalId,
     ) -> HRESULT {
-        unsafe { IXUserHandle::from_raw_borrowed(&user)
-            .map(|f| {
-                *user_local_id = f.get_local_id();
-                S_OK
-            })
-            .unwrap_or(E_FAIL) }
+        unsafe {
+            IXUserHandle::from_raw_borrowed(&user)
+                .map(|f| {
+                    *user_local_id = f.get_local_id();
+                    S_OK
+                })
+                .unwrap_or(E_FAIL)
+        }
     }
 
     unsafe fn x_user_find_user_by_local_id(
@@ -644,12 +646,14 @@ impl IXUser_Impl for XUser_Impl {
     }
 
     unsafe fn x_user_get_id(&self, user: XUserHandle, user_id: *mut u64) -> HRESULT {
-        unsafe { IXUserHandle::from_raw_borrowed(&user)
-            .map(|f| {
-                *user_id = f.get_xuid();
-                S_OK
-            })
-            .unwrap_or(E_FAIL) }
+        unsafe {
+            IXUserHandle::from_raw_borrowed(&user)
+                .map(|f| {
+                    *user_id = f.get_xuid();
+                    S_OK
+                })
+                .unwrap_or(E_FAIL)
+        }
     }
 
     unsafe fn x_user_find_user_by_id(&self, _user_id: u64, _handle: *mut XUserHandle) -> HRESULT {
@@ -862,7 +866,10 @@ impl IXUser_Impl for XUser_Impl {
 
         println!("token b {}", std::str::from_utf8(parts).unwrap());
 
-        println!("token c {}", unsafe { &*pbuf }.token[unsafe { &*pbuf }.data.token_size - 1]);
+        println!(
+            "token c {}",
+            unsafe { &*pbuf }.token[unsafe { &*pbuf }.data.token_size - 1]
+        );
 
         unsafe {
             (*pbuf).data.token = (*pbuf).token.as_ptr() as *const c_char;
@@ -901,9 +908,11 @@ impl IXUser_Impl for XUser_Impl {
             "x_user_get_token_and_signature_utf16_async called with url: {}",
             unsafe { url.to_string() }.unwrap()
         );
-        unsafe { xasync::run(async_ as *mut XAsyncBlock, {
-            async { Ok::<_, HRESULT>(()) }
-        }) }
+        unsafe {
+            xasync::run(async_ as *mut XAsyncBlock, {
+                async { Ok::<_, HRESULT>(()) }
+            })
+        }
     }
 
     unsafe fn x_user_get_token_and_signature_utf16_result_size(

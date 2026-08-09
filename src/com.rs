@@ -1,4 +1,4 @@
-#[allow(nonstandard_style,non_snake_case)]
+#[allow(nonstandard_style, non_snake_case)]
 use super::E_NOTIMPL;
 use std::env::temp_dir;
 use std::ffi::{CStr, c_char, c_void};
@@ -708,7 +708,7 @@ pub unsafe trait IXNetworking: IUnknown {
     ) -> HRESULT;
     unsafe fn XNetworkingQueryStatistics(
         &self,
-        statisticsType: u64,
+        statistics_type: u64,
         statisticsBuffer: *mut c_void,
     ) -> HRESULT;
 }
@@ -1319,7 +1319,7 @@ mod tests {
 
     use crate::com::{IXStore, XStoreGameLicense, get_result, query_api_impl};
     use crate::xasync::{XAsyncBlock, get_status, run};
-use crate::{
+    use crate::{
         E_FAIL, InitializeApiImplEx2, UninitializeApiImpl, set_delegated_dll_path_for_test,
     };
     use windows_core::{GUID, HRESULT, Interface};
