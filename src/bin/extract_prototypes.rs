@@ -1,5 +1,6 @@
 use std::{borrow::Cow, collections::HashSet, fs::File, io::Read};
 
+use egui::TextBuffer;
 
 fn to_rust_type_ex(cpp_type: &str, is_inner: bool) -> Cow<str> {
     let st = match cpp_type {
@@ -29,6 +30,14 @@ fn to_rust_type_ex(cpp_type: &str, is_inner: bool) -> Cow<str> {
             } else {
                 return format!("*mut {}", rust_base_type).into();
             }
+        }
+        if cpp_type.starts_with("struct ") {
+            let struct_name = cpp_type["struct ".len()..].trim();
+            return struct_name.into();
+        }
+        if cpp_type.starts_with("const ") {
+            let struct_name = cpp_type["const ".len()..].trim();
+            return struct_name.into();
         }
     } else {
         return st.into();
@@ -63,6 +72,8 @@ fn to_snake_case(s: &str) -> String {
         "async" => "async_".to_owned(),
         "fn" => "fn_".to_owned(),
         "dyn" => "dyn_".to_owned(),
+        "type" => "type_".to_owned(),
+        "self" => "self_".to_owned(),
         other => other.to_string(),
     }
 }
@@ -115,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // println!("{}", body.as_str());
                 for field in bodyre.captures_iter(body.as_str()) {
                     if let (Some(field), Some(ty)) = (field.get(3), field.get(1)) {
-                        println!("pub {}: {},", field.as_str(), to_rust_type(ty.as_str().trim()));
+                        println!("    pub {}: {},", to_snake_case(field.as_str()), to_rust_type(ty.as_str().trim()));
                     }
                 }
                 println!("}}");
@@ -130,29 +141,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //         XUserPrivilege privilege,
 //         XAsyncBlock* async
 // )
-
-    let re = regex::Regex::new(r"(\w+)\s+(\w+)\s*\((((\n|\s|//.*\n)*([\w\*]+\s*)+,?)+)[\n\s]*\)")?;
+    // callbacks ok
+    // let re = regex::Regex::new(r"C\+\+\s*\n\s*\n\s*(\w+)\s+(\w+)\s+(\w+)\s*\((((\n|\s|//.*\n)*([\w\*]+\s*)+,?)+)[\n\s]*\)")?;
+    let re = regex::Regex::new(r"C\+\+\s*\n\s*\n\s*(\w+)\s+(?:(\w+)\s+)?(\w+)\s*\((((\n|\s|//.*\n)*([\w\*]+\s*)+,?)+)[\n\s]*\)\s*;?\n*\n\s*\n\s*Parameters")?;
     let bodyre = regex::Regex::new(r"[\s\n]*(([\w\*]+\s+)+)(\w+)\s*")?;
     
     let mut known = HashSet::new();
 
     for res in re.captures_iter(&buf) {
-        if let (Some(name), Some(body)) = (res.get(2), res.get(3)) {
+        if let (Some(ret), Some(name), Some(body)) = (res.get(1), res.get(3), res.get(4)) {
             if known.insert(name.as_str()) {
-println!("                // {}", name.as_str());
-                print!("pub unsafe fn {} -> {} (self: &Self", to_snake_case(name.as_str()), to_rust_type(ret.as_str().trim()));
-                // println!("{}", body.as_str());
-                // let mut i = 0;
-                for field in bodyre.captures_iter(body.as_str()) {
-                    // if i > 0 {
-                        print!(", ");
-                    // }
-                    if let (Some(field), Some(ty)) = (field.get(3), field.get(1)) {
-                        print!("{}: {}", to_snake_case(field.as_str()), to_rust_type(ty.as_str().trim()));
-                    }
-                    //i+= 1;
+                println!("// {}", name.as_str());
+                let mut i = 0;
+                if let Some(extra) = res.get(2) && extra.as_str() == "CALLBACK" {
+                    print!("pub type {} = unsafe extern \"system\" fn(", to_snake_case(name.as_str()));
+                } else {
+                    print!("pub unsafe fn {}(self: &Self", to_snake_case(name.as_str()));
+                    i+=1;
                 }
-                println!(");");
+                // println!("{}", body.as_str());
+                for field in bodyre.captures_iter(body.as_str()) {
+                    if i > 0 {
+                        print!(", ");
+                    }
+                    if let (Some(field), Some(ty)) = (field.get(3), field.get(1)) {
+                        // let ty = regex::Regex::new(r"(^|\s)\s*_\w+_\s*\s(\s|$)").unwrap().replace_all(ty.as_str().trim(), "");
+                        let ty = regex::Regex::new(r"_In_opt_z_|_Out_opt_|_Out_Opt_|_In_z_|_In_opt_|_In_|_Out_").unwrap().replace_all(ty.as_str().trim(), "");
+                        print!("{}: {}", to_snake_case(field.as_str()), to_rust_type(ty.as_ref().trim()));
+                    }
+                    i+= 1;
+                }
+                println!(") -> {};", to_rust_type(ret.as_str().trim()));
             }
         }
         // println!("{:?}", res);
