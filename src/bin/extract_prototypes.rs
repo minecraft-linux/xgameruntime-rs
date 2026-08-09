@@ -27,6 +27,8 @@ fn to_rust_type_ex(cpp_type: &str, is_inner: bool) -> Cow<str> {
             let rust_base_type = to_rust_type_ex(base_type, true);
             if caps.get(1).is_some() {
                 return format!("*const {}", rust_base_type).into();
+            } else if rust_base_type.ends_with("Callback") {
+                return format!("Option<{}>", rust_base_type).into();
             } else {
                 return format!("*mut {}", rust_base_type).into();
             }
