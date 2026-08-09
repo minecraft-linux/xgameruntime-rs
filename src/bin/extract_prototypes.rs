@@ -1,8 +1,8 @@
 use std::{borrow::Cow, collections::HashSet, fs::File, io::Read};
 
 
-fn to_rust_type(cpp_type: &str) -> Cow<str> {
-    let st =     match cpp_type {
+fn to_rust_type_ex(cpp_type: &str, is_inner: bool) -> Cow<str> {
+    let st = match cpp_type {
         "uint8_t" | "BYTE" => "u8",
         "uint16_t" | "UINT16" => "u16",
         "int16_t" | "INT16" | "WORD" => "i16",
@@ -15,7 +15,7 @@ fn to_rust_type(cpp_type: &str) -> Cow<str> {
         "time_t" => "libc::time_t",
         "size_t" => "usize",
         "wchar_t" => "u16",
-        "void" => "c_void",
+        "void" => if is_inner { "c_void" } else { "()" },
         "char" => "c_char",
         _ => "",
     };
@@ -23,7 +23,7 @@ fn to_rust_type(cpp_type: &str) -> Cow<str> {
         let array: regex::Regex = regex::Regex::new(r"^(const\s+)?(.+)\s*\*$").unwrap();
         if let Some(caps) = array.captures(cpp_type) {
             let base_type = caps.get(2).unwrap().as_str();
-            let rust_base_type = to_rust_type(base_type);
+            let rust_base_type = to_rust_type_ex(base_type, true);
             if caps.get(1).is_some() {
                 return format!("*const {}", rust_base_type).into();
             } else {
@@ -34,6 +34,10 @@ fn to_rust_type(cpp_type: &str) -> Cow<str> {
         return st.into();
     }
     return cpp_type.into();
+}
+
+fn to_rust_type(cpp_type: &str) -> Cow<str> {
+    to_rust_type_ex(cpp_type, false)
 }
 
 // #[repr(u32)]
@@ -135,8 +139,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for res in re.captures_iter(&buf) {
         if let (Some(name), Some(body)) = (res.get(2), res.get(3)) {
             if known.insert(name.as_str()) {
-                // TODO normalize the name + body so it follows naming conventions
-                print!("pub unsafe fn {} (self: &Self", to_snake_case(name.as_str()));
+println!("                // {}", name.as_str());
+                print!("pub unsafe fn {} -> {} (self: &Self", to_snake_case(name.as_str()), to_rust_type(ret.as_str().trim()));
                 // println!("{}", body.as_str());
                 // let mut i = 0;
                 for field in bodyre.captures_iter(body.as_str()) {
