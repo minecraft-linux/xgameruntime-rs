@@ -17,8 +17,8 @@ const CLSID_XUSER: GUID = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0
 const STORE_SKU_ID_SIZE: usize = 18;
 const TRIAL_UNIQUE_ID_MAX_SIZE: usize = 64;
 
-use crate::threading::{IXAsync, XAsyncBlock};
-use crate::user::{IXUser, XUser};
+use crate::threading::{IXAsync, XAsyncBlock, XTaskQueueHandle, XTaskQueueRegistrationToken};
+use crate::user::{IXUser, XUser, XUserHandle};
 use crate::xasync::get_result;
 use crate::{E_FAIL, results::*, threading, xasync};
 
@@ -206,405 +206,662 @@ impl IXPersistentLocalStorage_Impl for XPersistentLocalStorage_Impl {
     }
 }
 
+#[repr(u32)]
+pub enum XStoreCanLicenseStatus {
+    NotLicensableToUser = 0,
+    Licensable = 1,
+    LicenseActionNotApplicableToProduct = 2,
+}
+#[repr(u32)]
+pub enum XStoreDurationUnit {
+    Minute = 0,
+    Hour = 1,
+    Day = 2,
+    Week = 3,
+    Month = 4,
+    Year = 5,
+}
+#[repr(u32)]
+pub enum XStoreProductKind {
+    None = 0x00,
+    Consumable = 0x01,
+    Durable = 0x02,
+    Game = 0x04,
+    Pass = 0x08,
+    UnmanagedConsumable = 0x10,
+}
+
+#[repr(C)]
+pub struct XStorePrice {}
+
+#[repr(C)]
+pub struct XVersion {}
+
+pub type XStoreContextHandle = u64;
+pub type XStoreLicenseHandle = u64;
+pub type XStoreProductQueryHandle = u64;
+
+#[repr(C)]
+pub struct XStoreAvailability {
+    pub availability_id: *const c_char,
+    pub price: XStorePrice,
+    pub end_date: libc::time_t,
+}
+#[repr(C)]
+pub struct XStoreCollectionData {
+    pub acquired_date: libc::time_t,
+    pub start_date: libc::time_t,
+    pub end_date: libc::time_t,
+    pub is_trial: bool,
+    pub trial_time_remaining_in_seconds: u32,
+    pub quantity: u32,
+    pub campaign_id: *const c_char,
+    pub developer_offer_id: *const c_char,
+}
+#[repr(C)]
+pub struct XStoreConsumableResult {
+    pub quantity: u32,
+}
+#[repr(C)]
+pub struct XStoreImage {
+    pub uri: *const c_char,
+    pub height: u32,
+    pub width: u32,
+    pub caption: *const c_char,
+    pub image_purpose_tag: *const c_char,
+}
+#[repr(C)]
+pub struct XStoreProduct {
+    pub store_id: *const c_char,
+    pub title: *const c_char,
+    pub description: *const c_char,
+    pub language: *const c_char,
+    pub in_app_offer_token: *const c_char,
+    pub link_uri: *mut c_char,
+    pub product_kind: XStoreProductKind,
+    pub price: XStorePrice,
+    pub has_digital_download: bool,
+    pub is_in_user_collection: bool,
+    pub keywords_count: u32,
+    pub keywords: *const *mut c_char,
+    pub skus_count: u32,
+    pub skus: *mut XStoreSku,
+    pub images_count: u32,
+    pub images: *mut XStoreImage,
+    pub videos_count: u32,
+    pub videos: *mut XStoreVideo,
+}
+#[repr(C)]
+pub struct XStoreRateAndReviewResult {
+    pub was_updated: bool,
+}
+#[repr(C)]
+pub struct XStoreSku {
+    pub sku_id: *const c_char,
+    pub title: *const c_char,
+    pub description: *const c_char,
+    pub language: *const c_char,
+    pub price: XStorePrice,
+    pub is_trial: bool,
+    pub is_in_user_collection: bool,
+    pub collection_data: XStoreCollectionData,
+    pub is_subscription: bool,
+    pub subscription_info: XStoreSubscriptionInfo,
+    pub bundled_skus_count: u32,
+    pub bundled_skus: *const *mut c_char,
+    pub images_count: u32,
+    pub images: *mut XStoreImage,
+    pub videos_count: u32,
+    pub videos: *mut XStoreVideo,
+    pub availabilities_count: u32,
+    pub availabilities: *mut XStoreAvailability,
+}
+#[repr(C)]
+pub struct XStoreSubscriptionInfo {
+    pub has_trial_period: bool,
+    pub trial_period_unit: XStoreDurationUnit,
+    pub trial_period: u32,
+    pub billing_period_unit: XStoreDurationUnit,
+    pub billing_period: u32,
+}
+#[repr(C)]
+pub struct XStoreVideo {
+    pub uri: *const c_char,
+    pub height: u32,
+    pub width: u32,
+    pub caption: *const c_char,
+    pub video_purpose_tag: *const c_char,
+    pub preview_image: XStoreImage,
+}
+#[repr(C)]
+pub struct XSystemRuntimeInfo {
+    pub runtime_version: XVersion,
+    pub available_version: XVersion,
+}
+
+// XStoreGameLicenseChangedCallback
+pub type XStoreGameLicenseChangedCallback = unsafe extern "system" fn(context: *mut c_void) -> ();
+// XStorePackageLicenseLostCallback
+pub type XStorePackageLicenseLostCallback = unsafe extern "system" fn(context: *mut c_void) -> ();
+// XStoreProductQueryCallback
+pub type XStoreProductQueryCallback =
+    unsafe extern "system" fn(product: *const XStoreProduct, context: *mut c_void) -> bool;
+
+pub struct XStorePackageUpdate {}
+pub struct XStoreCanAcquireLicenseResult {}
+pub struct XStoreAddonLicense {}
+
 #[interface("2d42fea5-e71d-4b76-97cd-c50afbb3ae5d")]
 pub unsafe trait IXStore: IUnknown {
-    unsafe fn XStoreCreateContext(&self, user: u64, storeContextHandle: *mut u64) -> HRESULT;
-    unsafe fn XStoreCloseContextHandle(&self, storeContextHandle: u64) -> ();
-    unsafe fn XStoreQueryAssociatedProductsAsync(
-        &self,
-        storeContextHandle: u64,
-        productKinds: u64,
-        maxItemsToRetrievePerPage: u32,
-        async_: *mut c_void,
+    // XStoreCreateContext
+    pub unsafe fn x_store_create_context(
+        self: &Self,
+        user: XUserHandle,
+        store_context_handle: *mut XStoreContextHandle,
     ) -> HRESULT;
-    unsafe fn XStoreQueryAssociatedProductsResult(
-        &self,
-        async_: *mut c_void,
-        productQueryHandle: *mut c_void,
+    // XStoreCloseContextHandle
+    pub unsafe fn x_store_close_context_handle(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+    ) -> ();
+    // XStoreQueryAssociatedProductsAsync
+    pub unsafe fn x_store_query_associated_products_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        product_kinds: XStoreProductKind,
+        max_items_to_retrieve_per_page: u32,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryProductsAsync(
-        &self,
-        storeContextHandle: u64,
-        productKinds: u64,
-        storeIds: *mut *mut c_char,
-        storeIdsCount: u64,
-        actionFilters: *mut *mut c_char,
-        actionFiltersCount: u64,
-        async_: *mut c_void,
+    // XStoreQueryAssociatedProductsResult
+    pub unsafe fn x_store_query_associated_products_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT;
-    unsafe fn XStoreQueryProductsResult(
-        &self,
-        async_: *mut c_void,
-        productQueryHandle: *mut c_void,
+    // XStoreQueryProductsAsync
+    pub unsafe fn x_store_query_products_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        product_kinds: XStoreProductKind,
+        store_ids: *const *mut c_char,
+        store_ids_count: usize,
+        action_filters: *const *mut c_char,
+        action_filters_count: usize,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryEntitledProductsAsync(
-        &self,
-        storeContextHandle: u64,
-        productKinds: u64,
-        maxItemsToRetrievePerPage: u32,
-        async_: *mut c_void,
+    // XStoreQueryProductsResult
+    pub unsafe fn x_store_query_products_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT;
-    unsafe fn XStoreQueryEntitledProductsResult(
-        &self,
-        async_: *mut c_void,
-        productQueryHandle: *mut c_void,
+    // XStoreQueryEntitledProductsAsync
+    pub unsafe fn x_store_query_entitled_products_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        product_kinds: XStoreProductKind,
+        max_items_to_retrieve_per_page: u32,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryProductForCurrentGameAsync(
-        &self,
-        storeContextHandle: u64,
-        async_: *mut c_void,
+    // XStoreQueryEntitledProductsResult
+    pub unsafe fn x_store_query_entitled_products_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT;
-    unsafe fn XStoreQueryProductForCurrentGameResult(
-        &self,
-        async_: *mut c_void,
-        productQueryHandle: *mut c_void,
+    // XStoreQueryProductForCurrentGameAsync
+    pub unsafe fn x_store_query_product_for_current_game_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryProductForPackageAsync(
-        &self,
-        storeContextHandle: u64,
-        productKinds: u64,
-        packageIdentifier: *mut c_char,
-        async_: *mut c_void,
+    // XStoreQueryProductForCurrentGameResult
+    pub unsafe fn x_store_query_product_for_current_game_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT;
-    unsafe fn XStoreQueryProductForPackageResult(
-        &self,
-        async_: *mut c_void,
-        productQueryHandle: *mut c_void,
+    // XStoreQueryProductForPackageAsync
+    pub unsafe fn x_store_query_product_for_package_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        product_kinds: XStoreProductKind,
+        package_identifier: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreEnumerateProductsQuery(
-        &self,
-        productQueryHandle: u64,
-        context: *mut c_void,
-        callback: *mut c_void,
+    // XStoreQueryProductForPackageResult
+    pub unsafe fn x_store_query_product_for_package_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT;
-    unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> BOOL;
-    unsafe fn XStoreProductsQueryNextPageAsync(
-        &self,
-        productQueryHandle: u64,
-        async_: *mut c_void,
+
+    // XStoreAcquireLicenseForDurablesAsync
+    pub unsafe fn x_store_acquire_license_for_durables_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreProductsQueryNextPageResult(
-        &self,
-        async_: *mut c_void,
-        productQueryHandle: *mut c_void,
+    // XStoreAcquireLicenseForDurablesResult
+    pub unsafe fn x_store_acquire_license_for_durables_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        store_license_handle: *mut XStoreLicenseHandle,
     ) -> HRESULT;
-    unsafe fn XStoreCloseProductsQueryHandle(&self, productQueryHandle: u64) -> ();
-    unsafe fn XStoreAcquireLicenseForPackageAsync(
-        &self,
-        storeContextHandle: u64,
-        packageIdentifier: *mut c_char,
-        async_: *mut c_void,
+    // XStoreAcquireLicenseForPackageAsync
+    pub unsafe fn x_store_acquire_license_for_package_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        package_identifier: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreAcquireLicenseForPackageResult(
-        &self,
-        async_: *mut c_void,
-        storeLicenseHandle: *mut c_void,
+    // XStoreAcquireLicenseForPackageResult
+    pub unsafe fn x_store_acquire_license_for_package_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        store_license_handle: *mut XStoreLicenseHandle,
     ) -> HRESULT;
-    unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> BOOL;
-    unsafe fn XStoreCloseLicenseHandle(&self, storeLicenseHandle: u64) -> ();
-    unsafe fn XStoreCanAcquireLicenseForStoreIdAsync(
-        &self,
-        storeContextHandle: u64,
-        storeProductId: *mut c_char,
-        async_: *mut c_void,
+    // XStoreCanAcquireLicenseForPackageAsync
+    pub unsafe fn x_store_can_acquire_license_for_package_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        package_identifier: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreCanAcquireLicenseForStoreIdResult(
-        &self,
-        async_: *mut c_void,
-        storeCanAcquireLicense: *mut c_void,
+    // XStoreCanAcquireLicenseForPackageResult
+    pub unsafe fn x_store_can_acquire_license_for_package_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        store_can_acquire_license: *mut XStoreCanAcquireLicenseResult,
     ) -> HRESULT;
-    unsafe fn XStoreCanAcquireLicenseForPackageAsync(
-        &self,
-        storeContextHandle: u64,
-        packageIdentifier: *mut c_char,
-        async_: *mut c_void,
+    // XStoreCanAcquireLicenseForStoreIdAsync
+    pub unsafe fn x_store_can_acquire_license_for_store_id_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_product_id: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreCanAcquireLicenseForPackageResult(
-        &self,
-        async_: *mut c_void,
-        storeCanAcquireLicense: *mut c_void,
+    // XStoreCanAcquireLicenseForStoreIdResult
+    pub unsafe fn x_store_can_acquire_license_for_store_id_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        store_can_acquire_license: *mut XStoreCanAcquireLicenseResult,
     ) -> HRESULT;
-    unsafe fn XStoreQueryGameLicenseAsync(
-        &self,
-        storeContextHandle: u64,
-        async_: *mut c_void,
+    // XStoreCloseLicenseHandle
+    pub unsafe fn x_store_close_license_handle(
+        self: &Self,
+        store_license_handle: XStoreLicenseHandle,
+    ) -> ();
+    // XStoreCloseProductsQueryHandle
+    pub unsafe fn x_store_close_products_query_handle(
+        self: &Self,
+        product_query_handle: XStoreProductQueryHandle,
+    ) -> ();
+    // XStoreDownloadAndInstallPackagesAsync
+    pub unsafe fn x_store_download_and_install_packages_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_ids: *const *mut c_char,
+        store_ids_count: usize,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryGameLicenseResult(
-        &self,
-        async_: *mut c_void,
-        license: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XStoreQueryAddOnLicensesAsync(
-        &self,
-        storeContextHandle: u64,
-        async_: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XStoreQueryAddOnLicensesResultCount(
-        &self,
-        async_: *mut c_void,
+    // XStoreDownloadAndInstallPackagesResultCount
+    pub unsafe fn x_store_download_and_install_packages_result_count(
+        self: &Self,
+        async_: *mut XAsyncBlock,
         count: *mut u32,
     ) -> HRESULT;
-    unsafe fn XStoreQueryAddOnLicensesResult(
-        &self,
-        async_: *mut c_void,
-        count: u32,
-        addOnLicenses: *mut c_void,
+    // XStoreDownloadAndInstallPackageUpdatesAsync
+    pub unsafe fn x_store_download_and_install_package_updates_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        package_identifiers: *const *mut c_char,
+        package_identifiers_count: usize,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryConsumableBalanceRemainingAsync(
-        &self,
-        storeContextHandle: u64,
-        storeProductId: *mut c_char,
-        async_: *mut c_void,
+    // XStoreDownloadAndInstallPackageUpdatesResult
+    pub unsafe fn x_store_download_and_install_package_updates_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryConsumableBalanceRemainingResult(
-        &self,
-        async_: *mut c_void,
-        consumableResult: *mut c_void,
+    // XStoreDownloadPackageUpdatesAsync
+    pub unsafe fn x_store_download_package_updates_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        package_identifiers: *const *mut c_char,
+        package_identifiers_count: usize,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn __ReservedSlot35(&self) -> HRESULT;
-    unsafe fn XStoreReportConsumableFulfillmentResult(
-        &self,
-        async_: *mut c_void,
-        consumableResult: *mut c_void,
+    // XStoreDownloadPackageUpdatesResult
+    pub unsafe fn x_store_download_package_updates_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreGetUserCollectionsIdAsync(
-        &self,
-        storeContextHandle: u64,
-        serviceTicket: *mut c_char,
-        publisherUserId: *mut c_char,
-        async_: *mut c_void,
+    // XStoreEnumerateProductsQuery
+    pub unsafe fn x_store_enumerate_products_query(
+        self: &Self,
+        product_query_handle: XStoreProductQueryHandle,
+        context: *mut c_void,
+        callback: Option<XStoreProductQueryCallback>,
     ) -> HRESULT;
-    unsafe fn XStoreGetUserCollectionsIdResultSize(
-        &self,
-        async_: *mut c_void,
-        size: *mut usize,
+    // XStoreGetUserCollectionsIdAsync
+    pub unsafe fn x_store_get_user_collections_id_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        service_ticket: *const c_char,
+        publisher_user_id: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreGetUserCollectionsIdResult(
-        &self,
-        async_: *mut c_void,
-        size: u64,
+    // XStoreGetUserCollectionsIdResult
+    pub unsafe fn x_store_get_user_collections_id_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        size: usize,
         result: *mut c_char,
     ) -> HRESULT;
-    unsafe fn XStoreGetUserPurchaseIdAsync(
-        &self,
-        storeContextHandle: u64,
-        serviceTicket: *mut c_char,
-        publisherUserId: *mut c_char,
-        async_: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XStoreGetUserPurchaseIdResultSize(
-        &self,
-        async_: *mut c_void,
+    // XStoreGetUserCollectionsIdResultSize
+    pub unsafe fn x_store_get_user_collections_id_result_size(
+        self: &Self,
+        async_: *mut XAsyncBlock,
         size: *mut usize,
     ) -> HRESULT;
-    unsafe fn XStoreGetUserPurchaseIdResult(
-        &self,
-        async_: *mut c_void,
-        size: u64,
+    // XStoreGetUserPurchaseIdAsync
+    pub unsafe fn x_store_get_user_purchase_id_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        service_ticket: *const c_char,
+        publisher_user_id: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreGetUserPurchaseIdResult
+    pub unsafe fn x_store_get_user_purchase_id_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        size: usize,
         result: *mut c_char,
     ) -> HRESULT;
-    unsafe fn XStoreQueryLicenseTokenAsync(
-        &self,
-        storeContextHandle: u64,
-        productIds: *mut *mut c_char,
-        productIdsCount: u64,
-        customDeveloperString: *mut c_char,
-        async_: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XStoreQueryLicenseTokenResultSize(
-        &self,
-        async_: *mut c_void,
+    // XStoreGetUserPurchaseIdResultSize
+    pub unsafe fn x_store_get_user_purchase_id_result_size(
+        self: &Self,
+        async_: *mut XAsyncBlock,
         size: *mut usize,
     ) -> HRESULT;
-    unsafe fn XStoreQueryLicenseTokenResult(
-        &self,
-        async_: *mut c_void,
-        size: u64,
+    // XStoreIsLicenseValid
+    pub unsafe fn x_store_is_license_valid(
+        self: &Self,
+        store_license_handle: XStoreLicenseHandle,
+    ) -> bool;
+    // XStoreProductsQueryHasMorePages
+    pub unsafe fn x_store_products_query_has_more_pages(
+        self: &Self,
+        product_query_handle: XStoreProductQueryHandle,
+    ) -> bool;
+    // XStoreProductsQueryNextPageAsync
+    pub unsafe fn x_store_products_query_next_page_async(
+        self: &Self,
+        product_query_handle: XStoreProductQueryHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreProductsQueryNextPageResult
+    pub unsafe fn x_store_products_query_next_page_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
+    ) -> HRESULT;
+    // XStoreQueryAddOnLicensesAsync
+    pub unsafe fn x_store_query_add_on_licenses_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreQueryAddOnLicensesResult
+    pub unsafe fn x_store_query_add_on_licenses_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        count: u32,
+        add_on_licenses: *mut XStoreAddonLicense,
+    ) -> HRESULT;
+    // XStoreQueryAddOnLicensesResultCount
+    pub unsafe fn x_store_query_add_on_licenses_result_count(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        count: *mut u32,
+    ) -> HRESULT;
+    // XStoreQueryAssociatedProductsForStoreIdAsync
+    pub unsafe fn x_store_query_associated_products_for_store_id_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        product_kinds: XStoreProductKind,
+        max_items_to_retrieve_per_page: u32,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreQueryAssociatedProductsForStoreIdResult
+    pub unsafe fn x_store_query_associated_products_for_store_id_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
+    ) -> HRESULT;
+    // XStoreQueryConsumableBalanceRemainingAsync
+    pub unsafe fn x_store_query_consumable_balance_remaining_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_product_id: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreQueryConsumableBalanceRemainingResult
+    pub unsafe fn x_store_query_consumable_balance_remaining_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        consumable_result: *mut XStoreConsumableResult,
+    ) -> HRESULT;
+    // XStoreQueryGameAndDlcPackageUpdatesAsync
+    pub unsafe fn x_store_query_game_and_dlc_package_updates_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreQueryGameAndDlcPackageUpdatesResult
+    pub unsafe fn x_store_query_game_and_dlc_package_updates_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        count: u32,
+        package_updates: *mut XStorePackageUpdate,
+    ) -> HRESULT;
+    // XStoreQueryGameAndDlcPackageUpdatesResultCount
+    pub unsafe fn x_store_query_game_and_dlc_package_updates_result_count(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        count: *mut u32,
+    ) -> HRESULT;
+    // XStoreQueryGameLicenseAsync
+    pub unsafe fn x_store_query_game_license_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreQueryGameLicenseResult
+    pub unsafe fn x_store_query_game_license_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        license: *mut XStoreGameLicense,
+    ) -> HRESULT;
+    // XStoreQueryLicenseTokenAsync
+    pub unsafe fn x_store_query_license_token_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        product_ids: *const *mut c_char,
+        product_ids_count: usize,
+        custom_developer_string: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreQueryLicenseTokenResult
+    pub unsafe fn x_store_query_license_token_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        size: usize,
         result: *mut c_char,
     ) -> HRESULT;
-    unsafe fn __ReservedSlot46(&self) -> HRESULT;
-    unsafe fn __ReservedSlot47(&self) -> HRESULT;
-    unsafe fn __ReservedSlot48(&self) -> HRESULT;
-    unsafe fn XStoreShowPurchaseUIAsync(
-        &self,
-        storeContextHandle: u64,
-        storeId: *mut c_char,
-        name: *mut c_char,
-        extendedJsonData: *mut c_char,
-        async_: *mut c_void,
+    // XStoreQueryLicenseTokenResultSize
+    pub unsafe fn x_store_query_license_token_result_size(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        size: *mut usize,
     ) -> HRESULT;
-    unsafe fn XStoreShowPurchaseUIResult(&self, async_: *mut c_void) -> HRESULT;
-    unsafe fn XStoreShowRateAndReviewUIAsync(
-        &self,
-        storeContextHandle: u64,
-        async_: *mut c_void,
+    // XStoreQueryPackageIdentifier
+    pub unsafe fn x_store_query_package_identifier(
+        self: &Self,
+        store_id: *const c_char,
+        size: usize,
+        package_identifier: *mut c_char,
     ) -> HRESULT;
-    unsafe fn XStoreShowRateAndReviewUIResult(
-        &self,
-        async_: *mut c_void,
-        result: *mut c_void,
+    // XStoreQueryPackageUpdatesAsync
+    pub unsafe fn x_store_query_package_updates_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        package_identifiers: *const *mut c_char,
+        package_identifiers_count: usize,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreShowRedeemTokenUIAsync(
-        &self,
-        storeContextHandle: u64,
-        token: *mut c_char,
-        allowedStoreIds: *mut *mut c_char,
-        allowedStoreIdsCount: u64,
-        disallowCsvRedemption: BOOL,
-        async_: *mut c_void,
+    // XStoreQueryPackageUpdatesResult
+    pub unsafe fn x_store_query_package_updates_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        count: u32,
+        package_updates: *mut XStorePackageUpdate,
     ) -> HRESULT;
-    unsafe fn XStoreShowRedeemTokenUIResult(&self, async_: *mut c_void) -> HRESULT;
-    unsafe fn XStoreQueryGameAndDlcPackageUpdatesAsync(
-        &self,
-        storeContextHandle: u64,
-        async_: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XStoreQueryGameAndDlcPackageUpdatesResultCount(
-        &self,
-        async_: *mut c_void,
+    // XStoreQueryPackageUpdatesResultCount
+    pub unsafe fn x_store_query_package_updates_result_count(
+        self: &Self,
+        async_: *mut XAsyncBlock,
         count: *mut u32,
     ) -> HRESULT;
-    unsafe fn XStoreQueryGameAndDlcPackageUpdatesResult(
-        &self,
-        async_: *mut c_void,
-        count: u32,
-        packageUpdates: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XStoreDownloadPackageUpdatesAsync(
-        &self,
-        storeContextHandle: u64,
-        packageIdentifiers: *mut *mut c_char,
-        packageIdentifiersCount: u64,
-        async_: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XStoreDownloadPackageUpdatesResult(&self, async_: *mut c_void) -> HRESULT;
-    unsafe fn XStoreDownloadAndInstallPackageUpdatesAsync(
-        &self,
-        storeContextHandle: u64,
-        packageIdentifiers: *mut *mut c_char,
-        packageIdentifiersCount: u64,
-        async_: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XStoreDownloadAndInstallPackageUpdatesResult(&self, async_: *mut c_void) -> HRESULT;
-    unsafe fn XStoreDownloadAndInstallPackagesAsync(
-        &self,
-        storeContextHandle: u64,
-        storeIds: *mut *mut c_char,
-        storeIdsCount: u64,
-        async_: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XStoreDownloadAndInstallPackagesResultCount(
-        &self,
-        async_: *mut c_void,
-        count: *mut u32,
-    ) -> HRESULT;
-    unsafe fn XStoreDownloadAndInstallPackagesResult(
-        &self,
-        async_: *mut c_void,
-        count: u32,
-        packageIdentifiers: c_char,
-    ) -> HRESULT;
-    unsafe fn XStoreQueryPackageIdentifier(
-        &self,
-        storeId: *mut c_char,
-        size: u64,
-        packageIdentifier: *mut c_char,
-    ) -> HRESULT;
-    unsafe fn XStoreRegisterGameLicenseChanged(
-        &self,
-        storeContextHandle: u64,
-        queue: u64,
+    // XStoreRegisterGameLicenseChanged
+    pub unsafe fn x_store_register_game_license_changed(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        queue: XTaskQueueHandle,
         context: *mut c_void,
-        callback: *mut c_void,
-        token: *mut c_void,
+        callback: Option<XStoreGameLicenseChangedCallback>,
+        token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
-    unsafe fn XStoreUnregisterGameLicenseChanged(
-        &self,
-        storeContextHandle: u64,
-        token: u64,
-        wait: BOOL,
-    ) -> BOOL;
-    unsafe fn XStoreRegisterPackageLicenseLost(
-        &self,
-        licenseHandle: u64,
-        queue: u64,
+    // XStoreRegisterPackageLicenseLost
+    pub unsafe fn x_store_register_package_license_lost(
+        self: &Self,
+        license_handle: XStoreLicenseHandle,
+        queue: XTaskQueueHandle,
         context: *mut c_void,
-        callback: *mut c_void,
-        token: *mut c_void,
+        callback: Option<XStorePackageLicenseLostCallback>,
+        token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
-    unsafe fn XStoreUnregisterPackageLicenseLost(
-        &self,
-        licenseHandle: u64,
-        token: u64,
-        wait: BOOL,
-    ) -> BOOL;
-    unsafe fn __ReservedSlot70(&self) -> HRESULT;
-    unsafe fn XStoreAcquireLicenseForDurablesAsync(
-        &self,
-        storeContextHandle: u64,
-        storeId: *mut c_char,
-        async_: *mut c_void,
+    // XStoreReportConsumableFulfillmentAsync
+    pub unsafe fn x_store_report_consumable_fulfillment_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_product_id: *const c_char,
+        quantity: u32,
+        tracking_id: GUID,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreAcquireLicenseForDurablesResult(
-        &self,
-        async_: *mut c_void,
-        storeLicenseHandle: *mut c_void,
+    // XStoreReportConsumableFulfillmentResult
+    pub unsafe fn x_store_report_consumable_fulfillment_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        consumable_result: *mut XStoreConsumableResult,
     ) -> HRESULT;
-    unsafe fn XStoreShowAssociatedProductsUIAsync(
-        &self,
-        storeContextHandle: u64,
-        storeId: *mut c_char,
-        productKinds: u64,
-        async_: *mut c_void,
+    // XStoreShowAssociatedProductsUIAsync
+    pub unsafe fn x_store_show_associated_products_u_i_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        product_kinds: XStoreProductKind,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreShowAssociatedProductsUIResult(&self, async_: *mut c_void) -> HRESULT;
-    unsafe fn XStoreShowProductPageUIAsync(
-        &self,
-        storeContextHandle: u64,
-        storeId: *mut c_char,
-        async_: *mut c_void,
+    // XStoreShowAssociatedProductsUIResult
+    pub unsafe fn x_store_show_associated_products_u_i_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreShowProductPageUIResult(&self, async_: *mut c_void) -> HRESULT;
-    unsafe fn XStoreQueryAssociatedProductsForStoreIdAsync(
-        &self,
-        storeContextHandle: u64,
-        storeProductId: *mut c_char,
-        productKinds: u64,
-        maxItemsToRetrievePerPage: u32,
-        async_: *mut c_void,
+    // XStoreShowGiftingUIAsync
+    pub unsafe fn x_store_show_gifting_u_i_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        name: *const c_char,
+        extended_json_data: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryAssociatedProductsForStoreIdResult(
-        &self,
-        async_: *mut c_void,
-        productQueryHandle: *mut c_void,
+    // XStoreShowGiftingUIResult
+    pub unsafe fn x_store_show_gifting_u_i_result(self: &Self, async_: *mut XAsyncBlock)
+    -> HRESULT;
+    // XStoreShowProductPageUIAsync
+    pub unsafe fn x_store_show_product_page_u_i_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryPackageUpdatesAsync(
-        &self,
-        storeContextHandle: u64,
-        packageIdentifiers: *mut *mut c_char,
-        packageIdentifiersCount: u64,
-        async_: *mut c_void,
+    // XStoreShowProductPageUIResult
+    pub unsafe fn x_store_show_product_page_u_i_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryPackageUpdatesResultCount(
-        &self,
-        async_: *mut c_void,
-        count: *mut u32,
+    // XStoreShowPurchaseUIAsync
+    pub unsafe fn x_store_show_purchase_u_i_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        name: *const c_char,
+        extended_json_data: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreQueryPackageUpdatesResult(
-        &self,
-        async_: *mut c_void,
-        count: u32,
-        packageUpdates: *mut c_void,
+    // XStoreShowPurchaseUIResult
+    pub unsafe fn x_store_show_purchase_u_i_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreShowGiftingUIAsync(
-        &self,
-        storeContextHandle: u64,
-        storeId: *mut c_char,
-        name: *mut c_char,
-        extendedJsonData: *mut c_char,
-        async_: *mut c_void,
+    // XStoreShowRateAndReviewUIAsync
+    pub unsafe fn x_store_show_rate_and_review_u_i_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XStoreShowGiftingUIResult(&self, async_: *mut c_void) -> HRESULT;
+    // XStoreShowRateAndReviewUIResult
+    pub unsafe fn x_store_show_rate_and_review_u_i_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+        result: *mut XStoreRateAndReviewResult,
+    ) -> HRESULT;
+    // XStoreShowRedeemTokenUIAsync
+    pub unsafe fn x_store_show_redeem_token_u_i_async(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        token: *const c_char,
+        allowed_store_ids: *const *mut c_char,
+        allowed_store_ids_count: usize,
+        disallow_csv_redemption: bool,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreShowRedeemTokenUIResult
+    pub unsafe fn x_store_show_redeem_token_u_i_result(
+        self: &Self,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XStoreUnregisterGameLicenseChanged
+    pub unsafe fn x_store_unregister_game_license_changed(
+        self: &Self,
+        store_context_handle: XStoreContextHandle,
+        token: XTaskQueueRegistrationToken,
+        wait: bool,
+    ) -> bool;
+    // XStoreUnregisterPackageLicenseLost
+    pub unsafe fn x_store_unregister_package_license_lost(
+        self: &Self,
+        license_handle: XStoreLicenseHandle,
+        token: XTaskQueueRegistrationToken,
+        wait: bool,
+    ) -> bool;
 }
 
 #[interface("5c48dedf-0b67-4492-a4b5-6829b8e796e1")]
@@ -616,234 +873,505 @@ pub unsafe trait IXStoreAlias2: IXStore {}
 #[interface("0dd112ac-7c24-448c-b92b-3960fb5bd30c")]
 pub unsafe trait IXStoreAlias3: IXStore {}
 
+// XNetworkingConnectivityHintChangedCallback
+pub type XNetworkingConnectivityHintChangedCallback = unsafe extern "system" fn(
+    context: *mut c_void,
+    connectivity_hint: *const XNetworkingConnectivityHint,
+) -> ();
+
+// XNetworkingPreferredLocalUdpMultiplayerPortChangedCallback
+pub type XNetworkingPreferredLocalUdpMultiplayerPortChangedCallback =
+    unsafe extern "system" fn(
+        context: *mut c_void,
+        preferred_local_udp_multiplayer_port: u16,
+    ) -> ();
+
 #[interface("bf2346b2-39af-4658-b5ea-44713c7e83b3")]
 pub unsafe trait IXNetworking: IUnknown {
-    unsafe fn XNetworkingQueryPreferredLocalUdpMultiplayerPort(
-        &self,
-        preferredLocalUdpMultiplayerPort: *mut u16,
+    // XNetworkingQueryPreferredLocalUdpMultiplayerPort
+    pub unsafe fn x_networking_query_preferred_local_udp_multiplayer_port(
+        self: &Self,
+        preferred_local_udp_multiplayer_port: *mut u16,
     ) -> HRESULT;
-    unsafe fn XNetworkingQueryPreferredLocalUdpMultiplayerPortAsync(
-        &self,
-        asyncBlock: *mut c_void,
+    // XNetworkingQueryPreferredLocalUdpMultiplayerPortAsync
+    pub unsafe fn x_networking_query_preferred_local_udp_multiplayer_port_async(
+        self: &Self,
+        async_block: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XNetworkingQueryPreferredLocalUdpMultiplayerPortAsyncResult(
-        &self,
-        asyncBlock: *mut c_void,
-        preferredLocalUdpMultiplayerPort: *mut u16,
+    // XNetworkingQueryPreferredLocalUdpMultiplayerPortAsyncResult
+    pub unsafe fn x_networking_query_preferred_local_udp_multiplayer_port_async_result(
+        self: &Self,
+        async_block: *mut XAsyncBlock,
+        preferred_local_udp_multiplayer_port: *mut u16,
     ) -> HRESULT;
-    unsafe fn XNetworkingRegisterPreferredLocalUdpMultiplayerPortChanged(
-        &self,
-        queue: u64,
+    // XNetworkingRegisterPreferredLocalUdpMultiplayerPortChanged
+    pub unsafe fn x_networking_register_preferred_local_udp_multiplayer_port_changed(
+        self: &Self,
+        queue: XTaskQueueHandle,
         context: *mut c_void,
-        callback: *mut c_void,
-        token: *mut c_void,
+        callback: Option<XNetworkingPreferredLocalUdpMultiplayerPortChangedCallback>,
+        token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
-    unsafe fn XNetworkingUnregisterPreferredLocalUdpMultiplayerPortChanged(
-        &self,
-        token: u64,
-        wait: BOOL,
-    ) -> BOOL;
-    unsafe fn XNetworkingQuerySecurityInformationForUrlAsync(
-        &self,
-        url: *mut c_char,
-        asyncBlock: *mut c_void,
+    // XNetworkingUnregisterPreferredLocalUdpMultiplayerPortChanged
+    pub unsafe fn x_networking_unregister_preferred_local_udp_multiplayer_port_changed(
+        self: &Self,
+        token: XTaskQueueRegistrationToken,
+        wait: bool,
+    ) -> bool;
+    // XNetworkingGetConnectivityHint
+    pub unsafe fn x_networking_get_connectivity_hint(
+        self: &Self,
+        connectivity_hint: *mut XNetworkingConnectivityHint,
     ) -> HRESULT;
-    unsafe fn XNetworkingQuerySecurityInformationForUrlAsyncResultSize(
-        &self,
-        asyncBlock: *mut c_void,
-        securityInformationBufferByteCount: *mut usize,
+    // XNetworkingQuerySecurityInformationForUrlAsync
+    pub unsafe fn x_networking_query_security_information_for_url_async(
+        self: &Self,
+        url: *const c_char,
+        async_block: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XNetworkingQuerySecurityInformationForUrlAsyncResult(
-        &self,
-        asyncBlock: *mut c_void,
-        securityInformationBufferByteCount: u64,
-        securityInformationBufferByteCountUsed: *mut usize,
-        securityInformationBuffer: *mut u8,
-        securityInformation: *mut *mut c_void,
+    // XNetworkingQuerySecurityInformationForUrlAsyncResult
+    pub unsafe fn x_networking_query_security_information_for_url_async_result(
+        self: &Self,
+        async_block: *mut XAsyncBlock,
+        security_information_buffer_byte_count: usize,
+        security_information_buffer_byte_count_used: *mut usize,
+        security_information_buffer: *mut u8,
+        security_information: *mut *mut XNetworkingSecurityInformation,
     ) -> HRESULT;
-    unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16Async(
-        &self,
-        url: *mut u16,
-        asyncBlock: *mut c_void,
+    // XNetworkingQuerySecurityInformationForUrlAsyncResultSize
+    pub unsafe fn x_networking_query_security_information_for_url_async_result_size(
+        self: &Self,
+        async_block: *mut XAsyncBlock,
+        security_information_buffer_byte_count: *mut usize,
     ) -> HRESULT;
-    unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16AsyncResultSize(
-        &self,
-        asyncBlock: *mut c_void,
-        securityInformationBufferByteCount: *mut usize,
+    // XNetworkingQuerySecurityInformationForUrlUtf16Async
+    pub unsafe fn x_networking_query_security_information_for_url_utf16_async(
+        self: &Self,
+        url: *const u16,
+        async_block: *mut XAsyncBlock,
     ) -> HRESULT;
-    unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult(
-        &self,
-        asyncBlock: *mut c_void,
-        securityInformationBufferByteCount: u64,
-        securityInformationBufferByteCountUsed: *mut usize,
-        securityInformationBuffer: *mut u8,
-        securityInformation: *mut *mut c_void,
+    // XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult
+    pub unsafe fn x_networking_query_security_information_for_url_utf16_async_result(
+        self: &Self,
+        async_block: *mut XAsyncBlock,
+        security_information_buffer_byte_count: usize,
+        security_information_buffer_byte_count_used: *mut usize,
+        security_information_buffer: *mut u8,
+        security_information: *mut *mut XNetworkingSecurityInformation,
     ) -> HRESULT;
-    unsafe fn XNetworkingVerifyServerCertificate(
-        &self,
-        requestHandle: *mut c_void,
-        securityInformation: *mut c_void,
+    // XNetworkingQuerySecurityInformationForUrlUtf16AsyncResultSize
+    pub unsafe fn x_networking_query_security_information_for_url_utf16_async_result_size(
+        self: &Self,
+        async_block: *mut XAsyncBlock,
+        security_information_buffer_byte_count: *mut usize,
     ) -> HRESULT;
-    unsafe fn XNetworkingGetConnectivityHint(
-        &self,
-        connectivityHint: *mut XNetworkingConnectivityHint,
-    ) -> HRESULT;
-    unsafe fn XNetworkingRegisterConnectivityHintChanged(
-        &self,
-        queue: *mut c_void,
+    // XNetworkingRegisterConnectivityHintChanged
+    pub unsafe fn x_networking_register_connectivity_hint_changed(
+        self: &Self,
+        queue: XTaskQueueHandle,
         context: *mut c_void,
-        callback: Option<OnChanged>,
-        token: *mut c_void,
+        callback: Option<XNetworkingConnectivityHintChangedCallback>,
+        token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
-    unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: BOOL) -> BOOL;
-    unsafe fn XNetworkingQueryConfigurationSetting(
-        &self,
-        configurationSetting: u64,
+    // XNetworkingUnregisterConnectivityHintChanged
+    pub unsafe fn x_networking_unregister_connectivity_hint_changed(
+        self: &Self,
+        token: XTaskQueueRegistrationToken,
+        wait: bool,
+    ) -> bool;
+    // XNetworkingVerifyServerCertificate
+    pub unsafe fn x_networking_verify_server_certificate(
+        self: &Self,
+        request_handle: *mut c_void,
+        security_information: *const XNetworkingSecurityInformation,
+    ) -> HRESULT;
+    // XNetworkingQueryConfigurationSetting
+    pub unsafe fn x_networking_query_configuration_setting(
+        self: &Self,
+        configuration_setting: XNetworkingConfigurationSetting,
         value: *mut u64,
     ) -> HRESULT;
-    unsafe fn XNetworkingSetConfigurationSetting(
-        &self,
-        configurationSetting: u64,
+    // XNetworkingSetConfigurationSetting
+    pub unsafe fn x_networking_set_configuration_setting(
+        self: &Self,
+        configuration_parameter: XNetworkingConfigurationSetting,
         value: u64,
     ) -> HRESULT;
-    unsafe fn XNetworkingQueryStatistics(
-        &self,
-        statistics_type: u64,
-        statisticsBuffer: *mut c_void,
+    // XNetworkingQueryStatistics
+    pub unsafe fn x_networking_query_statistics(
+        self: &Self,
+        statistics_type: XNetworkingStatisticsType,
+        statistics_buffer: *mut XNetworkingTcpQueuedReceivedBufferUsageStatistics,
     ) -> HRESULT;
 }
 
 #[interface("37e56907-2f10-41e8-b72f-36edb185331a")]
 pub unsafe trait IXNetworking2: IXNetworking {}
 
-macro_rules! hresult_stub {
-    ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> HRESULT;)*) => {
-        $(unsafe fn $name(&self $(, $arg: $ty)*) -> HRESULT { $(let _ = $arg;)* E_NOTIMPL })*
-    };
-}
-
-macro_rules! hresult_stub_panic {
-    ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> HRESULT;)*) => {
-        $(unsafe fn $name(&self $(, $arg: $ty)*) -> HRESULT { $(let _ = $arg;)* todo!("$name"); E_NOTIMPL })*
-    };
-}
-
-macro_rules! bool_stub {
-    ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> BOOL;)*) => {
-        $(unsafe fn $name(&self $(, $arg: $ty)*) -> BOOL { $(let _ = $arg;)* false.into() })*
-    };
-}
-
-macro_rules! void_stub {
-    ($(unsafe fn $name:ident (&self $(, $arg:ident : $ty:ty)*) -> ();)*) => {
-        $(unsafe fn $name(&self $(, $arg: $ty)*) -> () { $(let _ = $arg;)* })*
-    };
-}
-
 #[implement(IXStore, IXStoreAlias1, IXStoreAlias2)]
 pub struct XStoreObject;
 
 impl IXStore_Impl for XStoreObject_Impl {
-    hresult_stub! {
-        unsafe fn XStoreQueryAssociatedProductsAsync(&self, storeContextHandle: u64, productKinds: u64, maxItemsToRetrievePerPage: u32, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryAssociatedProductsResult(&self, async_: *mut c_void, productQueryHandle: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryProductsAsync(&self, storeContextHandle: u64, productKinds: u64, storeIds: *mut *mut c_char, storeIdsCount: u64, actionFilters: *mut *mut c_char, actionFiltersCount: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryProductsResult(&self, async_: *mut c_void, productQueryHandle: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryEntitledProductsAsync(&self, storeContextHandle: u64, productKinds: u64, maxItemsToRetrievePerPage: u32, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryEntitledProductsResult(&self, async_: *mut c_void, productQueryHandle: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryProductForCurrentGameAsync(&self, storeContextHandle: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryProductForCurrentGameResult(&self, async_: *mut c_void, productQueryHandle: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryProductForPackageAsync(&self, storeContextHandle: u64, productKinds: u64, packageIdentifier: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryProductForPackageResult(&self, async_: *mut c_void, productQueryHandle: *mut c_void) -> HRESULT;
-        unsafe fn XStoreEnumerateProductsQuery(&self, productQueryHandle: u64, context: *mut c_void, callback: *mut c_void) -> HRESULT;
-        unsafe fn XStoreProductsQueryNextPageAsync(&self, productQueryHandle: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreProductsQueryNextPageResult(&self, async_: *mut c_void, productQueryHandle: *mut c_void) -> HRESULT;
-        unsafe fn XStoreAcquireLicenseForPackageAsync(&self, storeContextHandle: u64, packageIdentifier: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreAcquireLicenseForPackageResult(&self, async_: *mut c_void, storeLicenseHandle: *mut c_void) -> HRESULT;
-        unsafe fn XStoreCanAcquireLicenseForStoreIdAsync(&self, storeContextHandle: u64, storeProductId: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreCanAcquireLicenseForStoreIdResult(&self, async_: *mut c_void, storeCanAcquireLicense: *mut c_void) -> HRESULT;
-        unsafe fn XStoreCanAcquireLicenseForPackageAsync(&self, storeContextHandle: u64, packageIdentifier: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreCanAcquireLicenseForPackageResult(&self, async_: *mut c_void, storeCanAcquireLicense: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryAddOnLicensesAsync(&self, storeContextHandle: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryAddOnLicensesResultCount(&self, async_: *mut c_void, count: *mut u32) -> HRESULT;
-        unsafe fn XStoreQueryAddOnLicensesResult(&self, async_: *mut c_void, count: u32, addOnLicenses: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryConsumableBalanceRemainingAsync(&self, storeContextHandle: u64, storeProductId: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryConsumableBalanceRemainingResult(&self, async_: *mut c_void, consumableResult: *mut c_void) -> HRESULT;
-        unsafe fn __ReservedSlot35(&self) -> HRESULT;
-        unsafe fn XStoreReportConsumableFulfillmentResult(&self, async_: *mut c_void, consumableResult: *mut c_void) -> HRESULT;
-        unsafe fn XStoreGetUserCollectionsIdAsync(&self, storeContextHandle: u64, serviceTicket: *mut c_char, publisherUserId: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreGetUserCollectionsIdResultSize(&self, async_: *mut c_void, size: *mut usize) -> HRESULT;
-        unsafe fn XStoreGetUserCollectionsIdResult(&self, async_: *mut c_void, size: u64, result: *mut c_char) -> HRESULT;
-        unsafe fn XStoreGetUserPurchaseIdAsync(&self, storeContextHandle: u64, serviceTicket: *mut c_char, publisherUserId: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreGetUserPurchaseIdResultSize(&self, async_: *mut c_void, size: *mut usize) -> HRESULT;
-        unsafe fn XStoreGetUserPurchaseIdResult(&self, async_: *mut c_void, size: u64, result: *mut c_char) -> HRESULT;
-        unsafe fn XStoreQueryLicenseTokenAsync(&self, storeContextHandle: u64, productIds: *mut *mut c_char, productIdsCount: u64, customDeveloperString: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryLicenseTokenResultSize(&self, async_: *mut c_void, size: *mut usize) -> HRESULT;
-        unsafe fn XStoreQueryLicenseTokenResult(&self, async_: *mut c_void, size: u64, result: *mut c_char) -> HRESULT;
-        unsafe fn __ReservedSlot46(&self) -> HRESULT;
-        unsafe fn __ReservedSlot47(&self) -> HRESULT;
-        unsafe fn __ReservedSlot48(&self) -> HRESULT;
-        unsafe fn XStoreShowPurchaseUIAsync(&self, storeContextHandle: u64, storeId: *mut c_char, name: *mut c_char, extendedJsonData: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowPurchaseUIResult(&self, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowRateAndReviewUIAsync(&self, storeContextHandle: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowRateAndReviewUIResult(&self, async_: *mut c_void, result: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowRedeemTokenUIAsync(&self, storeContextHandle: u64, token: *mut c_char, allowedStoreIds: *mut *mut c_char, allowedStoreIdsCount: u64, disallowCsvRedemption: BOOL, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowRedeemTokenUIResult(&self, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryGameAndDlcPackageUpdatesAsync(&self, storeContextHandle: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryGameAndDlcPackageUpdatesResultCount(&self, async_: *mut c_void, count: *mut u32) -> HRESULT;
-        unsafe fn XStoreQueryGameAndDlcPackageUpdatesResult(&self, async_: *mut c_void, count: u32, packageUpdates: *mut c_void) -> HRESULT;
-        unsafe fn XStoreDownloadPackageUpdatesAsync(&self, storeContextHandle: u64, packageIdentifiers: *mut *mut c_char, packageIdentifiersCount: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreDownloadPackageUpdatesResult(&self, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreDownloadAndInstallPackageUpdatesAsync(&self, storeContextHandle: u64, packageIdentifiers: *mut *mut c_char, packageIdentifiersCount: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreDownloadAndInstallPackageUpdatesResult(&self, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreDownloadAndInstallPackagesAsync(&self, storeContextHandle: u64, storeIds: *mut *mut c_char, storeIdsCount: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreDownloadAndInstallPackagesResultCount(&self, async_: *mut c_void, count: *mut u32) -> HRESULT;
-        unsafe fn XStoreDownloadAndInstallPackagesResult(&self, async_: *mut c_void, count: u32, packageIdentifiers: c_char) -> HRESULT;
-        unsafe fn XStoreQueryPackageIdentifier(&self, storeId: *mut c_char, size: u64, packageIdentifier: *mut c_char) -> HRESULT;
-        unsafe fn XStoreRegisterGameLicenseChanged(&self, storeContextHandle: u64, queue: u64, context: *mut c_void, callback: *mut c_void, token: *mut c_void) -> HRESULT;
-        unsafe fn XStoreRegisterPackageLicenseLost(&self, licenseHandle: u64, queue: u64, context: *mut c_void, callback: *mut c_void, token: *mut c_void) -> HRESULT;
-        unsafe fn __ReservedSlot70(&self) -> HRESULT;
-        unsafe fn XStoreAcquireLicenseForDurablesAsync(&self, storeContextHandle: u64, storeId: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreAcquireLicenseForDurablesResult(&self, async_: *mut c_void, storeLicenseHandle: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowAssociatedProductsUIAsync(&self, storeContextHandle: u64, storeId: *mut c_char, productKinds: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowAssociatedProductsUIResult(&self, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowProductPageUIAsync(&self, storeContextHandle: u64, storeId: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowProductPageUIResult(&self, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryAssociatedProductsForStoreIdAsync(&self, storeContextHandle: u64, storeProductId: *mut c_char, productKinds: u64, maxItemsToRetrievePerPage: u32, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryAssociatedProductsForStoreIdResult(&self, async_: *mut c_void, productQueryHandle: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryPackageUpdatesAsync(&self, storeContextHandle: u64, packageIdentifiers: *mut *mut c_char, packageIdentifiersCount: u64, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreQueryPackageUpdatesResultCount(&self, async_: *mut c_void, count: *mut u32) -> HRESULT;
-        unsafe fn XStoreQueryPackageUpdatesResult(&self, async_: *mut c_void, count: u32, packageUpdates: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowGiftingUIAsync(&self, storeContextHandle: u64, storeId: *mut c_char, name: *mut c_char, extendedJsonData: *mut c_char, async_: *mut c_void) -> HRESULT;
-        unsafe fn XStoreShowGiftingUIResult(&self, async_: *mut c_void) -> HRESULT;
-    }
-    bool_stub! {
-        unsafe fn XStoreProductsQueryHasMorePages(&self, productQueryHandle: u64) -> BOOL;
-        unsafe fn XStoreIsLicenseValid(&self, storeLicenseHandle: u64) -> BOOL;
-        unsafe fn XStoreUnregisterGameLicenseChanged(&self, storeContextHandle: u64, token: u64, wait: BOOL) -> BOOL;
-        unsafe fn XStoreUnregisterPackageLicenseLost(&self, licenseHandle: u64, token: u64, wait: BOOL) -> BOOL;
-    }
-    void_stub! {
-        unsafe fn XStoreCloseContextHandle(&self, storeContextHandle: u64) -> ();
-        unsafe fn XStoreCloseProductsQueryHandle(&self, productQueryHandle: u64) -> ();
-        unsafe fn XStoreCloseLicenseHandle(&self, storeLicenseHandle: u64) -> ();
+    unsafe fn x_store_acquire_license_for_durables_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
     }
 
-    unsafe fn XStoreCreateContext(&self, _user: u64, storeContextHandle: *mut u64) -> HRESULT {
+    unsafe fn x_store_acquire_license_for_durables_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        store_license_handle: *mut XStoreLicenseHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_acquire_license_for_package_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        package_identifier: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_acquire_license_for_package_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        store_license_handle: *mut XStoreLicenseHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_can_acquire_license_for_package_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        package_identifier: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_can_acquire_license_for_package_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        store_can_acquire_license: *mut XStoreCanAcquireLicenseResult,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_can_acquire_license_for_store_id_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        store_product_id: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_can_acquire_license_for_store_id_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        store_can_acquire_license: *mut XStoreCanAcquireLicenseResult,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_close_context_handle(&self, store_context_handle: XStoreContextHandle) -> () {
+        todo!()
+    }
+
+    unsafe fn x_store_close_license_handle(&self, store_license_handle: XStoreLicenseHandle) -> () {
+        todo!()
+    }
+
+    unsafe fn x_store_close_products_query_handle(
+        &self,
+        product_query_handle: XStoreProductQueryHandle,
+    ) -> () {
+        todo!()
+    }
+
+    unsafe fn x_store_create_context(
+        &self,
+        user: XUserHandle,
+        store_context_handle: *mut XStoreContextHandle,
+    ) -> HRESULT {
         unsafe {
-            *storeContextHandle = 1;
+            *store_context_handle = 1;
         };
         HRESULT(0)
     }
 
-    unsafe fn XStoreQueryGameLicenseAsync(
+    unsafe fn x_store_download_and_install_packages_async(
         &self,
-        storeContextHandle: u64,
-        async_: *mut c_void,
+        store_context_handle: XStoreContextHandle,
+        store_ids: *const *mut c_char,
+        store_ids_count: usize,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        if storeContextHandle == 0 {
-            return E_POINTER;
-        }
+        todo!()
+    }
+
+    unsafe fn x_store_download_and_install_packages_result_count(
+        &self,
+        async_: *mut XAsyncBlock,
+        count: *mut u32,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_download_and_install_package_updates_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        package_identifiers: *const *mut c_char,
+        package_identifiers_count: usize,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_download_and_install_package_updates_result(
+        &self,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_download_package_updates_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        package_identifiers: *const *mut c_char,
+        package_identifiers_count: usize,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_download_package_updates_result(&self, async_: *mut XAsyncBlock) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_enumerate_products_query(
+        &self,
+        product_query_handle: XStoreProductQueryHandle,
+        context: *mut c_void,
+        callback: Option<XStoreProductQueryCallback>,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_get_user_collections_id_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        service_ticket: *const c_char,
+        publisher_user_id: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_get_user_collections_id_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        size: usize,
+        result: *mut c_char,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_get_user_collections_id_result_size(
+        &self,
+        async_: *mut XAsyncBlock,
+        size: *mut usize,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_get_user_purchase_id_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        service_ticket: *const c_char,
+        publisher_user_id: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_get_user_purchase_id_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        size: usize,
+        result: *mut c_char,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_get_user_purchase_id_result_size(
+        &self,
+        async_: *mut XAsyncBlock,
+        size: *mut usize,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_is_license_valid(&self, store_license_handle: XStoreLicenseHandle) -> bool {
+        todo!()
+    }
+
+    unsafe fn x_store_products_query_has_more_pages(
+        &self,
+        product_query_handle: XStoreProductQueryHandle,
+    ) -> bool {
+        todo!()
+    }
+
+    unsafe fn x_store_products_query_next_page_async(
+        &self,
+        product_query_handle: XStoreProductQueryHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_products_query_next_page_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_add_on_licenses_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_add_on_licenses_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        count: u32,
+        add_on_licenses: *mut XStoreAddonLicense,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_add_on_licenses_result_count(
+        &self,
+        async_: *mut XAsyncBlock,
+        count: *mut u32,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_associated_products_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        product_kinds: XStoreProductKind,
+        max_items_to_retrieve_per_page: u32,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_associated_products_for_store_id_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        product_kinds: XStoreProductKind,
+        max_items_to_retrieve_per_page: u32,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_associated_products_for_store_id_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_associated_products_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_consumable_balance_remaining_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        store_product_id: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_consumable_balance_remaining_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        consumable_result: *mut XStoreConsumableResult,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_entitled_products_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        product_kinds: XStoreProductKind,
+        max_items_to_retrieve_per_page: u32,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_entitled_products_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_game_and_dlc_package_updates_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_game_and_dlc_package_updates_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        count: u32,
+        package_updates: *mut XStorePackageUpdate,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_game_and_dlc_package_updates_result_count(
+        &self,
+        async_: *mut XAsyncBlock,
+        count: *mut u32,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_game_license_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
         unsafe {
             xasync::run_sync(async_.cast(), move || {
                 // println!("storeContextHandle: {storeContextHandle}");
@@ -852,10 +1380,10 @@ impl IXStore_Impl for XStoreObject_Impl {
         }
     }
 
-    unsafe fn XStoreQueryGameLicenseResult(
+    unsafe fn x_store_query_game_license_result(
         &self,
-        async_: *mut c_void,
-        license: *mut c_void,
+        async_: *mut XAsyncBlock,
+        license: *mut XStoreGameLicense,
     ) -> HRESULT {
         // println!("XStoreQueryGameLicenseResult");
         if async_.is_null() || license.is_null() {
@@ -865,15 +1393,285 @@ impl IXStore_Impl for XStoreObject_Impl {
         let mut payload = XStoreQueryGameLicenseAsyncResultPayload {
             license: XStoreGameLicense::default(),
         };
-        match unsafe { get_result(async_.cast(), null_mut(), &mut payload) } {
+        match unsafe { get_result(async_, null_mut(), &mut payload) } {
             Ok(_) => {
                 unsafe {
-                    *(license as *mut XStoreGameLicense) = payload.license;
+                    *license = payload.license;
                 }
                 S_OK
             }
             Err(hr) => return hr,
         }
+    }
+
+    unsafe fn x_store_query_license_token_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        product_ids: *const *mut c_char,
+        product_ids_count: usize,
+        custom_developer_string: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_license_token_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        size: usize,
+        result: *mut c_char,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_license_token_result_size(
+        &self,
+        async_: *mut XAsyncBlock,
+        size: *mut usize,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_package_identifier(
+        &self,
+        store_id: *const c_char,
+        size: usize,
+        package_identifier: *mut c_char,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_package_updates_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        package_identifiers: *const *mut c_char,
+        package_identifiers_count: usize,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_package_updates_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        count: u32,
+        package_updates: *mut XStorePackageUpdate,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_package_updates_result_count(
+        &self,
+        async_: *mut XAsyncBlock,
+        count: *mut u32,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_product_for_current_game_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_product_for_current_game_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_product_for_package_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        product_kinds: XStoreProductKind,
+        package_identifier: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_product_for_package_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_products_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        product_kinds: XStoreProductKind,
+        store_ids: *const *mut c_char,
+        store_ids_count: usize,
+        action_filters: *const *mut c_char,
+        action_filters_count: usize,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_query_products_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_register_game_license_changed(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        queue: XTaskQueueHandle,
+        context: *mut c_void,
+        callback: Option<XStoreGameLicenseChangedCallback>,
+        token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_register_package_license_lost(
+        &self,
+        license_handle: XStoreLicenseHandle,
+        queue: XTaskQueueHandle,
+        context: *mut c_void,
+        callback: Option<XStorePackageLicenseLostCallback>,
+        token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_report_consumable_fulfillment_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        store_product_id: *const c_char,
+        quantity: u32,
+        tracking_id: GUID,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_report_consumable_fulfillment_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        consumable_result: *mut XStoreConsumableResult,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_associated_products_u_i_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        product_kinds: XStoreProductKind,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_associated_products_u_i_result(
+        &self,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_gifting_u_i_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        name: *const c_char,
+        extended_json_data: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_gifting_u_i_result(&self, async_: *mut XAsyncBlock) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_product_page_u_i_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_product_page_u_i_result(&self, async_: *mut XAsyncBlock) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_purchase_u_i_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        store_id: *const c_char,
+        name: *const c_char,
+        extended_json_data: *const c_char,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_purchase_u_i_result(&self, async_: *mut XAsyncBlock) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_rate_and_review_u_i_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_rate_and_review_u_i_result(
+        &self,
+        async_: *mut XAsyncBlock,
+        result: *mut XStoreRateAndReviewResult,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_redeem_token_u_i_async(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        token: *const c_char,
+        allowed_store_ids: *const *mut c_char,
+        allowed_store_ids_count: usize,
+        disallow_csv_redemption: bool,
+        async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_show_redeem_token_u_i_result(&self, async_: *mut XAsyncBlock) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_store_unregister_game_license_changed(
+        &self,
+        store_context_handle: XStoreContextHandle,
+        token: XTaskQueueRegistrationToken,
+        wait: bool,
+    ) -> bool {
+        todo!()
+    }
+
+    unsafe fn x_store_unregister_package_license_lost(
+        &self,
+        license_handle: XStoreLicenseHandle,
+        token: XTaskQueueRegistrationToken,
+        wait: bool,
+    ) -> bool {
+        todo!()
     }
 }
 
@@ -884,6 +1682,12 @@ impl IXStoreAlias3_Impl for XStoreObject_Impl {}
 #[implement(IXNetworking, IXNetworking2)]
 pub struct XNetworkingObject;
 
+#[repr(u32)]
+pub enum XNetworkingConfigurationSetting {
+    MaxTitleTcpQueuedReceiveBufferSize = 0,
+    MaxSystemTcpQueuedReceiveBufferSize = 1,
+    MaxToolsTcpQueuedReceiveBufferSize = 2,
+}
 #[repr(u32)]
 pub enum XNetworkingConnectivityCostHint {
     Unknown = 0,
@@ -899,6 +1703,18 @@ pub enum XNetworkingConnectivityLevelHint {
     InternetAccess = 3,
     ConstrainedInternetAccess = 4,
 }
+#[repr(u32)]
+pub enum XNetworkingStatisticsType {
+    TitleTcpQueuedReceivedBufferUsage = 0,
+    SystemTcpQueuedReceivedBufferUsage = 1,
+    ToolsTcpQueuedReceivedBufferUsage = 2,
+}
+#[repr(u32)]
+pub enum XNetworkingThumbprintType {
+    Leaf = 0,
+    Issuer = 1,
+    Root = 2,
+}
 
 #[repr(C)]
 pub struct XNetworkingConnectivityHint {
@@ -910,41 +1726,80 @@ pub struct XNetworkingConnectivityHint {
     pub over_data_limit: bool,
     pub roaming: bool,
 }
-
 #[repr(C)]
 pub struct XNetworkingSecurityInformation {
-    enabledHttpSecurityProtocolFlags: u32,
-    thumbprintCount: usize,
-    thumbprints: *const c_void,
+    pub enabled_http_security_protocol_flags: u32,
+    pub thumbprint_count: usize,
+    pub thumbprints: *mut XNetworkingThumbprint,
+}
+#[repr(C)]
+pub struct XNetworkingTcpQueuedReceivedBufferUsageStatistics {
+    pub num_bytes_currently_queued: u64,
+    pub peak_num_bytes_ever_queued: u64,
+    pub total_num_bytes_queued: u64,
+    pub num_bytes_dropped_for_exceeding_configured_max: u64,
+    pub num_bytes_dropped_due_to_any_failure: u64,
+}
+#[repr(C)]
+pub struct XNetworkingThumbprint {
+    pub thumbprint_type: XNetworkingThumbprintType,
+    pub thumbprint_buffer_byte_count: usize,
+    pub thumbprint_buffer: *mut u8,
 }
 
 type OnChanged =
     unsafe extern "system" fn(context: *mut c_void, hint: *const XNetworkingConnectivityHint);
 
 impl IXNetworking_Impl for XNetworkingObject_Impl {
-    hresult_stub_panic! {
-        unsafe fn XNetworkingQueryPreferredLocalUdpMultiplayerPort(&self, preferredLocalUdpMultiplayerPort: *mut u16) -> HRESULT;
-        unsafe fn XNetworkingQueryPreferredLocalUdpMultiplayerPortAsync(&self, asyncBlock: *mut c_void) -> HRESULT;
-        unsafe fn XNetworkingQueryPreferredLocalUdpMultiplayerPortAsyncResult(&self, asyncBlock: *mut c_void, preferredLocalUdpMultiplayerPort: *mut u16) -> HRESULT;
-        unsafe fn XNetworkingRegisterPreferredLocalUdpMultiplayerPortChanged(&self, queue: u64, context: *mut c_void, callback: *mut c_void, token: *mut c_void) -> HRESULT;
-        unsafe fn XNetworkingQueryConfigurationSetting(&self, configurationSetting: u64, value: *mut u64) -> HRESULT;
-        unsafe fn XNetworkingSetConfigurationSetting(&self, configurationSetting: u64, value: u64) -> HRESULT;
-        unsafe fn XNetworkingQueryStatistics(&self, statisticsType: u64, statisticsBuffer: *mut c_void) -> HRESULT;
-    }
-    bool_stub! {
-        unsafe fn XNetworkingUnregisterPreferredLocalUdpMultiplayerPortChanged(&self, token: u64, wait: BOOL) -> BOOL;
-        unsafe fn XNetworkingUnregisterConnectivityHintChanged(&self, token: u64, wait: BOOL) -> BOOL;
+    unsafe fn x_networking_query_preferred_local_udp_multiplayer_port(
+        &self,
+        preferred_local_udp_multiplayer_port: *mut u16,
+    ) -> HRESULT {
+        todo!()
     }
 
-    unsafe fn XNetworkingGetConnectivityHint(
+    unsafe fn x_networking_query_preferred_local_udp_multiplayer_port_async(
         &self,
-        connectivityHint: *mut XNetworkingConnectivityHint,
+        async_block: *mut XAsyncBlock,
     ) -> HRESULT {
-        if connectivityHint.is_null() {
+        todo!()
+    }
+
+    unsafe fn x_networking_query_preferred_local_udp_multiplayer_port_async_result(
+        &self,
+        async_block: *mut XAsyncBlock,
+        preferred_local_udp_multiplayer_port: *mut u16,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_networking_register_preferred_local_udp_multiplayer_port_changed(
+        &self,
+        queue: XTaskQueueHandle,
+        context: *mut c_void,
+        callback: Option<XNetworkingPreferredLocalUdpMultiplayerPortChangedCallback>,
+        token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_networking_unregister_preferred_local_udp_multiplayer_port_changed(
+        &self,
+        token: XTaskQueueRegistrationToken,
+        wait: bool,
+    ) -> bool {
+        todo!()
+    }
+
+    unsafe fn x_networking_get_connectivity_hint(
+        &self,
+        connectivity_hint: *mut XNetworkingConnectivityHint,
+    ) -> HRESULT {
+        if connectivity_hint.is_null() {
             return E_POINTER;
         }
         unsafe {
-            *connectivityHint = XNetworkingConnectivityHint {
+            *connectivity_hint = XNetworkingConnectivityHint {
                 connectivity_level: XNetworkingConnectivityLevelHint::InternetAccess,
                 connectivity_cost: XNetworkingConnectivityCostHint::Unrestricted,
                 iana_interface_type: 6,
@@ -957,20 +1812,184 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         S_OK
     }
 
-    unsafe fn XNetworkingVerifyServerCertificate(
+    unsafe fn x_networking_query_security_information_for_url_async(
         &self,
-        _request_handle: *mut c_void,
-        _security_information: *mut c_void,
+        url: *const c_char,
+        async_block: *mut XAsyncBlock,
     ) -> HRESULT {
-        S_OK
+        let url = unsafe { CStr::from_ptr(url) };
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlAsync {}",
+            url.to_string_lossy()
+        );
+        unsafe {
+            let storage = url.to_str().unwrap_or_default();
+            xasync::run_sync(async_block, move || {
+                println!(
+                    "XNetworkingQuerySecurityInformationForUrlAsync: storage: {}",
+                    storage
+                );
+                Ok(XNetworkingSecurityInformation {
+                    enabled_http_security_protocol_flags: 0x00000080
+                        | 0x00000200
+                        | 0x00000800
+                        | 0x00002000,
+                    thumbprint_count: 0,
+                    thumbprints: null_mut(),
+                })
+            })
+        }
     }
 
-    unsafe fn XNetworkingRegisterConnectivityHintChanged(
+    unsafe fn x_networking_query_security_information_for_url_async_result(
         &self,
-        _queue: *mut c_void,
+        async_block: *mut XAsyncBlock,
+        security_information_buffer_byte_count: usize,
+        security_information_buffer_byte_count_used: *mut usize,
+        security_information_buffer: *mut u8,
+        security_information: *mut *mut XNetworkingSecurityInformation,
+    ) -> HRESULT {
+        if security_information_buffer_byte_count < size_of::<XNetworkingSecurityInformation>() {
+            return E_FAIL;
+        }
+        if !security_information_buffer_byte_count_used.is_null() {
+            unsafe { *security_information_buffer_byte_count_used = 0 };
+        }
+        match unsafe {
+            get_result(
+                async_block,
+                null_mut(),
+                security_information_buffer.cast::<XNetworkingSecurityInformation>(),
+            )
+        } {
+            Ok(_) => {
+                if !security_information_buffer_byte_count_used.is_null() {
+                    unsafe {
+                        *security_information_buffer_byte_count_used =
+                            size_of::<XNetworkingSecurityInformation>()
+                    };
+                }
+                unsafe { *security_information = security_information_buffer.cast() };
+                S_OK
+            }
+            Err(hr) => hr,
+        }
+    }
+
+    unsafe fn x_networking_query_security_information_for_url_async_result_size(
+        &self,
+        async_block: *mut XAsyncBlock,
+        security_information_buffer_byte_count: *mut usize,
+    ) -> HRESULT {
+        let r = unsafe { xasync::get_result_size(async_block) };
+        match r {
+            Ok(size) => unsafe {
+                *security_information_buffer_byte_count = size;
+                S_OK
+            },
+            Err(hr) => hr,
+        }
+    }
+
+    unsafe fn x_networking_query_security_information_for_url_utf16_async(
+        &self,
+        url: *const u16,
+        async_block: *mut XAsyncBlock,
+    ) -> HRESULT {
+        let url = PCWSTR::from_raw(url);
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlUtf16Async {} thread: {:?}",
+            unsafe { url.to_string() }.unwrap(),
+            std::thread::current().id(),
+        );
+        unsafe {
+            let storage = url.to_string().unwrap();
+            xasync::run_sync(async_block, move || {
+                println!(
+                    "XNetworkingQuerySecurityInformationForUrlUtf16Async: storage: {} thread: {:?}",
+                    storage,
+                    std::thread::current().id()
+                );
+                Ok(XNetworkingSecurityInformation {
+                    enabled_http_security_protocol_flags: 0x00000080
+                        | 0x00000200
+                        | 0x00000800
+                        | 0x00002000,
+                    thumbprint_count: 0,
+                    thumbprints: null_mut(),
+                })
+            })
+        }
+    }
+
+    unsafe fn x_networking_query_security_information_for_url_utf16_async_result(
+        &self,
+        async_block: *mut XAsyncBlock,
+        security_information_buffer_byte_count: usize,
+        security_information_buffer_byte_count_used: *mut usize,
+        security_information_buffer: *mut u8,
+        security_information: *mut *mut XNetworkingSecurityInformation,
+    ) -> HRESULT {
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult thread: {:?}",
+            std::thread::current().id()
+        );
+        if security_information_buffer_byte_count < size_of::<XNetworkingSecurityInformation>() {
+            return E_FAIL;
+        }
+        if !security_information_buffer_byte_count_used.is_null() {
+            unsafe { *security_information_buffer_byte_count_used = 0 };
+        }
+        match unsafe {
+            get_result(
+                async_block,
+                null_mut(),
+                security_information_buffer.cast::<XNetworkingSecurityInformation>(),
+            )
+        } {
+            Ok(_) => {
+                if !security_information_buffer_byte_count_used.is_null() {
+                    unsafe {
+                        *security_information_buffer_byte_count_used =
+                            size_of::<XNetworkingSecurityInformation>()
+                    };
+                }
+                unsafe { *security_information = security_information_buffer.cast() };
+                println!(
+                    "XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult: OK thread: {:?}",
+                    std::thread::current().id()
+                );
+                S_OK
+            }
+            Err(hr) => hr,
+        }
+    }
+
+    unsafe fn x_networking_query_security_information_for_url_utf16_async_result_size(
+        &self,
+        async_block: *mut XAsyncBlock,
+        security_information_buffer_byte_count: *mut usize,
+    ) -> HRESULT {
+        println!(
+            "XNetworkingQuerySecurityInformationForUrlUtf16AsyncResultSize thread: {:?}",
+            std::thread::current().id()
+        );
+        let r = unsafe { xasync::get_result_size(async_block) };
+        match r {
+            Ok(size) => unsafe {
+                *security_information_buffer_byte_count = size;
+                S_OK
+            },
+            Err(hr) => hr,
+        }
+    }
+
+    unsafe fn x_networking_register_connectivity_hint_changed(
+        &self,
+        queue: XTaskQueueHandle,
         context: *mut c_void,
-        callback: Option<OnChanged>,
-        _token: *mut c_void,
+        callback: Option<XNetworkingConnectivityHintChangedCallback>,
+        token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT {
         if let Some(callback) = callback {
             // println!("XNetworkingRegisterConnectivityHintChanged");
@@ -992,177 +2011,44 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         S_OK
     }
 
-    unsafe fn XNetworkingQuerySecurityInformationForUrlAsync(
+    unsafe fn x_networking_unregister_connectivity_hint_changed(
         &self,
-        url: *mut c_char,
-        asyncBlock: *mut c_void,
-    ) -> HRESULT {
-        let url = unsafe { CStr::from_ptr(url) };
-        println!(
-            "XNetworkingQuerySecurityInformationForUrlAsync {}",
-            url.to_string_lossy()
-        );
-        unsafe {
-            let storage = url.to_str().unwrap_or_default();
-            xasync::run_sync(asyncBlock.cast(), move || {
-                println!(
-                    "XNetworkingQuerySecurityInformationForUrlAsync: storage: {}",
-                    storage
-                );
-                Ok(XNetworkingSecurityInformation {
-                    enabledHttpSecurityProtocolFlags: 0x00000080
-                        | 0x00000200
-                        | 0x00000800
-                        | 0x00002000,
-                    thumbprintCount: 0,
-                    thumbprints: null_mut(),
-                })
-            })
-        }
+        token: XTaskQueueRegistrationToken,
+        wait: bool,
+    ) -> bool {
+        todo!()
     }
 
-    unsafe fn XNetworkingQuerySecurityInformationForUrlAsyncResultSize(
+    unsafe fn x_networking_verify_server_certificate(
         &self,
-        asyncBlock: *mut c_void,
-        securityInformationBufferByteCount: *mut usize,
+        request_handle: *mut c_void,
+        security_information: *const XNetworkingSecurityInformation,
     ) -> HRESULT {
-        let r = unsafe { xasync::get_result_size(asyncBlock.cast()) };
-        match r {
-            Ok(size) => unsafe {
-                *securityInformationBufferByteCount = size;
-                // println!("XNetworkingQuerySecurityInformationForUrlAsyncResultSize: OK");
-                S_OK
-            },
-            Err(hr) => hr,
-        }
+        S_OK
     }
 
-    unsafe fn XNetworkingQuerySecurityInformationForUrlAsyncResult(
+    unsafe fn x_networking_query_configuration_setting(
         &self,
-        asyncBlock: *mut c_void,
-        securityInformationBufferByteCount: u64,
-        securityInformationBufferByteCountUsed: *mut usize,
-        securityInformationBuffer: *mut u8,
-        securityInformation: *mut *mut c_void,
+        configuration_setting: XNetworkingConfigurationSetting,
+        value: *mut u64,
     ) -> HRESULT {
-        if securityInformationBufferByteCount < size_of::<XNetworkingSecurityInformation>() as u64 {
-            return E_FAIL;
-        }
-        if !securityInformationBufferByteCountUsed.is_null() {
-            unsafe { *securityInformationBufferByteCountUsed = 0 };
-        }
-        match unsafe {
-            get_result(
-                asyncBlock.cast(),
-                null_mut(),
-                securityInformationBuffer.cast::<XNetworkingSecurityInformation>(),
-            )
-        } {
-            Ok(_) => {
-                if !securityInformationBufferByteCountUsed.is_null() {
-                    unsafe {
-                        *securityInformationBufferByteCountUsed =
-                            size_of::<XNetworkingSecurityInformation>()
-                    };
-                }
-                unsafe { *securityInformation = securityInformationBuffer.cast() };
-                S_OK
-            }
-            Err(hr) => hr,
-        }
+        todo!()
     }
 
-    unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16Async(
+    unsafe fn x_networking_set_configuration_setting(
         &self,
-        url: *mut u16,
-        asyncBlock: *mut c_void,
+        configuration_parameter: XNetworkingConfigurationSetting,
+        value: u64,
     ) -> HRESULT {
-        let url = PCWSTR::from_raw(url);
-        println!(
-            "XNetworkingQuerySecurityInformationForUrlUtf16Async {} thread: {:?}",
-            unsafe { url.to_string() }.unwrap(),
-            std::thread::current().id(),
-        );
-        unsafe {
-            let storage = url.to_string().unwrap();
-            xasync::run_sync(asyncBlock.cast(), move || {
-                println!(
-                    "XNetworkingQuerySecurityInformationForUrlUtf16Async: storage: {} thread: {:?}",
-                    storage,
-                    std::thread::current().id()
-                );
-                Ok(XNetworkingSecurityInformation {
-                    enabledHttpSecurityProtocolFlags: 0x00000080
-                        | 0x00000200
-                        | 0x00000800
-                        | 0x00002000,
-                    thumbprintCount: 0,
-                    thumbprints: null_mut(),
-                })
-            })
-        }
+        todo!()
     }
 
-    unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16AsyncResultSize(
+    unsafe fn x_networking_query_statistics(
         &self,
-        asyncBlock: *mut c_void,
-        securityInformationBufferByteCount: *mut usize,
+        statistics_type: XNetworkingStatisticsType,
+        statistics_buffer: *mut XNetworkingTcpQueuedReceivedBufferUsageStatistics,
     ) -> HRESULT {
-        println!(
-            "XNetworkingQuerySecurityInformationForUrlUtf16AsyncResultSize thread: {:?}",
-            std::thread::current().id()
-        );
-        let r = unsafe { xasync::get_result_size(asyncBlock.cast()) };
-        match r {
-            Ok(size) => unsafe {
-                *securityInformationBufferByteCount = size;
-                S_OK
-            },
-            Err(hr) => hr,
-        }
-    }
-
-    unsafe fn XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult(
-        &self,
-        asyncBlock: *mut c_void,
-        securityInformationBufferByteCount: u64,
-        securityInformationBufferByteCountUsed: *mut usize,
-        securityInformationBuffer: *mut u8,
-        securityInformation: *mut *mut c_void,
-    ) -> HRESULT {
-        println!(
-            "XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult thread: {:?}",
-            std::thread::current().id()
-        );
-        if securityInformationBufferByteCount < size_of::<XNetworkingSecurityInformation>() as u64 {
-            return E_FAIL;
-        }
-        if !securityInformationBufferByteCountUsed.is_null() {
-            unsafe { *securityInformationBufferByteCountUsed = 0 };
-        }
-        match unsafe {
-            get_result(
-                asyncBlock.cast(),
-                null_mut(),
-                securityInformationBuffer.cast::<XNetworkingSecurityInformation>(),
-            )
-        } {
-            Ok(_) => {
-                if !securityInformationBufferByteCountUsed.is_null() {
-                    unsafe {
-                        *securityInformationBufferByteCountUsed =
-                            size_of::<XNetworkingSecurityInformation>()
-                    };
-                }
-                unsafe { *securityInformation = securityInformationBuffer.cast() };
-                println!(
-                    "XNetworkingQuerySecurityInformationForUrlUtf16AsyncResult: OK thread: {:?}",
-                    std::thread::current().id()
-                );
-                S_OK
-            }
-            Err(hr) => hr,
-        }
+        todo!()
     }
 }
 
@@ -1316,6 +2202,7 @@ pub fn query_api_impl(
 #[cfg(test)]
 mod tests {
     use std::ffi::{c_char, c_void};
+    use std::ptr::null_mut;
 
     use crate::com::{IXStore, XStoreGameLicense, get_result, query_api_impl};
     use crate::xasync::{XAsyncBlock, get_status, run};
@@ -1347,9 +2234,9 @@ mod tests {
 
         unsafe {
             let mut store_ctx: u64 = 0;
-            let hr = store.XStoreCreateContext(0, &mut store_ctx);
+            let hr = store.x_store_create_context(null_mut(), &mut store_ctx);
             assert_eq!(hr, HRESULT(0));
-            let hr = store.XStoreQueryGameLicenseAsync(store_ctx, std::ptr::null_mut());
+            let hr = store.x_store_query_game_license_async(store_ctx, std::ptr::null_mut());
             assert_eq!(hr, HRESULT(0));
         };
     }
@@ -1370,7 +2257,7 @@ mod tests {
 
         let store: IXStore = unsafe { IXStore::from_raw(out) };
         let mut store_ctx: u64 = 0;
-        let hr = unsafe { store.XStoreCreateContext(0, &mut store_ctx) };
+        let hr = unsafe { store.x_store_create_context(null_mut(), &mut store_ctx) };
         assert_eq!(hr, HRESULT(0));
 
         let mut async_block = XAsyncBlock {
@@ -1379,23 +2266,14 @@ mod tests {
             callback: None,
             internal: [0; std::mem::size_of::<*mut c_void>() * 4],
         };
-        let hr = unsafe {
-            store.XStoreQueryGameLicenseAsync(
-                store_ctx,
-                (&mut async_block as *mut XAsyncBlock).cast(),
-            )
-        };
+        let hr = unsafe { store.x_store_query_game_license_async(store_ctx, &mut async_block) };
         assert_eq!(hr, HRESULT(0));
 
         unsafe { get_status(&mut async_block, true) }.unwrap();
 
         let mut license = XStoreGameLicense::default();
-        let result_hr = unsafe {
-            store.XStoreQueryGameLicenseResult(
-                (&mut async_block as *mut XAsyncBlock).cast(),
-                (&mut license as *mut XStoreGameLicense).cast(),
-            )
-        };
+        let result_hr =
+            unsafe { store.x_store_query_game_license_result(&mut async_block, &mut license) };
         assert_eq!(result_hr, HRESULT(0));
         // assert_eq!(read_c_string(&license.skuStoreId), "TRIAL-SKU-001");
         assert!(license.is_active);
