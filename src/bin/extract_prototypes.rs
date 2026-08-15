@@ -155,7 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if known.insert(name.as_str()) {
                 println!("// {}", name.as_str());
                 let mut i = 0;
-                if let Some(extra) = res.get(2) && extra.as_str() == "CALLBACK" {
+                if name.as_str().ends_with("Callback") /*let Some(extra) = res.get(2) && extra.as_str() == "CALLBACK"*/ {
                     print!("pub type {} = unsafe extern \"system\" fn(", name.as_str());
                 } else {
                     print!("pub unsafe fn {}(self: &Self", to_snake_case(name.as_str()));
