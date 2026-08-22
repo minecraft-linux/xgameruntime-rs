@@ -379,6 +379,8 @@ pub unsafe trait IXUser: IUnknown {
         wait: bool,
     ) -> HRESULT;
     pub unsafe fn ___2(self: &Self);
+    pub unsafe fn ___3(self: &Self);
+    pub unsafe fn ___4(self: &Self);
     pub unsafe fn x_user_is_store_user(self: &Self, user: XUserHandle) -> HRESULT;
     pub unsafe fn x_user_platform_remote_connect_set_event_handlers(
         self: &Self,
@@ -1036,6 +1038,14 @@ impl IXUser_Impl for XUser_Impl {
     }
 
     unsafe fn ___2(&self) {
+        todo!()
+    }
+
+    unsafe fn ___3(&self,) {
+        todo!()
+    }
+    
+    unsafe fn ___4(&self,) {
         todo!()
     }
 
