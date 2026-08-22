@@ -1296,11 +1296,11 @@ pub fn query_api_impl(
                 return match class_id {
                     CLSID_XUSER => query(xuser_singleton(), interface_id, out),
                     xasync::CLSID_XASYNC => query(xasync_singleton(), interface_id, out),
-                    _ => resp
+                    _ => resp,
                 };
             }
             resp
-        },
+        }
     };
     res
 }
