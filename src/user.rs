@@ -1041,11 +1041,11 @@ impl IXUser_Impl for XUser_Impl {
         todo!()
     }
 
-    unsafe fn ___3(&self,) {
+    unsafe fn ___3(&self) {
         todo!()
     }
-    
-    unsafe fn ___4(&self,) {
+
+    unsafe fn ___4(&self) {
         todo!()
     }
 

@@ -51,7 +51,7 @@ pub struct XStoreCollectionData {
     pub acquired_date: libc::time_t,
     pub start_date: libc::time_t,
     pub end_date: libc::time_t,
-    pub is_trial: BOOL,
+    pub is_trial: bool,
     pub trial_time_remaining_in_seconds: u32,
     pub quantity: u32,
     pub campaign_id: *const c_char,
@@ -79,8 +79,8 @@ pub struct XStoreProduct {
     pub link_uri: *mut c_char,
     pub product_kind: XStoreProductKind,
     pub price: XStorePrice,
-    pub has_digital_download: BOOL,
-    pub is_in_user_collection: BOOL,
+    pub has_digital_download: bool,
+    pub is_in_user_collection: bool,
     pub keywords_count: u32,
     pub keywords: *const *mut c_char,
     pub skus_count: u32,
@@ -92,7 +92,7 @@ pub struct XStoreProduct {
 }
 #[repr(C)]
 pub struct XStoreRateAndReviewResult {
-    pub was_updated: BOOL,
+    pub was_updated: bool,
 }
 #[repr(C)]
 pub struct XStoreSku {
@@ -101,10 +101,10 @@ pub struct XStoreSku {
     pub description: *const c_char,
     pub language: *const c_char,
     pub price: XStorePrice,
-    pub is_trial: BOOL,
-    pub is_in_user_collection: BOOL,
+    pub is_trial: bool,
+    pub is_in_user_collection: bool,
     pub collection_data: XStoreCollectionData,
-    pub is_subscription: BOOL,
+    pub is_subscription: bool,
     pub subscription_info: XStoreSubscriptionInfo,
     pub bundled_skus_count: u32,
     pub bundled_skus: *const *mut c_char,
@@ -117,7 +117,7 @@ pub struct XStoreSku {
 }
 #[repr(C)]
 pub struct XStoreSubscriptionInfo {
-    pub has_trial_period: BOOL,
+    pub has_trial_period: bool,
     pub trial_period_unit: XStoreDurationUnit,
     pub trial_period: u32,
     pub billing_period_unit: XStoreDurationUnit,

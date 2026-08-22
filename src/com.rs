@@ -358,7 +358,6 @@ impl IXStore_Impl for XStoreObject_Impl {
         &self,
         _store_license_handle: XStoreLicenseHandle,
     ) -> () {
-        
     }
 
     unsafe fn x_store_can_acquire_license_for_store_id_async(

@@ -47,10 +47,10 @@ pub struct XPackageDetails {
     pub description: *const c_char,
     pub publisher: *const c_char,
     pub store_id: *const c_char,
-    pub installing: BOOL,
+    pub installing: bool,
     pub index: u32,
     pub count: u32,
-    pub age_restricted: BOOL,
+    pub age_restricted: bool,
     pub title_i_d: *const c_char,
 }
 #[repr(C)]
@@ -58,7 +58,7 @@ pub struct XPackageFeature {
     pub id: *const c_char,
     pub display_name: *const c_char,
     pub tags: *const c_char,
-    pub hidden: BOOL,
+    pub hidden: bool,
     pub store_id_count: u32,
     pub store_ids: *const *mut c_char,
 }
@@ -67,8 +67,8 @@ pub struct XPackageInstallationProgress {
     pub total_bytes: u64,
     pub installed_bytes: u64,
     pub launch_bytes: u64,
-    pub launchable: BOOL,
-    pub completed: BOOL,
+    pub launchable: bool,
+    pub completed: bool,
 }
 #[repr(C)]
 pub struct XPackageWriteStats {

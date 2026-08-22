@@ -31,7 +31,7 @@ pub struct XGameSaveContainerInfo {
     pub blob_count: u32,
     pub total_size: u64,
     pub last_modified_time: libc::time_t,
-    pub needs_sync: BOOL,
+    pub needs_sync: bool,
 }
 
 // Class _GUID_704c3f58_e629_4cc2_b197_30511b996fe2
