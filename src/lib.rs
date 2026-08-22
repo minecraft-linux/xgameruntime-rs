@@ -16,7 +16,7 @@ mod com;
 pub mod results;
 pub mod threading;
 pub mod user;
-mod xasync;
+pub mod xasync;
 pub mod xerror;
 pub mod xgameactivation;
 pub mod xgameinvite;

@@ -81,7 +81,6 @@ pub unsafe fn get_result<T>(
     result((), hr)
 }
 
-#[cfg(test)]
 pub unsafe fn get_status(async_block: *mut XAsyncBlock, wait: bool) -> Result<(), HRESULT> {
     let xasync = interface()?;
     let hr = unsafe { xasync.x_async_get_status(async_block.cast(), wait.into()) };
