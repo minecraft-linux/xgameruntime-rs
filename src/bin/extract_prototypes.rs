@@ -204,7 +204,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if ty == 0 {
                         method.push_str(&format!("pub type {} = unsafe extern \"system\" fn(", name.as_str()));
                     } else {
-                        method.push_str(&format!("pub unsafe fn {}(self: &Self", to_snake_case(name.as_str())));
+                        method.push_str(&format!("unsafe fn {}(self: &Self", to_snake_case(name.as_str())));
                         i+=1;
                     }
                     for field in bodyre.captures_iter(body.as_str()) {
@@ -263,12 +263,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for(iid, methods) in methods_by_iid {
             println!("// IID {}", iid);
             println!("#[interface(\"{}\")]", iid.strip_prefix("_GUID_").unwrap().replace("_", "-"));
-            println!("pub unsafe trait {} {{", iid);
+            println!("pub unsafe trait {} : IUnknown {{", iid);
             
             for i in 3..methods.len() {
                 let val = &methods[i];
                 if val.is_empty() {
-                    println!("pub unsafe fn __reserved_slot_{}(&self);", i)
+                    println!("unsafe fn __reserved_slot_{}(&self);", i)
                 } else {
                     print!("{}", val);
                 }
