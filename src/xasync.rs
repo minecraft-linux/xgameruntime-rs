@@ -2,151 +2,18 @@ use crate::S_OK;
 use crate::com::query_api_impl;
 
 use crate::results::*;
+pub use crate::threading::{IXAsync, XAsyncBlock, XAsyncOp, XAsyncProvider, XAsyncProviderData};
 use std::ffi::{c_char, c_void};
 use std::mem::size_of;
 use std::pin::Pin;
 use std::ptr::null_mut;
 use std::sync::Arc;
 use std::task::{Context, Poll, Wake, Waker};
-use windows_core::{GUID, HRESULT, IUnknown, Interface, interface};
-use windows_sys::core::BOOL;
+use windows_core::{GUID, HRESULT, Interface};
 
-type XTaskQueueHandle = *mut c_void;
-type XAsyncCompletionRoutine = unsafe extern "system" fn(async_block: *mut XAsyncBlock);
-type XAsyncProvider =
-    unsafe extern "system" fn(op: XAsyncOp, data: *const XAsyncProviderData) -> HRESULT;
+pub const CLSID_XASYNC: GUID = GUID::from_u128(0x073b7dcb_1fcf_4030_94be_e3c9eb623428);
 
-const CLSID_XASYNC: GUID = GUID::from_u128(0x073b7dcb_1fcf_4030_94be_e3c9eb623428);
-
-#[repr(C)]
-pub struct XAsyncBlock {
-    pub queue: XTaskQueueHandle,
-    pub context: *mut c_void,
-    pub callback: Option<XAsyncCompletionRoutine>,
-    pub internal: [u8; size_of::<*mut c_void>() * 4],
-}
-
-#[repr(u32)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum XAsyncOp {
-    Begin = 0,
-    DoWork = 1,
-    GetResult = 2,
-    Cancel = 3,
-    Cleanup = 4,
-}
-
-#[repr(C)]
-pub struct XAsyncProviderData {
-    pub async_: *mut XAsyncBlock,
-    pub bufferSize: usize,
-    pub buffer: *mut c_void,
-    pub context: *mut c_void,
-}
-
-#[interface("073b7dcb-1fcf-4030-94be-e3c9eb623428")]
-pub unsafe trait IXAsync: IUnknown {
-    unsafe fn XAsyncGetStatus(&self, asyncBlock: *mut c_void, wait: BOOL) -> HRESULT;
-    unsafe fn XAsyncGetResultSize(
-        &self,
-        asyncBlock: *mut c_void,
-        bufferSize: *mut usize,
-    ) -> HRESULT;
-    unsafe fn XAsyncCancel(&self, asyncBlock: *mut c_void) -> ();
-    unsafe fn XAsyncRun(&self, asyncBlock: *mut c_void, work: *mut c_void) -> HRESULT;
-    unsafe fn XAsyncBegin(
-        &self,
-        asyncBlock: *mut c_void,
-        context: *mut c_void,
-        identity: *mut c_void,
-        identityName: *mut c_char,
-        provider: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn __ReservedSlot8(&self) -> HRESULT;
-    unsafe fn XAsyncSchedule(&self, asyncBlock: *mut c_void, delayInMs: u32) -> HRESULT;
-    unsafe fn XAsyncComplete(
-        &self,
-        asyncBlock: *mut c_void,
-        result: i32,
-        requiredBufferSize: u64,
-    ) -> ();
-    unsafe fn XAsyncGetResult(
-        &self,
-        asyncBlock: *mut c_void,
-        identity: *mut c_void,
-        bufferSize: u64,
-        buffer: *mut c_void,
-        bufferUsed: *mut usize,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueCreate(
-        &self,
-        workDispatchMode: u64,
-        completionDispatchMode: u64,
-        queue: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueCreateComposite(
-        &self,
-        workPort: u64,
-        completionPort: u64,
-        queue: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueGetPort(&self, queue: u64, port: u64, portHandle: *mut u64) -> HRESULT;
-    unsafe fn XTaskQueueDuplicateHandle(
-        &self,
-        queueHandle: u64,
-        duplicatedHandle: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueDispatch(&self, queue: u64, port: u64, timeoutInMs: u32) -> BOOL;
-    unsafe fn XTaskQueueCloseHandle(&self, queue: u64) -> ();
-    unsafe fn XTaskQueueSubmitCallback(
-        &self,
-        queue: u64,
-        port: u64,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueSubmitDelayedCallback(
-        &self,
-        queue: u64,
-        port: u64,
-        delayMs: u32,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueRegisterWaiter(
-        &self,
-        queue: u64,
-        port: u64,
-        waitHandle: *mut c_void,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-        token: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueUnregisterWaiter(&self, queue: u64, token: u64) -> ();
-    unsafe fn XTaskQueueTerminate(
-        &self,
-        queue: u64,
-        wait: BOOL,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueRegisterMonitor(
-        &self,
-        queue: u64,
-        callbackContext: *mut c_void,
-        callback: *mut c_void,
-        token: *mut u64,
-    ) -> HRESULT;
-    unsafe fn XTaskQueueUnregisterMonitor(&self, queue: u64, token: u64) -> ();
-    unsafe fn XTaskQueueGetCurrentProcessTaskQueue(&self, queue: *mut u64) -> BOOL;
-    unsafe fn XTaskQueueSetCurrentProcessTaskQueue(&self, queue: u64) -> ();
-    unsafe fn XThreadSetTimeSensitive(&self, isTimeSensitiveThread: BOOL) -> HRESULT;
-    unsafe fn __ReservedSlot28(&self) -> HRESULT;
-    unsafe fn XThreadAssertNotTimeSensitive(&self) -> ();
-    unsafe fn XThreadIsTimeSensitive(&self) -> BOOL;
-}
-
-fn interface() -> Result<IXAsync, HRESULT> {
+pub fn interface() -> Result<IXAsync, HRESULT> {
     let mut out = std::ptr::null_mut();
     let hr = query_api_impl(&CLSID_XASYNC, &IXAsync::IID, &mut out);
     if hr != S_OK {
@@ -168,12 +35,12 @@ pub unsafe fn begin(
 ) -> Result<(), HRESULT> {
     let xasync = interface()?;
     let hr = unsafe {
-        xasync.XAsyncBegin(
+        xasync.x_async_begin(
             async_block.cast(),
             context,
             identity.cast_mut(),
             identity_name.cast_mut(),
-            provider as *mut c_void,
+            Some(provider),
         )
     };
     result((), hr)
@@ -181,7 +48,7 @@ pub unsafe fn begin(
 
 pub unsafe fn schedule(async_block: *mut XAsyncBlock, delay_ms: u32) -> Result<(), HRESULT> {
     let xasync = interface()?;
-    let hr = unsafe { xasync.XAsyncSchedule(async_block.cast(), delay_ms) };
+    let hr = unsafe { xasync.x_async_schedule(async_block.cast(), delay_ms) };
     result((), hr)
 }
 
@@ -191,7 +58,7 @@ pub unsafe fn complete(
     required_buffer_size: usize,
 ) -> Result<(), HRESULT> {
     let xasync = interface()?;
-    unsafe { xasync.XAsyncComplete(async_block.cast(), result.0, required_buffer_size as u64) };
+    unsafe { xasync.x_async_complete(async_block.cast(), result, required_buffer_size) };
     Ok(())
 }
 
@@ -203,10 +70,10 @@ pub unsafe fn get_result<T>(
     let xasync = interface()?;
     let mut buffer_used = 0usize;
     let hr = unsafe {
-        xasync.XAsyncGetResult(
+        xasync.x_async_get_result(
             async_block.cast(),
             identity.cast_mut(),
-            size_of::<T>() as u64,
+            size_of::<T>() as usize,
             out.cast(),
             &mut buffer_used,
         )
@@ -216,14 +83,14 @@ pub unsafe fn get_result<T>(
 
 pub unsafe fn get_status(async_block: *mut XAsyncBlock, wait: bool) -> Result<(), HRESULT> {
     let xasync = interface()?;
-    let hr = unsafe { xasync.XAsyncGetStatus(async_block.cast(), wait.into()) };
+    let hr = unsafe { xasync.x_async_get_status(async_block.cast(), wait.into()) };
     result((), hr)
 }
 
 pub unsafe fn get_result_size(async_block: *mut XAsyncBlock) -> Result<usize, HRESULT> {
     let xasync = interface()?;
     let mut buffer_size: usize = 0;
-    let hr = unsafe { xasync.XAsyncGetResultSize(async_block.cast(), &mut buffer_size) };
+    let hr = unsafe { xasync.x_async_get_result_size(async_block.cast(), &mut buffer_size) };
     result(buffer_size, hr)
 }
 
@@ -243,7 +110,7 @@ unsafe impl Send for XAsyncWaker {}
 
 impl Wake for XAsyncWaker {
     fn wake(self: Arc<Self>) {
-        unsafe { schedule(self.block, 0) };
+        let _ = unsafe { schedule(self.block, 0) };
     }
 }
 

@@ -7,14 +7,28 @@ use windows::minwindef::LPARAM;
 use windows::windef::HWND;
 use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 
-use crate::com::{IXUserPlatform, XUserPlatformRemoteConnectEventHandlers};
+use crate::user::{IXUser3, XUserPlatformRemoteConnectEventHandler};
 use windows_core::{GUID, HRESULT, Interface};
 use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
 use windows_sys::minwindef::HMODULE;
 
 mod com;
-mod results;
-mod xasync;
+pub mod results;
+pub mod threading;
+pub mod user;
+pub mod xasync;
+pub mod xerror;
+pub mod xgameactivation;
+pub mod xgameinvite;
+pub mod xgameprotocol;
+pub mod xgamesave;
+pub mod xgamestreaming;
+pub mod xlaunch;
+pub mod xnetworking;
+pub mod xpackage;
+pub mod xpersistedlocalstorage;
+pub mod xstore;
+pub mod xsystem;
 
 type Ulong = u32;
 type Char = i8;
@@ -76,7 +90,7 @@ fn delegated_dll_name() -> CString {
 }
 
 #[cfg(test)]
-pub(crate) fn set_delegated_dll_path_for_test(path: Option<&str>) {
+pub fn set_delegated_dll_path_for_test(path: Option<&str>) {
     let mut slot = TEST_DELEGATED_DLL_PATH
         .lock()
         .expect("delegated xgameruntime test path poisoned");
@@ -178,6 +192,11 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
                 return Err(error);
             }
         };
+
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .unwrap();
+
     Ok(DelegatedApi {
         module,
         initialize_api_impl_ex2,
@@ -197,40 +216,52 @@ fn initialize_delegate(
         state.ref_count += 1;
         return S_OK;
     }
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
+    println!("Loading delegated API...");
 
     let api = match unsafe { load_delegated_api() } {
         Ok(api) => api,
-        Err(error) => return error,
+        Err(error) => {
+            println!("Failed to load delegated API: {:#X}", error.0);
+            return error;
+        }
     };
+
+    println!("Initializing delegated API...");
 
     let hr = unsafe {
         (api.initialize_api_impl_ex2)(gdk_ver, gs_ver, mode | 8 /* xplat mode */, options)
     };
     if hr != S_OK {
+        println!("Failed to initialize delegated API: {:#X}", hr.0);
         unsafe {
             FreeLibrary(api.module);
         }
         return hr;
     }
 
+    println!("Delegated API initialized successfully.");
+
     let mut out: *mut c_void = std::ptr::null_mut();
 
     let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
 
-    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUserPlatform::IID, &mut out) };
+    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUser3::IID, &mut out) };
 
     assert_eq!(hr, HRESULT(0));
     assert!(!out.is_null());
 
-    if let Some(platform) = unsafe { IXUserPlatform::from_raw_borrowed(&out) } {
-        let callback: XUserPlatformRemoteConnectEventHandlers =
-            XUserPlatformRemoteConnectEventHandlers {
-                show: Some(show),
-                close: Some(hide),
-                context: std::ptr::null_mut(),
-            };
+    if let Some(platform) = unsafe { IXUser3::from_raw_borrowed(&out) } {
+        let mut callback = XUserPlatformRemoteConnectEventHandler {
+            show: Some(show),
+            close: Some(hide),
+            context: std::ptr::null_mut(),
+        };
         let hr = unsafe {
-            platform.XUserPlatformRemoteConnectSetEventHandlers(std::ptr::null_mut(), &callback)
+            platform.x_user_platform_remote_connect_set_event_handlers(
+                std::ptr::null_mut(),
+                &mut callback,
+            )
         };
         assert_eq!(hr, HRESULT(0));
     }
@@ -240,7 +271,7 @@ fn initialize_delegate(
     S_OK
 }
 
-pub(crate) fn delegated_query_api_impl(
+pub fn delegated_query_api_impl(
     runtime_class_id: *const GUID,
     interface_id: *const GUID,
     out: *mut *mut c_void,
