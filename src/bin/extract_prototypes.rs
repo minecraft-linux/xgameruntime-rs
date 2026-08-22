@@ -180,7 +180,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Parameters
     // callbacks ok
     // let re = regex::Regex::new(r"C\+\+\s*\n\s*\n\s*(\w+)\s+(\w+)\s+(\w+)\s*\((((\n|\s|//.*\n)*([\w\*]+\s*)+,?)+)[\n\s]*\)")?;
-    let re = regex::Regex::new(r"C\+\+\s*\n\s*\n\s*(\w+|STDAPI_\(bool\))\s+(?:(\w+)\s+)?(\w+)\s*\((((\n|\s|//.*\n)*([\w\*]+\s*)+,?)*)?[\n\s]*\)\s*(noexcept\s*)?;?\n*\n\s*\n\s*(Parameters|Return value)")?;
+    let re = regex::Regex::new(r"C\+\+\s*\n\s*\n\s*(?:typedef\s*)?(\w+|STDAPI_\(bool\))\s+(?:(\w+)\s+)?(\w+)\s*\((((\n|\s|//.*\n)*([\w\*]+\s*)+,?)*)?[\n\s]*\)\s*(noexcept\s*)?;?\n*\n\s*\n\s*(Parameters|Return value)")?;
     let bodyre = regex::Regex::new(r"[\s\n]*(([\w\*]+\s+)+)(\w+)\s*")?;
     let opt_re: regex::Regex = regex::Regex::new(r"Option<(\w+)>")?;
     
