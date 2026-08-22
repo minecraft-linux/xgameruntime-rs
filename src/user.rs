@@ -1,4 +1,3 @@
-#[allow(improper_ctypes_definitions)]
 use std::ptr::null_mut;
 use std::{
     ffi::{CStr, c_char},
@@ -419,8 +418,8 @@ pub struct XUser {
 unsafe trait IXUserHandle: IUnknown {
     unsafe fn get_xuid(&self) -> u64;
     unsafe fn get_local_id(&self) -> XUserLocalId;
-    unsafe fn get_auth(&self) -> Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>;
-    unsafe fn get_runtime(&self) -> tokio::runtime::Handle;
+    unsafe fn get_auth(&self) -> *const Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>;
+    unsafe fn get_runtime(&self) -> *const tokio::runtime::Handle;
 }
 
 struct XuserHandleObjectAuth {
@@ -452,12 +451,12 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
     // unsafe fn get_object(&self,) -> *mut XUserHandleObject {
     //     &mut self.this as *mut XUserHandleObject
     // }
-    unsafe fn get_auth(&self) -> Arc<tokio::sync::Mutex<XuserHandleObjectAuth>> {
-        self.auth.clone()
+    unsafe fn get_auth(&self) -> *const Arc<tokio::sync::Mutex<XuserHandleObjectAuth>> {
+        &self.auth
     }
 
-    unsafe fn get_runtime(&self) -> tokio::runtime::Handle {
-        self.runtime.clone()
+    unsafe fn get_runtime(&self) -> *const tokio::runtime::Handle {
+        &self.runtime
     }
 }
 
@@ -762,8 +761,8 @@ impl IXUser_Impl for XUser_Impl {
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         let user = unsafe { IXUserHandle::from_raw_borrowed(&user) };
-        let handle = user.map(|f| unsafe { f.get_runtime().clone() }).unwrap();
-        let user = unsafe { user.unwrap().get_auth() };
+        let handle = user.map(|f| unsafe { (*f.get_runtime()).clone() }).unwrap();
+        let user = unsafe { (*user.unwrap().get_auth()).clone() };
         let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().to_string();
         println!(
             "x_user_get_token_and_signature_async called with url: {}",

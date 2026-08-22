@@ -1,4 +1,3 @@
-#[allow(nonstandard_style, non_snake_case)]
 use std::env::temp_dir;
 use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
