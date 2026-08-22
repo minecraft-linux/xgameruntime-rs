@@ -19,8 +19,8 @@ pub enum XGameActivationType {
 }
 
 pub struct XGameActivationInfo {
-    type_: XGameActivationType,
-    value: *const c_char,
+    pub type_: XGameActivationType,
+    pub value: *const c_char,
 }
 
 // Class _GUID_7f0fe8b8_e075_49ab_9aa7_a1e065489a9e
