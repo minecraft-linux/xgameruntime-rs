@@ -78,7 +78,7 @@ fn delegated_dll_name() -> CString {
 }
 
 #[cfg(test)]
-pub(crate) fn set_delegated_dll_path_for_test(path: Option<&str>) {
+pub fn set_delegated_dll_path_for_test(path: Option<&str>) {
     let mut slot = TEST_DELEGATED_DLL_PATH
         .lock()
         .expect("delegated xgameruntime test path poisoned");
@@ -259,7 +259,7 @@ fn initialize_delegate(
     S_OK
 }
 
-pub(crate) fn delegated_query_api_impl(
+pub fn delegated_query_api_impl(
     runtime_class_id: *const GUID,
     interface_id: *const GUID,
     out: *mut *mut c_void,
