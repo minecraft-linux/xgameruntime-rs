@@ -131,3 +131,7 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+[features]
+xasync = [ xuser ]
+xuser = []
