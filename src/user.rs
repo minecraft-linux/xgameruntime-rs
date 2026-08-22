@@ -612,7 +612,7 @@ impl IXUser_Impl for XUser_Impl {
                         return Ok::<_, HRESULT>(user as *mut c_void);
                     }
                     #[cfg(not(feature = "xuser"))]
-                    { 
+                    {
                         return Err::<*mut c_void, _>(E_FAIL);
                     }
                 }
