@@ -17,6 +17,8 @@ mod results;
 pub mod threading;
 pub mod user;
 mod xasync;
+pub mod xpackage;
+pub mod xstore;
 
 type Ulong = u32;
 type Char = i8;
