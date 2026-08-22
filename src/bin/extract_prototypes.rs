@@ -1,7 +1,5 @@
 use std::{borrow::Cow, collections::HashSet, fs::File, io::Read};
 
-use egui::TextBuffer;
-
 fn to_rust_type_ex(cpp_type: &str, is_inner: bool) -> Cow<str> {
     let st = match cpp_type {
         "uint8_t" | "BYTE" => "u8",
@@ -169,7 +167,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let (Some(field), Some(ty)) = (field.get(3), field.get(1)) {
                         // let ty = regex::Regex::new(r"(^|\s)\s*_\w+_\s*\s(\s|$)").unwrap().replace_all(ty.as_str().trim(), "");
                         let ty = regex::Regex::new(r"_In_opt_z_|_Out_opt_|_Out_Opt_|_In_z_|_In_opt_|_In_|_Out_").unwrap().replace_all(ty.as_str().trim(), "");
-                        print!("{}: {}", to_snake_case(field.as_str()), to_rust_type(ty.as_ref().trim()));
+                        // prefix _ avoids problems with unused linter
+                        print!("_{}: {}", to_snake_case(field.as_str()), to_rust_type(ty.as_ref().trim()));
                     }
                     i+= 1;
                 }
