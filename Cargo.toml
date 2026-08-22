@@ -133,5 +133,5 @@ panic = "abort"
 panic = "abort"
 
 [features]
-xasync = [ xuser ]
+xasync = [ "xuser" ]
 xuser = []

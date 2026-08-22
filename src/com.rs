@@ -1290,7 +1290,17 @@ pub fn query_api_impl(
         CLSID_XUSER => query(xuser_singleton(), interface_id, out),
         #[cfg(feature = "xasync")]
         xasync::CLSID_XASYNC => query(xasync_singleton(), interface_id, out),
-        _ => crate::delegated_query_api_impl(runtime_class_id, interface_id, out),
+        _ => {
+            let resp = crate::delegated_query_api_impl(runtime_class_id, interface_id, out);
+            if resp.is_err() {
+                return match class_id {
+                    CLSID_XUSER => query(xuser_singleton(), interface_id, out),
+                    xasync::CLSID_XASYNC => query(xasync_singleton(), interface_id, out),
+                    _ => resp
+                };
+            }
+            resp
+        },
     };
     res
 }
