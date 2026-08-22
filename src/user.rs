@@ -7,6 +7,7 @@ use std::{
 use windows_core::{HRESULT, IUnknown, Interface, implement, interface};
 use xal_new::SignaturePolicyCache;
 use xal_xodus as xal;
+#[cfg(feature = "xuser")]
 use xodus::{auth::do_sisu, secrets, tokens::TokenManager};
 
 use crate::threading::XAsyncBlock;
@@ -515,96 +516,105 @@ impl IXUser_Impl for XUser_Impl {
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_user_add_async called");
+        #[cfg(feature = "xuser")]
         let handle = self.runtime.handle().clone();
+        #[cfg(feature = "xuser")]
         let handle2 = self.runtime.handle().clone();
         unsafe {
             xasync::run(async_ as *mut XAsyncBlock, {
                 async move {
-                    let user = handle
-                        .spawn(async move {
-                            let client = reqwest::Client::builder()
-                                // .use_native_tls()
-                                // .min_tls_version(Version::TLS_1_2)
-                                //  .max_tls_version(Version::TLS_1_2)
-                                .use_rustls_tls()
-                                .http1_only()
-                                .connection_verbose(true)
-                                .pool_max_idle_per_host(0)
-                                .connect_timeout(std::time::Duration::from_secs(5))
-                                .timeout(std::time::Duration::from_secs(10))
-                                .build()
-                                .unwrap(); // let manager = xodus::auth::Manager::new();
-                            // let client_id = "your_client_id".to_string();
-                            // let title_id = "your_title_id".to_string();
-                            // do_sisu(&client, manager, client_id, title_id).await?;
-                            std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
-                            println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
-                            secrets::init_secrets().expect("Unable to initialize credentials");
-                            let tokens = TokenManager::with_keychain_and_memory();
-                            let (c, resp, device) =
-                                do_sisu(&client, &tokens, "00000000441DF337", 0x663E2626)
+                    #[cfg(feature = "xuser")]
+                    {
+                        let user = handle
+                            .spawn(async move {
+                                let client = reqwest::Client::builder()
+                                    // .use_native_tls()
+                                    // .min_tls_version(Version::TLS_1_2)
+                                    //  .max_tls_version(Version::TLS_1_2)
+                                    .use_rustls_tls()
+                                    .http1_only()
+                                    .connection_verbose(true)
+                                    .pool_max_idle_per_host(0)
+                                    .connect_timeout(std::time::Duration::from_secs(5))
+                                    .timeout(std::time::Duration::from_secs(10))
+                                    .build()
+                                    .unwrap(); // let manager = xodus::auth::Manager::new();
+                                // let client_id = "your_client_id".to_string();
+                                // let title_id = "your_title_id".to_string();
+                                // do_sisu(&client, manager, client_id, title_id).await?;
+                                std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
+                                println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
+                                secrets::init_secrets().expect("Unable to initialize credentials");
+                                let tokens = TokenManager::with_keychain_and_memory();
+                                let (c, resp, device) =
+                                    do_sisu(&client, &tokens, "00000000441DF337", 0x663E2626)
+                                        .await
+                                        .unwrap();
+
+                                println!("title {}", resp.title_token.token);
+                                println!("user {}", resp.user_token.token);
+                                println!("webpage {}", resp.web_page);
+
+                                let r = client
+                                    .get("https://title.mgt.xboxlive.com/titles/current/endpoints")
+                                    .header("x-xbl-contract-version", "2")
+                                    .header(
+                                        "Authorization",
+                                        resp.authorization_token.authorization_header_value(),
+                                    )
+                                    .send()
+                                    .await
+                                    .unwrap()
+                                    .json::<xal_new::response::TitleEndpointsResponse>()
                                     .await
                                     .unwrap();
+                                println!("{:?}", r);
 
-                            println!("title {}", resp.title_token.token);
-                            println!("user {}", resp.user_token.token);
-                            println!("webpage {}", resp.web_page);
+                                let policy = SignaturePolicyCache::new(r);
 
-                            let r = client
-                                .get("https://title.mgt.xboxlive.com/titles/current/endpoints")
-                                .header("x-xbl-contract-version", "2")
-                                .header(
-                                    "Authorization",
-                                    resp.authorization_token.authorization_header_value(),
-                                )
-                                .send()
-                                .await
-                                .unwrap()
-                                .json::<xal_new::response::TitleEndpointsResponse>()
-                                .await
-                                .unwrap();
-                            println!("{:?}", r);
+                                let r = client
+                                    .get("https://title.mgt.xboxlive.com/titles/default/endpoints?type=1")
+                                    .send()
+                                    .await
+                                    .unwrap()
+                                    .json::<xal_new::response::TitleEndpointsResponse>()
+                                    .await
+                                    .unwrap();
+                                println!("{:?}", r);
 
-                            let policy = SignaturePolicyCache::new(r);
+                                let def_policy = SignaturePolicyCache::new(r);
 
-                            let r = client
-                                .get("https://title.mgt.xboxlive.com/titles/default/endpoints?type=1")
-                                .send()
-                                .await
-                                .unwrap()
-                                .json::<xal_new::response::TitleEndpointsResponse>()
-                                .await
-                                .unwrap();
-                            println!("{:?}", r);
+                                let xid = resp
+                                    .authorization_token
+                                    .display_claims
+                                    .as_ref()
+                                    .map(|d| d.xui[0]["xid"].clone())
+                                    .unwrap();
 
-                            let def_policy = SignaturePolicyCache::new(r);
+                                let handle = XUserHandleObject {
+                                    xuid: xid.parse::<u64>().unwrap(),
+                                    local_id: XUserLocalId { value: 987654321 },
+                                    auth: Arc::new(tokio::sync::Mutex::new(XuserHandleObjectAuth {
+                                        authenticator: c,
+                                        auth: resp,
+                                        policy,
+                                        device_token: device,
+                                        def_policy: def_policy,
+                                    })),
+                                    runtime: handle2,
+                                };
+                                let h: IXUserHandle = handle.into();
 
-                            let xid = resp
-                                .authorization_token
-                                .display_claims
-                                .as_ref()
-                                .map(|d| d.xui[0]["xid"].clone())
-                                .unwrap();
-
-                            let handle = XUserHandleObject {
-                                xuid: xid.parse::<u64>().unwrap(),
-                                local_id: XUserLocalId { value: 987654321 },
-                                auth: Arc::new(tokio::sync::Mutex::new(XuserHandleObjectAuth {
-                                    authenticator: c,
-                                    auth: resp,
-                                    policy,
-                                    device_token: device,
-                                    def_policy: def_policy,
-                                })),
-                                runtime: handle2,
-                            };
-                            let h: IXUserHandle = handle.into();
-
-                            Ok::<_, HRESULT>(h.into_raw() as u64)
-                        })
-                        .await
-                        .unwrap()?;
-                    Ok::<_, HRESULT>(user as *mut c_void)
+                                Ok::<_, HRESULT>(h.into_raw() as u64)
+                            })
+                            .await
+                            .unwrap()?;
+                        return Ok::<_, HRESULT>(user as *mut c_void);
+                    }
+                    #[cfg(not(feature = "xuser"))]
+                    { 
+                        return Err::<*mut c_void, _>(E_FAIL);
+                    }
                 }
             })
         }

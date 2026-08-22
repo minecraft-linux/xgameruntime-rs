@@ -35,6 +35,7 @@ libc = "0.2.189"
 git = "https://github.com/xodus-gaming/xodus"
 rev = "0dd901be450c2e7c9a1c5a727edf69695a01f525"
 features = [ "key-chain-file" ]
+optional = true
 
 [dependencies.windows-core]
 git = "https://github.com/microsoft/windows-rs"
@@ -134,4 +135,4 @@ panic = "abort"
 
 [features]
 xasync = [ "xuser" ]
-xuser = []
+xuser = [ "dep:xodus" ]
