@@ -147,13 +147,13 @@ pub union XGameStreamingTouchControlsStateValueUnion {
 #[interface("0a2192aa-b2d5-4d58-83be-383b6d80799e")]
 pub unsafe trait IXGameStreaming: IUnknown {
     // XGameStreamingInitialize
-    unsafe fn x_game_streaming_initialize(self: &Self) -> HRESULT;
+    pub unsafe fn x_game_streaming_initialize(self: &Self) -> HRESULT;
     // XGameStreamingUninitialize
-    unsafe fn x_game_streaming_uninitialize(self: &Self) -> ();
+    pub unsafe fn x_game_streaming_uninitialize(self: &Self) -> ();
     // XGameStreamingIsStreaming
-    unsafe fn x_game_streaming_is_streaming(self: &Self) -> BOOL;
+    pub unsafe fn x_game_streaming_is_streaming(self: &Self) -> BOOL;
     // XGameStreamingRegisterClientPropertiesChanged
-    unsafe fn x_game_streaming_register_client_properties_changed(
+    pub unsafe fn x_game_streaming_register_client_properties_changed(
         self: &Self,
         _client: XGameStreamingClientId,
         _queue: XTaskQueueHandle,
@@ -162,35 +162,35 @@ pub unsafe trait IXGameStreaming: IUnknown {
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
     // XGameStreamingUnregisterClientPropertiesChanged
-    unsafe fn x_game_streaming_unregister_client_properties_changed(
+    pub unsafe fn x_game_streaming_unregister_client_properties_changed(
         self: &Self,
         _client: XGameStreamingClientId,
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL;
     // XGameStreamingGetStreamPhysicalDimensions
-    unsafe fn x_game_streaming_get_stream_physical_dimensions(
+    pub unsafe fn x_game_streaming_get_stream_physical_dimensions(
         self: &Self,
         _client: XGameStreamingClientId,
         _horizontal_mm: *mut u32,
         _vertical_mm: *mut u32,
     ) -> HRESULT;
     // XGameStreamingGetClientCount
-    unsafe fn x_game_streaming_get_client_count(self: &Self) -> u32;
+    pub unsafe fn x_game_streaming_get_client_count(self: &Self) -> u32;
     // XGameStreamingGetClients
-    unsafe fn x_game_streaming_get_clients(
+    pub unsafe fn x_game_streaming_get_clients(
         self: &Self,
         _client_count: u32,
         _clients: *mut XGameStreamingClientId,
         _clients_used: *mut u32,
     ) -> HRESULT;
     // XGameStreamingGetConnectionState
-    unsafe fn x_game_streaming_get_connection_state(
+    pub unsafe fn x_game_streaming_get_connection_state(
         self: &Self,
         _client: XGameStreamingClientId,
     ) -> XGameStreamingConnectionState;
     // XGameStreamingRegisterConnectionStateChanged
-    unsafe fn x_game_streaming_register_connection_state_changed(
+    pub unsafe fn x_game_streaming_register_connection_state_changed(
         self: &Self,
         _queue: XTaskQueueHandle,
         _context: *mut c_void,
@@ -198,13 +198,13 @@ pub unsafe trait IXGameStreaming: IUnknown {
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
     // XGameStreamingUnregisterConnectionStateChanged
-    unsafe fn x_game_streaming_unregister_connection_state_changed(
+    pub unsafe fn x_game_streaming_unregister_connection_state_changed(
         self: &Self,
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL;
     // XGameStreamingGetStreamAddedLatency
-    unsafe fn x_game_streaming_get_stream_added_latency(
+    pub unsafe fn x_game_streaming_get_stream_added_latency(
         self: &Self,
         _client: XGameStreamingClientId,
         _average_input_latency_us: *mut u32,
@@ -212,75 +212,77 @@ pub unsafe trait IXGameStreaming: IUnknown {
         _standard_deviation_us: *mut u32,
     ) -> HRESULT;
     // XGameStreamingGetServerLocationNameSize
-    unsafe fn x_game_streaming_get_server_location_name_size(self: &Self) -> usize;
+    pub unsafe fn x_game_streaming_get_server_location_name_size(self: &Self) -> usize;
     // XGameStreamingGetServerLocationName
-    unsafe fn x_game_streaming_get_server_location_name(
+    pub unsafe fn x_game_streaming_get_server_location_name(
         self: &Self,
         _server_location_name_size: usize,
         _server_location_name: *mut c_char,
     ) -> HRESULT;
     // XGameStreamingHideTouchControls
-    unsafe fn x_game_streaming_hide_touch_controls(self: &Self) -> ();
+    pub unsafe fn x_game_streaming_hide_touch_controls(self: &Self) -> ();
     // XGameStreamingShowTouchControlLayout
-    unsafe fn x_game_streaming_show_touch_control_layout(self: &Self, _layout: *const c_char)
-    -> ();
+    pub unsafe fn x_game_streaming_show_touch_control_layout(
+        self: &Self,
+        _layout: *const c_char,
+    ) -> ();
     // XGameStreamingHideTouchControlsOnClient
-    unsafe fn x_game_streaming_hide_touch_controls_on_client(
+    pub unsafe fn x_game_streaming_hide_touch_controls_on_client(
         self: &Self,
         _client: XGameStreamingClientId,
     ) -> ();
     // XGameStreamingShowTouchControlLayoutOnClient
-    unsafe fn x_game_streaming_show_touch_control_layout_on_client(
+    pub unsafe fn x_game_streaming_show_touch_control_layout_on_client(
         self: &Self,
         _client: XGameStreamingClientId,
         _layout: *const c_char,
     ) -> ();
     // XGameStreamingIsTouchInputEnabled
-    unsafe fn x_game_streaming_is_touch_input_enabled(
+    pub unsafe fn x_game_streaming_is_touch_input_enabled(
         self: &Self,
         _client: XGameStreamingClientId,
         _touch_input_enabled: *mut BOOL,
     ) -> HRESULT;
     // XGameStreamingGetLastFrameDisplayed
-    unsafe fn x_game_streaming_get_last_frame_displayed(
+    pub unsafe fn x_game_streaming_get_last_frame_displayed(
         self: &Self,
         _client: XGameStreamingClientId,
         _frame_pipeline_token: *mut D3d12xboxFramePipelineToken,
     ) -> HRESULT;
     // XGameStreamingGetAssociatedFrame
-    unsafe fn x_game_streaming_get_associated_frame(
+    pub unsafe fn x_game_streaming_get_associated_frame(
         self: &Self,
         _gamepad_reading: *mut IGameInputReading,
         _frame_pipeline_token: *mut D3d12xboxFramePipelineToken,
     ) -> HRESULT;
     // XGameStreamingGetGamepadPhysicality
-    unsafe fn x_game_streaming_get_gamepad_physicality(
+    pub unsafe fn x_game_streaming_get_gamepad_physicality(
         self: &Self,
         _gamepad_reading: *mut IGameInputReading,
         _gamepad_physicality: *mut XGameStreamingGamepadPhysicality,
     ) -> HRESULT;
     // XGameStreamingUpdateTouchControlsState
-    unsafe fn x_game_streaming_update_touch_controls_state(
+    pub unsafe fn x_game_streaming_update_touch_controls_state(
         self: &Self,
         _operation_count: usize,
         _operations: *const XGameStreamingTouchControlsStateOperation,
     ) -> HRESULT;
     // XGameStreamingUpdateTouchControlsStateOnClient
-    unsafe fn x_game_streaming_update_touch_controls_state_on_client(
+    pub unsafe fn x_game_streaming_update_touch_controls_state_on_client(
         self: &Self,
         _client: XGameStreamingClientId,
         _operation_count: usize,
         _operations: *const XGameStreamingTouchControlsStateOperation,
     ) -> HRESULT;
     // XGameStreamingShowTouchControlsWithStateUpdate
-    unsafe fn x_game_streaming_show_touch_controls_with_state_update(
+    pub unsafe fn x_game_streaming_show_touch_controls_with_state_update(
         self: &Self,
         _layout: *const c_char,
         _operation_count: usize,
         _operations: *const XGameStreamingTouchControlsStateOperation,
     ) -> HRESULT;
     // XGameStreamingShowTouchControlsWithStateUpdateOnClient
-    unsafe fn x_game_streaming_show_touch_controls_with_state_update_on_client(
+    pub unsafe fn x_game_streaming_show_touch_controls_with_state_update_on_client(
         self: &Self,
         _client: XGameStreamingClientId,
         _layout: *const c_char,
@@ -288,12 +290,12 @@ pub unsafe trait IXGameStreaming: IUnknown {
         _operations: *const XGameStreamingTouchControlsStateOperation,
     ) -> HRESULT;
     // XGameStreamingGetTouchBundleVersionNameSize
-    unsafe fn x_game_streaming_get_touch_bundle_version_name_size(
+    pub unsafe fn x_game_streaming_get_touch_bundle_version_name_size(
         self: &Self,
         _client: XGameStreamingClientId,
     ) -> usize;
     // XGameStreamingGetTouchBundleVersion
-    unsafe fn x_game_streaming_get_touch_bundle_version(
+    pub unsafe fn x_game_streaming_get_touch_bundle_version(
         self: &Self,
         _client: XGameStreamingClientId,
         _version: *mut XVersion,
@@ -301,14 +303,14 @@ pub unsafe trait IXGameStreaming: IUnknown {
         _version_name: *mut c_char,
     ) -> HRESULT;
     // XGameStreamingGetClientIPAddress
-    unsafe fn x_game_streaming_get_client_i_p_address(
+    pub unsafe fn x_game_streaming_get_client_i_p_address(
         self: &Self,
         _client: XGameStreamingClientId,
         _ip_address_size: usize,
         _ip_address: *mut c_char,
     ) -> HRESULT;
     // XGameStreamingGetSessionId
-    unsafe fn x_game_streaming_get_session_id(
+    pub unsafe fn x_game_streaming_get_session_id(
         self: &Self,
         _client: XGameStreamingClientId,
         _session_id_size: usize,
@@ -316,7 +318,7 @@ pub unsafe trait IXGameStreaming: IUnknown {
         _session_id_used: *mut usize,
     ) -> HRESULT;
     // XGameStreamingGetDisplayDetails
-    unsafe fn x_game_streaming_get_display_details(
+    pub unsafe fn x_game_streaming_get_display_details(
         self: &Self,
         _client: XGameStreamingClientId,
         _max_supported_pixels: u32,
@@ -325,5 +327,9 @@ pub unsafe trait IXGameStreaming: IUnknown {
         _display_details: *mut XGameStreamingDisplayDetails,
     ) -> HRESULT;
     // XGameStreamingSetResolution
-    unsafe fn x_game_streaming_set_resolution(self: &Self, _width: u32, _height: u32) -> HRESULT;
+    pub unsafe fn x_game_streaming_set_resolution(
+        self: &Self,
+        _width: u32,
+        _height: u32,
+    ) -> HRESULT;
 }

@@ -13,7 +13,7 @@ use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
 use windows_sys::minwindef::HMODULE;
 
 mod com;
-mod results;
+pub mod results;
 pub mod threading;
 pub mod user;
 mod xasync;
@@ -24,6 +24,7 @@ pub mod xgameprotocol;
 pub mod xgamesave;
 pub mod xgamestreaming;
 pub mod xlaunch;
+pub mod xnetworking;
 pub mod xpackage;
 pub mod xpersistedlocalstorage;
 pub mod xstore;

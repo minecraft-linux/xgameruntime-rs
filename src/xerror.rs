@@ -18,15 +18,15 @@ pub enum XErrorOptions {
 // IID _GUID_8ca467f7_22e8_4096_8456_bb8aa13f79d8
 #[interface("8ca467f7-22e8-4096-8456-bb8aa13f79d8")]
 pub unsafe trait IXError: IUnknown {
-    unsafe fn __reserved_slot_3(&self);
+    pub unsafe fn __reserved_slot_3(&self);
     // XErrorSetCallback
-    unsafe fn x_error_set_callback(
+    pub unsafe fn x_error_set_callback(
         self: &Self,
         _callback: Option<XErrorCallback>,
         _context: *mut c_void,
     ) -> ();
     // XErrorSetOptions
-    unsafe fn x_error_set_options(
+    pub unsafe fn x_error_set_options(
         self: &Self,
         _options_debugger_present: XErrorOptions,
         _options_debugger_not_present: XErrorOptions,

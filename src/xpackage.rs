@@ -122,15 +122,15 @@ pub struct XPackageChunkSelector {
 #[interface("af406016-e850-4aa8-a88d-2f3dcb9dac7e")]
 pub unsafe trait IXPackage: IUnknown {
     // XPackageGetCurrentProcessPackageIdentifier
-    unsafe fn x_package_get_current_process_package_identifier(
+    pub unsafe fn x_package_get_current_process_package_identifier(
         self: &Self,
         _buffer_size: usize,
         _buffer: *mut c_char,
     ) -> HRESULT;
     // XPackageIsPackagedProcess
-    unsafe fn x_package_is_packaged_process(self: &Self) -> BOOL;
+    pub unsafe fn x_package_is_packaged_process(self: &Self) -> BOOL;
     // XPackageCreateInstallationMonitor
-    unsafe fn x_package_create_installation_monitor(
+    pub unsafe fn x_package_create_installation_monitor(
         self: &Self,
         _package_identifier: *const c_char,
         _selector_count: u32,
@@ -140,23 +140,23 @@ pub unsafe trait IXPackage: IUnknown {
         _installation_monitor: *mut XPackageInstallationMonitorHandle,
     ) -> HRESULT;
     // XPackageCloseInstallationMonitorHandle
-    unsafe fn x_package_close_installation_monitor_handle(
+    pub unsafe fn x_package_close_installation_monitor_handle(
         self: &Self,
         _installation_monitor: XPackageInstallationMonitorHandle,
     ) -> ();
     // XPackageGetInstallationProgress
-    unsafe fn x_package_get_installation_progress(
+    pub unsafe fn x_package_get_installation_progress(
         self: &Self,
         _installation_monitor: XPackageInstallationMonitorHandle,
         _progress: *mut XPackageInstallationProgress,
     ) -> ();
     // XPackageUpdateInstallationMonitor
-    unsafe fn x_package_update_installation_monitor(
+    pub unsafe fn x_package_update_installation_monitor(
         self: &Self,
         _installation_monitor: XPackageInstallationMonitorHandle,
     ) -> BOOL;
     // XPackageRegisterInstallationProgressChanged
-    unsafe fn x_package_register_installation_progress_changed(
+    pub unsafe fn x_package_register_installation_progress_changed(
         self: &Self,
         _installation_monitor: XPackageInstallationMonitorHandle,
         _context: *mut c_void,
@@ -164,20 +164,20 @@ pub unsafe trait IXPackage: IUnknown {
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
     // XPackageUnregisterInstallationProgressChanged
-    unsafe fn x_package_unregister_installation_progress_changed(
+    pub unsafe fn x_package_unregister_installation_progress_changed(
         self: &Self,
         _installation_monitor: XPackageInstallationMonitorHandle,
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL;
     // XPackageGetUserLocale
-    unsafe fn x_package_get_user_locale(
+    pub unsafe fn x_package_get_user_locale(
         self: &Self,
         _locale_size: usize,
         _locale: *mut c_char,
     ) -> HRESULT;
     // XPackageFindChunkAvailability
-    unsafe fn x_package_find_chunk_availability(
+    pub unsafe fn x_package_find_chunk_availability(
         self: &Self,
         _package_identifier: *const c_char,
         _selector_count: u32,
@@ -185,7 +185,7 @@ pub unsafe trait IXPackage: IUnknown {
         _availability: *mut XPackageChunkAvailability,
     ) -> HRESULT;
     // XPackageEnumerateChunkAvailability
-    unsafe fn x_package_enumerate_chunk_availability(
+    pub unsafe fn x_package_enumerate_chunk_availability(
         self: &Self,
         _package_identifier: *const c_char,
         _type_: XPackageChunkSelectorType,
@@ -193,14 +193,14 @@ pub unsafe trait IXPackage: IUnknown {
         _callback: Option<XPackageChunkAvailabilityCallback>,
     ) -> HRESULT;
     // XPackageChangeChunkInstallOrder
-    unsafe fn x_package_change_chunk_install_order(
+    pub unsafe fn x_package_change_chunk_install_order(
         self: &Self,
         _package_identifier: *const c_char,
         _selector_count: u32,
         _selectors: *mut XPackageChunkSelector,
     ) -> HRESULT;
     // XPackageInstallChunks
-    unsafe fn x_package_install_chunks(
+    pub unsafe fn x_package_install_chunks(
         self: &Self,
         _package_identifier: *const c_char,
         _selector_count: u32,
@@ -211,7 +211,7 @@ pub unsafe trait IXPackage: IUnknown {
         _installation_monitor: *mut XPackageInstallationMonitorHandle,
     ) -> HRESULT;
     // XPackageInstallChunksAsync
-    unsafe fn x_package_install_chunks_async(
+    pub unsafe fn x_package_install_chunks_async(
         self: &Self,
         _package_identifier: *const c_char,
         _selector_count: u32,
@@ -221,13 +221,13 @@ pub unsafe trait IXPackage: IUnknown {
         _async_block: *mut XAsyncBlock,
     ) -> HRESULT;
     // XPackageInstallChunksResult
-    unsafe fn x_package_install_chunks_result(
+    pub unsafe fn x_package_install_chunks_result(
         self: &Self,
         _async_block: *mut XAsyncBlock,
         _installation_monitor: *mut XPackageInstallationMonitorHandle,
     ) -> HRESULT;
     // XPackageEstimateDownloadSize
-    unsafe fn x_package_estimate_download_size(
+    pub unsafe fn x_package_estimate_download_size(
         self: &Self,
         _package_identifier: *const c_char,
         _selector_count: u32,
@@ -236,75 +236,78 @@ pub unsafe trait IXPackage: IUnknown {
         _should_present_user_confirmation: *mut BOOL,
     ) -> HRESULT;
     // XPackageUninstallChunks
-    unsafe fn x_package_uninstall_chunks(
+    pub unsafe fn x_package_uninstall_chunks(
         self: &Self,
         _package_identifier: *const c_char,
         _selector_count: u32,
         _selectors: *mut XPackageChunkSelector,
     ) -> HRESULT;
-    unsafe fn __reserved_slot_20(&self);
-    unsafe fn __reserved_slot_21(&self);
+    pub unsafe fn __reserved_slot_20(&self);
+    pub unsafe fn __reserved_slot_21(&self);
     // XPackageUnregisterPackageInstalled
-    unsafe fn x_package_unregister_package_installed(
+    pub unsafe fn x_package_unregister_package_installed(
         self: &Self,
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL;
-    unsafe fn __reserved_slot_23(&self);
+    pub unsafe fn __reserved_slot_23(&self);
     // XPackageGetMountPathSize
-    unsafe fn x_package_get_mount_path_size(
+    pub unsafe fn x_package_get_mount_path_size(
         self: &Self,
         _mount: XPackageMountHandle,
         _path_size: *mut usize,
     ) -> HRESULT;
     // XPackageGetMountPath
-    unsafe fn x_package_get_mount_path(
+    pub unsafe fn x_package_get_mount_path(
         self: &Self,
         _mount: XPackageMountHandle,
         _path_size: usize,
         _path: *mut c_char,
     ) -> HRESULT;
     // XPackageCloseMountHandle
-    unsafe fn x_package_close_mount_handle(self: &Self, _mount: XPackageMountHandle) -> ();
-    unsafe fn __reserved_slot_27(&self);
-    unsafe fn __reserved_slot_28(&self);
-    unsafe fn __reserved_slot_29(&self);
+    pub unsafe fn x_package_close_mount_handle(self: &Self, _mount: XPackageMountHandle) -> ();
+    pub unsafe fn __reserved_slot_27(&self);
+    pub unsafe fn __reserved_slot_28(&self);
+    pub unsafe fn __reserved_slot_29(&self);
     // XPackageGetWriteStats
-    unsafe fn x_package_get_write_stats(
+    pub unsafe fn x_package_get_write_stats(
         self: &Self,
         _write_stats: *mut XPackageWriteStats,
     ) -> HRESULT;
-    unsafe fn __reserved_slot_31(&self);
+    pub unsafe fn __reserved_slot_31(&self);
     // XPackageUninstallUWPInstance
-    unsafe fn x_package_uninstall_u_w_p_instance(
+    pub unsafe fn x_package_uninstall_u_w_p_instance(
         self: &Self,
         _package_name: *const c_char,
     ) -> HRESULT;
     // XPackageEnumerateFeatures
-    unsafe fn x_package_enumerate_features(
+    pub unsafe fn x_package_enumerate_features(
         self: &Self,
         _package_identifier: *const c_char,
         _context: *mut c_void,
         _callback: Option<XPackageFeatureEnumerationCallback>,
     ) -> HRESULT;
     // XPackageUninstallPackage
-    unsafe fn x_package_uninstall_package(self: &Self, _package_identifier: *const c_char) -> BOOL;
-    unsafe fn __reserved_slot_35(&self);
-    unsafe fn __reserved_slot_36(&self);
+    pub unsafe fn x_package_uninstall_package(
+        self: &Self,
+        _package_identifier: *const c_char,
+    ) -> BOOL;
+    pub unsafe fn __reserved_slot_35(&self);
+    pub unsafe fn __reserved_slot_36(&self);
     // XPackageMountWithUiAsync
-    unsafe fn x_package_mount_with_ui_async(
+    pub unsafe fn x_package_mount_with_ui_async(
         self: &Self,
         _package_identifier: *const char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
     // XPackageMountWithUiResult
-    unsafe fn x_package_mount_with_ui_result(
+    pub unsafe fn x_package_mount_with_ui_result(
         self: &Self,
         _async_: *mut XAsyncBlock,
         _mount: *mut XPackageMountHandle,
     ) -> HRESULT;
     // XPackageEnumeratePackages
-    unsafe fn x_package_enumerate_packages(
+    pub unsafe fn x_package_enumerate_packages(
         self: &Self,
         _kind: XPackageKind,
         _scope: XPackageEnumerationScope,
@@ -312,7 +315,7 @@ pub unsafe trait IXPackage: IUnknown {
         _callback: Option<XPackageEnumerationCallback>,
     ) -> HRESULT;
     // XPackageRegisterPackageInstalled
-    unsafe fn x_package_register_package_installed(
+    pub unsafe fn x_package_register_package_installed(
         self: &Self,
         _queue: XTaskQueueHandle,
         _context: *mut c_void,

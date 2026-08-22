@@ -28,7 +28,7 @@ pub struct XGameActivationInfo {
 #[interface("7f0fe8b8-e075-49ab-9aa7-a1e065489a9e")]
 pub unsafe trait IXGameActivation: IUnknown {
     // XGameActivationRegisterForEvent
-    unsafe fn x_game_activation_register_for_event(
+    pub unsafe fn x_game_activation_register_for_event(
         self: &Self,
         _queue: XTaskQueueHandle,
         _context: *mut c_void,
@@ -36,13 +36,13 @@ pub unsafe trait IXGameActivation: IUnknown {
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
     // XGameActivationUnregisterForEvent
-    unsafe fn x_game_activation_unregister_for_event(
+    pub unsafe fn x_game_activation_unregister_for_event(
         self: &Self,
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL;
     // XGameActivationAcceptPendingInvite
-    unsafe fn x_game_activation_accept_pending_invite(
+    pub unsafe fn x_game_activation_accept_pending_invite(
         self: &Self,
         _invite_uri: *const c_char,
     ) -> HRESULT;

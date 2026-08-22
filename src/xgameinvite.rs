@@ -13,7 +13,7 @@ pub type XGameInviteEventCallback =
 #[interface("0651aae2-4012-4077-bf84-8b9097090e2c")]
 pub unsafe trait IXGameInvite: IUnknown {
     // XGameInviteRegisterForEvent
-    unsafe fn x_game_invite_register_for_event(
+    pub unsafe fn x_game_invite_register_for_event(
         self: &Self,
         _queue: XTaskQueueHandle,
         _context: *mut c_void,
@@ -21,7 +21,7 @@ pub unsafe trait IXGameInvite: IUnknown {
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
     // XGameInviteUnregisterForEvent
-    unsafe fn x_game_invite_unregister_for_event(
+    pub unsafe fn x_game_invite_unregister_for_event(
         self: &Self,
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,

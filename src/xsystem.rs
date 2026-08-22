@@ -38,34 +38,34 @@ pub type XSystemHandleCallback =
 #[interface("e349bd1a-fc20-4e40-b99c-4178cc6b409f")]
 pub unsafe trait IXSystem: IUnknown {
     // XSystemGetConsoleId
-    unsafe fn x_system_get_console_id(
+    pub unsafe fn x_system_get_console_id(
         self: &Self,
         _console_id_size: usize,
         _console_id: *mut c_char,
         _console_id_used: *mut usize,
     ) -> HRESULT;
     // XSystemGetXboxLiveSandboxId
-    unsafe fn x_system_get_xbox_live_sandbox_id(
+    pub unsafe fn x_system_get_xbox_live_sandbox_id(
         self: &Self,
         _sandbox_id_size: usize,
         _sandbox_id: *mut c_char,
         _sandbox_id_used: *mut usize,
     ) -> HRESULT;
     // XSystemGetAppSpecificDeviceId
-    unsafe fn x_system_get_app_specific_device_id(
+    pub unsafe fn x_system_get_app_specific_device_id(
         self: &Self,
         _app_specific_device_id_size: usize,
         _app_specific_device_id: *mut c_char,
         _app_specific_device_id_used: *mut usize,
     ) -> HRESULT;
     // XSystemHandleTrack
-    unsafe fn x_system_handle_track(
+    pub unsafe fn x_system_handle_track(
         self: &Self,
         _callback: XSystemHandleCallback,
         _context: *mut c_void,
     ) -> HRESULT;
     // XSystemIsHandleValid
-    unsafe fn x_system_is_handle_valid(self: &Self, _handle: XSystemHandle) -> BOOL;
+    pub unsafe fn x_system_is_handle_valid(self: &Self, _handle: XSystemHandle) -> BOOL;
     // XSystemAllowFullDownloadBandwidth
-    unsafe fn x_system_allow_full_download_bandwidth(self: &Self, _enable: BOOL) -> ();
+    pub unsafe fn x_system_allow_full_download_bandwidth(self: &Self, _enable: BOOL) -> ();
 }

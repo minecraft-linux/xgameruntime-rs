@@ -8,12 +8,10 @@ use std::{
         Arc, Condvar, Mutex,
         atomic::{self, AtomicU64, Ordering},
     },
-    time::Duration,
 };
 
 use tokio_util::sync::CancellationToken;
 use windows::{
-    synchapi::{CreateEventW, SetEvent},
     threadpoolapiset::{
         CloseThreadpoolWait, CreateThreadpoolWait, SetThreadpoolWait,
         WaitForThreadpoolWaitCallbacks,
@@ -47,6 +45,7 @@ pub enum XTaskQueueDispatchMode {
     ThreadPool,
     SerializedThreadPool,
     Immediate,
+    Invalid,
 }
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
@@ -552,11 +551,8 @@ unsafe extern "system" fn wait_callback(
 
     // TODO: what to do with the result
     let _hr = unsafe {
-        wctx.port.submit_callback(
-            wctx.tracker.clone(),
-            wctx.context as *mut c_void,
-            wctx.callback,
-        )
+        wctx.port
+            .submit_callback(&wctx.tracker, wctx.context as *mut c_void, wctx.callback)
     };
 }
 
@@ -611,7 +607,7 @@ unsafe trait ITaskQueuePort: IUnknown {
     unsafe fn get_handle(&self) -> XTaskQueuePortHandle;
     unsafe fn submit_callback(
         &self,
-        tracker: tokio_util::task::TaskTracker,
+        tracker: *const tokio_util::task::TaskTracker,
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT;
@@ -650,10 +646,11 @@ impl ITaskQueuePort_Impl for TaskQueuePort_Impl {
 
     unsafe fn submit_callback(
         &self,
-        tracker: tokio_util::task::TaskTracker,
+        tracker: *const tokio_util::task::TaskTracker,
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT {
+        let tracker = unsafe { &*tracker }.clone();
         let ctx = callback_context as u64;
         println!(
             "TaskQueuePort::submit_callback called with callback_context: {:p}, tracker.is_closed(): {}",
@@ -694,10 +691,11 @@ impl ITaskQueuePort_Impl for ImmediateTaskQueuePort_Impl {
 
     unsafe fn submit_callback(
         &self,
-        tracker: tokio_util::task::TaskTracker,
+        tracker: *const tokio_util::task::TaskTracker,
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT {
+        let tracker = unsafe { &*tracker }.clone();
         let token = tracker.token();
         println!(
             "ImmediateTaskQueuePort::submit_callback called with callback_context: {:p}, tracker.is_closed(): {}",
@@ -744,10 +742,11 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
 
     unsafe fn submit_callback(
         &self,
-        tracker: tokio_util::task::TaskTracker,
+        tracker: *const tokio_util::task::TaskTracker,
         callback_context: *mut c_void,
         callback: Option<XTaskQueueCallback>,
     ) -> HRESULT {
+        let tracker = unsafe { &*tracker }.clone();
         println!(
             "ManualTaskQueuePort::submit_callback called with callback_context: {:p}, tracker.is_closed(): {}, thread id: {:?}, handle: {:x}",
             callback_context,
@@ -909,7 +908,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
                 port,
                 std::thread::current().id()
             );
-            unsafe { oport.submit_callback(tracker, callback_context, callback) }
+            unsafe { oport.submit_callback(&tracker, callback_context, callback) }
         } else {
             let callback_context = callback_context as u64;
             let oport = oport.clone().into_raw() as u64;
@@ -935,7 +934,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
                     // TODO what to do with the result?
                     let _hr = unsafe {
                         ITaskQueuePort::from_raw(oport as *mut c_void).submit_callback(
-                            tracker,
+                            &tracker,
                             callback_context as *mut c_void,
                             callback,
                         )
@@ -1848,273 +1847,291 @@ impl IXAsync_Impl for XAsync_Impl {
     }
 }
 
-unsafe extern "system" fn callback(ctx: *mut c_void, cancel: bool) {
-    println!(
-        "Callback called with context: {:?}, cancel: {} {:?}",
-        ctx,
-        cancel,
-        std::thread::current().id()
-    );
-}
+#[cfg(test)]
+mod tests {
+    use std::{ffi::c_void, ptr::null_mut, sync::Mutex, time::Duration};
 
-#[test]
-fn test_x_async() {
-    let xasync: IXAsync = XAsync {
-        process_queue: Mutex::new(null_mut()),
-        runtime: tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap(),
+    use windows::synchapi::{CreateEventW, SetEvent};
+    use windows_core::{HRESULT, Interface};
+
+    use crate::{
+        E_FAIL, S_OK,
+        threading::{
+            ITaskQueuePort, TaskQueuePort, XAsync, XTaskQueueDispatchMode, XTaskQueueHandle,
+            XTaskQueuePort, XTaskQueuePortHandle, XTaskQueueRegistrationToken,
+        },
+        xasync::{self, IXAsync, XAsyncBlock},
+    };
+
+    unsafe extern "system" fn callback(ctx: *mut c_void, cancel: bool) {
+        println!(
+            "Callback called with context: {:?}, cancel: {} {:?}",
+            ctx,
+            cancel,
+            std::thread::current().id()
+        );
     }
-    .into();
-    let mut queue: XTaskQueueHandle = null_mut();
-    let mut queue2: XTaskQueueHandle = null_mut();
-    let mut port_handle: XTaskQueuePortHandle = null_mut();
-    unsafe {
-        println!("Creating task queue... {:?}", std::thread::current().id());
-        let _ = xasync.x_task_queue_create(
-            XTaskQueueDispatchMode::SerializedThreadPool,
-            XTaskQueueDispatchMode::Immediate,
-            &mut queue,
-        );
-        println!("Submitting callback to task queue... {}", queue as usize);
-        let _ = xasync.x_task_queue_submit_delayed_callback(
-            queue,
-            XTaskQueuePort::Work,
-            0,
-            null_mut(),
-            Some(callback),
-        );
-        println!("Submitting delayed callback to task queue...");
-        let _ = xasync.x_task_queue_submit_callback(
-            queue,
-            XTaskQueuePort::Work,
-            null_mut(),
-            Some(callback),
-        );
-        let _ = xasync.x_task_queue_get_port(queue, XTaskQueuePort::Work, &mut port_handle);
 
-        let _ = xasync.x_task_queue_create_composite(port_handle, port_handle, &mut queue2);
+    #[test]
+    fn test_x_async() {
+        let xasync: IXAsync = XAsync {
+            process_queue: Mutex::new(null_mut()),
+            runtime: tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        }
+        .into();
+        let mut queue: XTaskQueueHandle = null_mut();
+        let mut queue2: XTaskQueueHandle = null_mut();
+        let mut port_handle: XTaskQueuePortHandle = null_mut();
+        unsafe {
+            println!("Creating task queue... {:?}", std::thread::current().id());
+            let _ = xasync.x_task_queue_create(
+                XTaskQueueDispatchMode::SerializedThreadPool,
+                XTaskQueueDispatchMode::Immediate,
+                &mut queue,
+            );
+            println!("Submitting callback to task queue... {}", queue as usize);
+            let _ = xasync.x_task_queue_submit_delayed_callback(
+                queue,
+                XTaskQueuePort::Work,
+                0,
+                null_mut(),
+                Some(callback),
+            );
+            println!("Submitting delayed callback to task queue...");
+            let _ = xasync.x_task_queue_submit_callback(
+                queue,
+                XTaskQueuePort::Work,
+                null_mut(),
+                Some(callback),
+            );
+            let _ = xasync.x_task_queue_get_port(queue, XTaskQueuePort::Work, &mut port_handle);
 
-        let _ = xasync.x_task_queue_terminate(queue, true, null_mut(), None);
+            let _ = xasync.x_task_queue_create_composite(port_handle, port_handle, &mut queue2);
 
-        xasync.x_task_queue_close_handle(queue);
+            let _ = xasync.x_task_queue_terminate(queue, true, null_mut(), None);
 
-        let _ = xasync.x_task_queue_submit_delayed_callback(
-            queue2,
-            XTaskQueuePort::Work,
-            0,
-            null_mut(),
-            Some(callback),
-        );
-        let _ = xasync.x_task_queue_submit_delayed_callback(
-            queue2,
-            XTaskQueuePort::Work,
-            1000,
-            null_mut(),
-            Some(callback),
-        );
+            xasync.x_task_queue_close_handle(queue);
 
-        let _ = xasync.x_task_queue_terminate(queue2, true, null_mut(), None);
+            let _ = xasync.x_task_queue_submit_delayed_callback(
+                queue2,
+                XTaskQueuePort::Work,
+                0,
+                null_mut(),
+                Some(callback),
+            );
+            let _ = xasync.x_task_queue_submit_delayed_callback(
+                queue2,
+                XTaskQueuePort::Work,
+                1000,
+                null_mut(),
+                Some(callback),
+            );
 
-        xasync.x_task_queue_close_handle(queue2);
+            let _ = xasync.x_task_queue_terminate(queue2, true, null_mut(), None);
 
-        // std::thread::sleep(std::time::Duration::from_millis(100));
-        println!("Test completed.");
-    };
-}
+            xasync.x_task_queue_close_handle(queue2);
 
-#[test]
-fn test_x_async2() {
-    let port = TaskQueuePort::new_thread_pool().unwrap();
+            // std::thread::sleep(std::time::Duration::from_millis(100));
+            println!("Test completed.");
+        };
+    }
 
-    let handle = unsafe { port.get_handle() };
-    let obj = unsafe { ITaskQueuePort::from_raw_borrowed(&handle) };
-    let nh = unsafe { obj.unwrap().get_handle() };
-}
+    #[test]
+    fn test_x_async2() {
+        let port = TaskQueuePort::new_thread_pool().unwrap();
 
-#[test]
-fn test_x_async3() {
-    let mut async_ = XAsyncBlock {
-        callback: None,
-        context: null_mut(),
-        queue: null_mut(),
-        internal: [0; 32],
-    };
-    let hr = unsafe {
-        xasync::run(&mut async_, async {
-            return Ok(());
-        })
-    };
+        let handle = unsafe { port.get_handle() };
+        let obj = unsafe { ITaskQueuePort::from_raw_borrowed(&handle) };
+        let nh = unsafe { obj.unwrap().get_handle() };
+        assert_ne!(nh, null_mut());
+    }
 
-    println!("run returned: {:?}", hr);
+    #[test]
+    fn test_x_async3() {
+        let mut async_ = XAsyncBlock {
+            callback: None,
+            context: null_mut(),
+            queue: null_mut(),
+            internal: [0; 32],
+        };
+        let hr = unsafe {
+            xasync::run(&mut async_, async {
+                return Ok(());
+            })
+        };
 
-    let hr = unsafe { xasync::get_status(&mut async_, true) };
-    println!("get_status returned: {:?}", hr);
-}
+        println!("run returned: {:?}", hr);
 
-#[test]
-fn test_x_async4() {
-    let mut async_ = XAsyncBlock {
-        callback: None,
-        context: null_mut(),
-        queue: null_mut(),
-        internal: [0; 32],
-    };
-    let hr = unsafe {
-        xasync::run(&mut async_, async {
-            return Ok(());
-        })
-    };
+        let hr = unsafe { xasync::get_status(&mut async_, true) };
+        println!("get_status returned: {:?}", hr);
+    }
 
-    println!("run returned: {:?}", hr);
+    #[test]
+    fn test_x_async4() {
+        let mut async_ = XAsyncBlock {
+            callback: None,
+            context: null_mut(),
+            queue: null_mut(),
+            internal: [0; 32],
+        };
+        let hr = unsafe {
+            xasync::run(&mut async_, async {
+                return Ok(());
+            })
+        };
 
-    let hr = unsafe { xasync::get_status(&mut async_, true) };
-    println!("get_status returned: {:?}", hr);
+        println!("run returned: {:?}", hr);
 
-    let hr = unsafe {
-        xasync::run(&mut async_, async {
-            return Ok(());
-        })
-    };
+        let hr = unsafe { xasync::get_status(&mut async_, true) };
+        println!("get_status returned: {:?}", hr);
 
-    println!("run returned: {:?}", hr);
+        let hr = unsafe {
+            xasync::run(&mut async_, async {
+                return Ok(());
+            })
+        };
 
-    let hr = unsafe { xasync::get_status(&mut async_, true) };
-    println!("get_status returned: {:?}", hr);
-}
+        println!("run returned: {:?}", hr);
 
-#[test]
-fn test_x_async5() {
-    let mut async_ = XAsyncBlock {
-        callback: None,
-        context: null_mut(),
-        queue: null_mut(),
-        internal: [0; 32],
-    };
-    let hr = unsafe {
-        xasync::run(&mut async_, async {
-            return Err::<(), HRESULT>(E_FAIL);
-        })
-    };
-    assert_eq!(hr, S_OK);
+        let hr = unsafe { xasync::get_status(&mut async_, true) };
+        println!("get_status returned: {:?}", hr);
+    }
 
-    let hr = unsafe { xasync::get_status(&mut async_, true) }.unwrap_err();
-    assert_eq!(hr, E_FAIL);
+    #[test]
+    fn test_x_async5() {
+        let mut async_ = XAsyncBlock {
+            callback: None,
+            context: null_mut(),
+            queue: null_mut(),
+            internal: [0; 32],
+        };
+        let hr = unsafe {
+            xasync::run(&mut async_, async {
+                return Err::<(), HRESULT>(E_FAIL);
+            })
+        };
+        assert_eq!(hr, S_OK);
 
-    let mut out = ();
-    let hr = unsafe { xasync::get_result(&mut async_, null_mut(), &mut out) }.unwrap_err();
-    assert_eq!(hr, E_FAIL);
-}
+        let hr = unsafe { xasync::get_status(&mut async_, true) }.unwrap_err();
+        assert_eq!(hr, E_FAIL);
 
-#[test]
-fn test_x_async6() {
-    let xasync_ = xasync::interface().unwrap();
+        let mut out = ();
+        let hr = unsafe { xasync::get_result(&mut async_, null_mut(), &mut out) }.unwrap_err();
+        assert_eq!(hr, E_FAIL);
+    }
 
-    let mut queue = null_mut();
-    let _ = unsafe {
-        xasync_.x_task_queue_create(
-            XTaskQueueDispatchMode::Immediate,
-            XTaskQueueDispatchMode::Immediate,
-            &mut queue,
-        )
-    };
+    #[test]
+    fn test_x_async6() {
+        let xasync_ = xasync::interface().unwrap();
 
-    let mut async_ = XAsyncBlock {
-        callback: None,
-        context: null_mut(),
-        queue: queue as *mut c_void,
-        internal: [0; 32],
-    };
-    let hr = unsafe {
-        xasync::run(&mut async_, async {
-            println!("Running async operation...");
-            return Err::<(), HRESULT>(E_FAIL);
-        })
-    };
-    assert_eq!(hr, S_OK);
+        let mut queue = null_mut();
+        let _ = unsafe {
+            xasync_.x_task_queue_create(
+                XTaskQueueDispatchMode::Immediate,
+                XTaskQueueDispatchMode::Immediate,
+                &mut queue,
+            )
+        };
 
-    let hr = unsafe { xasync::get_status(&mut async_, true) }.unwrap_err();
-    assert_eq!(hr, E_FAIL);
+        let mut async_ = XAsyncBlock {
+            callback: None,
+            context: null_mut(),
+            queue: queue as *mut c_void,
+            internal: [0; 32],
+        };
+        let hr = unsafe {
+            xasync::run(&mut async_, async {
+                println!("Running async operation...");
+                return Err::<(), HRESULT>(E_FAIL);
+            })
+        };
+        assert_eq!(hr, S_OK);
 
-    let mut out = ();
-    let hr = unsafe { xasync::get_result(&mut async_, null_mut(), &mut out) }.unwrap_err();
-    assert_eq!(hr, E_FAIL);
-}
+        let hr = unsafe { xasync::get_status(&mut async_, true) }.unwrap_err();
+        assert_eq!(hr, E_FAIL);
 
-#[test]
-fn test_x_async7() {
-    let xasync_ = xasync::interface().unwrap();
+        let mut out = ();
+        let hr = unsafe { xasync::get_result(&mut async_, null_mut(), &mut out) }.unwrap_err();
+        assert_eq!(hr, E_FAIL);
+    }
 
-    let mut queue = null_mut();
-    let _ = unsafe {
-        xasync_.x_task_queue_create(
-            XTaskQueueDispatchMode::SerializedThreadPool,
-            XTaskQueueDispatchMode::SerializedThreadPool,
-            &mut queue,
-        )
-    };
+    #[test]
+    fn test_x_async7() {
+        let xasync_ = xasync::interface().unwrap();
 
-    let mut async_ = XAsyncBlock {
-        callback: None,
-        context: null_mut(),
-        queue: queue as *mut c_void,
-        internal: [0; 32],
-    };
-    let hr = unsafe {
-        xasync::run(&mut async_, async {
-            println!("Running async operation...");
-            return Err::<(), HRESULT>(E_FAIL);
-        })
-    };
-    assert_eq!(hr, S_OK);
+        let mut queue = null_mut();
+        let _ = unsafe {
+            xasync_.x_task_queue_create(
+                XTaskQueueDispatchMode::SerializedThreadPool,
+                XTaskQueueDispatchMode::SerializedThreadPool,
+                &mut queue,
+            )
+        };
 
-    let hr = unsafe { xasync::get_status(&mut async_, true) }.unwrap_err();
-    assert_eq!(hr, E_FAIL);
+        let mut async_ = XAsyncBlock {
+            callback: None,
+            context: null_mut(),
+            queue: queue as *mut c_void,
+            internal: [0; 32],
+        };
+        let hr = unsafe {
+            xasync::run(&mut async_, async {
+                println!("Running async operation...");
+                return Err::<(), HRESULT>(E_FAIL);
+            })
+        };
+        assert_eq!(hr, S_OK);
 
-    let mut out = ();
-    let hr = unsafe { xasync::get_result(&mut async_, null_mut(), &mut out) }.unwrap_err();
-    assert_eq!(hr, E_FAIL);
-}
+        let hr = unsafe { xasync::get_status(&mut async_, true) }.unwrap_err();
+        assert_eq!(hr, E_FAIL);
 
-unsafe extern "system" fn cbk(_ctx: *mut c_void, _cancel: bool) {
-    println!("cbk");
-}
+        let mut out = ();
+        let hr = unsafe { xasync::get_result(&mut async_, null_mut(), &mut out) }.unwrap_err();
+        assert_eq!(hr, E_FAIL);
+    }
 
-#[test]
-fn test_x_async8() {
-    let xasync_ = xasync::interface().unwrap();
+    unsafe extern "system" fn cbk(_ctx: *mut c_void, _cancel: bool) {
+        println!("cbk");
+    }
 
-    let mut queue = null_mut();
-    let _ = unsafe {
-        xasync_.x_task_queue_create(
-            XTaskQueueDispatchMode::SerializedThreadPool,
-            XTaskQueueDispatchMode::SerializedThreadPool,
-            &mut queue,
-        )
-    };
+    #[test]
+    fn test_x_async8() {
+        let xasync_ = xasync::interface().unwrap();
 
-    let e = unsafe { CreateEventW(None, false, false, None) };
+        let mut queue = null_mut();
+        let _ = unsafe {
+            xasync_.x_task_queue_create(
+                XTaskQueueDispatchMode::SerializedThreadPool,
+                XTaskQueueDispatchMode::SerializedThreadPool,
+                &mut queue,
+            )
+        };
 
-    let mut tkn: XTaskQueueRegistrationToken = 0;
-    let _ = unsafe {
-        xasync_.x_task_queue_register_waiter(
-            queue,
-            XTaskQueuePort::Work,
-            e.0,
-            null_mut(),
-            Some(cbk),
-            &mut tkn,
-        )
-    };
+        let e = unsafe { CreateEventW(None, false, false, None) };
 
-    let _ = unsafe { SetEvent(e) };
+        let mut tkn: XTaskQueueRegistrationToken = 0;
+        let _ = unsafe {
+            xasync_.x_task_queue_register_waiter(
+                queue,
+                XTaskQueuePort::Work,
+                e.0,
+                null_mut(),
+                Some(cbk),
+                &mut tkn,
+            )
+        };
 
-    std::thread::sleep(Duration::new(2, 0));
+        let _ = unsafe { SetEvent(e) };
 
-    unsafe { xasync_.x_task_queue_unregister_waiter(queue, tkn) };
+        std::thread::sleep(Duration::new(2, 0));
 
-    let _ = unsafe { SetEvent(e) };
+        unsafe { xasync_.x_task_queue_unregister_waiter(queue, tkn) };
 
-    let _ = unsafe { xasync_.x_task_queue_terminate(queue, true, null_mut(), None) };
+        let _ = unsafe { SetEvent(e) };
+
+        let _ = unsafe { xasync_.x_task_queue_terminate(queue, true, null_mut(), None) };
+    }
 }

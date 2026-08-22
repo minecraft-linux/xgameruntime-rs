@@ -39,7 +39,7 @@ pub struct XGameSaveContainerInfo {
 #[interface("704c3f58-e629-4cc2-b197-30511b996fe2")]
 pub unsafe trait IXGameSave: IUnknown {
     // XGameSaveInitializeProvider
-    unsafe fn x_game_save_initialize_provider(
+    pub unsafe fn x_game_save_initialize_provider(
         self: &Self,
         _requesting_user: XUserHandle,
         _configuration_id: *const c_char,
@@ -47,7 +47,7 @@ pub unsafe trait IXGameSave: IUnknown {
         _provider: *mut XGameSaveProviderHandle,
     ) -> HRESULT;
     // XGameSaveInitializeProviderAsync
-    unsafe fn x_game_save_initialize_provider_async(
+    pub unsafe fn x_game_save_initialize_provider_async(
         self: &Self,
         _requesting_user: XUserHandle,
         _configuration_id: *const c_char,
@@ -55,51 +55,52 @@ pub unsafe trait IXGameSave: IUnknown {
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
     // XGameSaveInitializeProviderResult
-    unsafe fn x_game_save_initialize_provider_result(
+    pub unsafe fn x_game_save_initialize_provider_result(
         self: &Self,
         _async_: *mut XAsyncBlock,
         _provider: *mut XGameSaveProviderHandle,
     ) -> HRESULT;
     // XGameSaveCloseProvider
-    unsafe fn x_game_save_close_provider(self: &Self, _provider: XGameSaveProviderHandle) -> ();
+    pub unsafe fn x_game_save_close_provider(self: &Self, _provider: XGameSaveProviderHandle)
+    -> ();
     // XGameSaveGetRemainingQuota
-    unsafe fn x_game_save_get_remaining_quota(
+    pub unsafe fn x_game_save_get_remaining_quota(
         self: &Self,
         _provider: XGameSaveProviderHandle,
         _remaining_quota: *mut i64,
     ) -> HRESULT;
     // XGameSaveGetRemainingQuotaAsync
-    unsafe fn x_game_save_get_remaining_quota_async(
+    pub unsafe fn x_game_save_get_remaining_quota_async(
         self: &Self,
         _provider: XGameSaveProviderHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
     // XGameSaveGetRemainingQuotaResult
-    unsafe fn x_game_save_get_remaining_quota_result(
+    pub unsafe fn x_game_save_get_remaining_quota_result(
         self: &Self,
         _async_: *mut XAsyncBlock,
         _remaining_quota: *mut i64,
     ) -> HRESULT;
     // XGameSaveDeleteContainer
-    unsafe fn x_game_save_delete_container(
+    pub unsafe fn x_game_save_delete_container(
         self: &Self,
         _provider: XGameSaveProviderHandle,
         _container_name: *const c_char,
     ) -> HRESULT;
     // XGameSaveDeleteContainerAsync
-    unsafe fn x_game_save_delete_container_async(
+    pub unsafe fn x_game_save_delete_container_async(
         self: &Self,
         _provider: XGameSaveProviderHandle,
         _container_name: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
     // XGameSaveDeleteContainerResult
-    unsafe fn x_game_save_delete_container_result(
+    pub unsafe fn x_game_save_delete_container_result(
         self: &Self,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
     // XGameSaveGetContainerInfo
-    unsafe fn x_game_save_get_container_info(
+    pub unsafe fn x_game_save_get_container_info(
         self: &Self,
         _provider: XGameSaveProviderHandle,
         _container_name: *const c_char,
@@ -107,14 +108,14 @@ pub unsafe trait IXGameSave: IUnknown {
         _callback: Option<XGameSaveContainerInfoCallback>,
     ) -> HRESULT;
     // XGameSaveEnumerateContainerInfo
-    unsafe fn x_game_save_enumerate_container_info(
+    pub unsafe fn x_game_save_enumerate_container_info(
         self: &Self,
         _provider: XGameSaveProviderHandle,
         _context: *mut c_void,
         _callback: Option<XGameSaveContainerInfoCallback>,
     ) -> HRESULT;
     // XGameSaveEnumerateContainerInfoByName
-    unsafe fn x_game_save_enumerate_container_info_by_name(
+    pub unsafe fn x_game_save_enumerate_container_info_by_name(
         self: &Self,
         _provider: XGameSaveProviderHandle,
         _container_name_prefix: *const c_char,
@@ -122,23 +123,26 @@ pub unsafe trait IXGameSave: IUnknown {
         _callback: Option<XGameSaveContainerInfoCallback>,
     ) -> HRESULT;
     // XGameSaveCreateContainer
-    unsafe fn x_game_save_create_container(
+    pub unsafe fn x_game_save_create_container(
         self: &Self,
         _provider: XGameSaveProviderHandle,
         _container_name: *const c_char,
         _container_context: *mut XGameSaveContainerHandle,
     ) -> HRESULT;
     // XGameSaveCloseContainer
-    unsafe fn x_game_save_close_container(self: &Self, _context: XGameSaveContainerHandle) -> ();
+    pub unsafe fn x_game_save_close_container(
+        self: &Self,
+        _context: XGameSaveContainerHandle,
+    ) -> ();
     // XGameSaveEnumerateBlobInfo
-    unsafe fn x_game_save_enumerate_blob_info(
+    pub unsafe fn x_game_save_enumerate_blob_info(
         self: &Self,
         _container: XGameSaveContainerHandle,
         _context: *mut c_void,
         _callback: Option<XGameSaveBlobInfoCallback>,
     ) -> HRESULT;
     // XGameSaveEnumerateBlobInfoByName
-    unsafe fn x_game_save_enumerate_blob_info_by_name(
+    pub unsafe fn x_game_save_enumerate_blob_info_by_name(
         self: &Self,
         _container: XGameSaveContainerHandle,
         _blob_name_prefix: *const c_char,
@@ -146,7 +150,7 @@ pub unsafe trait IXGameSave: IUnknown {
         _callback: Option<XGameSaveBlobInfoCallback>,
     ) -> HRESULT;
     // XGameSaveReadBlobData
-    unsafe fn x_game_save_read_blob_data(
+    pub unsafe fn x_game_save_read_blob_data(
         self: &Self,
         _container: XGameSaveContainerHandle,
         _blob_names: *const *mut c_char,
@@ -155,7 +159,7 @@ pub unsafe trait IXGameSave: IUnknown {
         _blob_data: *mut XGameSaveBlob,
     ) -> HRESULT;
     // XGameSaveReadBlobDataAsync
-    unsafe fn x_game_save_read_blob_data_async(
+    pub unsafe fn x_game_save_read_blob_data_async(
         self: &Self,
         _container: XGameSaveContainerHandle,
         _blob_names: *const *mut c_char,
@@ -163,7 +167,7 @@ pub unsafe trait IXGameSave: IUnknown {
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
     // XGameSaveReadBlobDataResult
-    unsafe fn x_game_save_read_blob_data_result(
+    pub unsafe fn x_game_save_read_blob_data_result(
         self: &Self,
         _async_: *mut XAsyncBlock,
         _blobs_size: usize,
@@ -171,16 +175,16 @@ pub unsafe trait IXGameSave: IUnknown {
         _count_of_blobs: *mut u32,
     ) -> HRESULT;
     // XGameSaveCreateUpdate
-    unsafe fn x_game_save_create_update(
+    pub unsafe fn x_game_save_create_update(
         self: &Self,
         _container: XGameSaveContainerHandle,
         _container_display_name: *const c_char,
         _update_context: *mut XGameSaveUpdateHandle,
     ) -> HRESULT;
     // XGameSaveCloseUpdate
-    unsafe fn x_game_save_close_update(self: &Self, _context: XGameSaveUpdateHandle) -> ();
+    pub unsafe fn x_game_save_close_update(self: &Self, _context: XGameSaveUpdateHandle) -> ();
     // XGameSaveSubmitBlobWrite
-    unsafe fn x_game_save_submit_blob_write(
+    pub unsafe fn x_game_save_submit_blob_write(
         self: &Self,
         _update_context: XGameSaveUpdateHandle,
         _blob_name: *const c_char,
@@ -188,40 +192,43 @@ pub unsafe trait IXGameSave: IUnknown {
         _byte_count: usize,
     ) -> HRESULT;
     // XGameSaveSubmitBlobDelete
-    unsafe fn x_game_save_submit_blob_delete(
+    pub unsafe fn x_game_save_submit_blob_delete(
         self: &Self,
         _update_context: XGameSaveUpdateHandle,
         _blob_name: *const c_char,
     ) -> HRESULT;
     // XGameSaveSubmitUpdate
-    unsafe fn x_game_save_submit_update(
+    pub unsafe fn x_game_save_submit_update(
         self: &Self,
         _update_context: XGameSaveUpdateHandle,
     ) -> HRESULT;
     // XGameSaveSubmitUpdateAsync
-    unsafe fn x_game_save_submit_update_async(
+    pub unsafe fn x_game_save_submit_update_async(
         self: &Self,
         _update_context: XGameSaveUpdateHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
     // XGameSaveSubmitUpdateResult
-    unsafe fn x_game_save_submit_update_result(self: &Self, _async_: *mut XAsyncBlock) -> HRESULT;
+    pub unsafe fn x_game_save_submit_update_result(
+        self: &Self,
+        _async_: *mut XAsyncBlock,
+    ) -> HRESULT;
     // XGameSaveFilesGetFolderWithUiAsync
-    unsafe fn x_game_save_files_get_folder_with_ui_async(
+    pub unsafe fn x_game_save_files_get_folder_with_ui_async(
         self: &Self,
         _requesting_user: XUserHandle,
         _configuration_id: *const char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
     // XGameSaveFilesGetFolderWithUiResult
-    unsafe fn x_game_save_files_get_folder_with_ui_result(
+    pub unsafe fn x_game_save_files_get_folder_with_ui_result(
         self: &Self,
         _async_: *mut XAsyncBlock,
         _folder_size: usize,
         _folder_result: *mut char,
     ) -> HRESULT;
     // XGameSaveFilesGetRemainingQuota
-    unsafe fn x_game_save_files_get_remaining_quota(
+    pub unsafe fn x_game_save_files_get_remaining_quota(
         self: &Self,
         _user_context: XUserHandle,
         _configuration_id: *const char,
@@ -229,7 +236,7 @@ pub unsafe trait IXGameSave: IUnknown {
     ) -> HRESULT;
     // PFXGameSaveInitializeConfig
     pub unsafe fn __reserved_slot_33(&self);
-    unsafe fn __reserved_slot_34(&self);
+    pub unsafe fn __reserved_slot_34(&self);
     // PFXGameSaveFilesGetFolderWithUiAsync
     pub unsafe fn __reserved_slot_35(&self);
     // PFXGameSaveFilesGetFolderWithUiResult
