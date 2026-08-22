@@ -154,7 +154,7 @@ pub struct XStoreCanAcquireLicenseResult;
 // Class _GUID_0dd112ac_7c24_448c_b92b_3960fb5bd30c
 // IID _GUID_0dd112ac_7c24_448c_b92b_3960fb5bd30c
 #[interface("0dd112ac-7c24-448c-b92b-3960fb5bd30c")]
-pub unsafe trait IXStore : IUnknown {
+pub unsafe trait IXStore: IUnknown {
     // XStoreCreateContext
     unsafe fn x_store_create_context(
         self: &Self,

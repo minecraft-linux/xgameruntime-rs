@@ -1,0 +1,26 @@
+use std::ffi::c_char;
+
+use windows_core::{HRESULT, IUnknown, interface};
+
+use crate::user::XUserHandle;
+
+// Class _GUID_973a344e_24bf_4d0f_8457_56c534892b29
+// IID _GUID_973a344e_24bf_4d0f_8457_56c534892b29
+#[interface("973a344e-24bf-4d0f-8457-56c534892b29")]
+pub unsafe trait IXLaunch: IUnknown {
+    // XGameGetXboxTitleId
+    unsafe fn x_game_get_xbox_title_id(self: &Self, _title_id: *mut u32) -> HRESULT;
+    // XLaunchNewGame
+    unsafe fn x_launch_new_game(
+        self: &Self,
+        _exe_path: *const c_char,
+        _args: *const c_char,
+        _default_user: XUserHandle,
+    ) -> ();
+    // XLaunchRestartOnCrash
+    unsafe fn x_launch_restart_on_crash(
+        self: &Self,
+        _args: *const c_char,
+        _reserved: u32,
+    ) -> HRESULT;
+}

@@ -17,8 +17,17 @@ mod results;
 pub mod threading;
 pub mod user;
 mod xasync;
+pub mod xerror;
+pub mod xgameactivation;
+pub mod xgameinvite;
+pub mod xgameprotocol;
+pub mod xgamesave;
+pub mod xgamestreaming;
+pub mod xlaunch;
 pub mod xpackage;
+pub mod xpersistedlocalstorage;
 pub mod xstore;
+pub mod xsystem;
 
 type Ulong = u32;
 type Char = i8;
