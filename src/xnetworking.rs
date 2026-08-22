@@ -46,10 +46,10 @@ pub struct XNetworkingConnectivityHint {
     pub connectivity_level: XNetworkingConnectivityLevelHint,
     pub connectivity_cost: XNetworkingConnectivityCostHint,
     pub iana_interface_type: u32,
-    pub network_initialized: BOOL,
-    pub approaching_data_limit: BOOL,
-    pub over_data_limit: BOOL,
-    pub roaming: BOOL,
+    pub network_initialized: bool,
+    pub approaching_data_limit: bool,
+    pub over_data_limit: bool,
+    pub roaming: bool,
 }
 #[repr(C)]
 pub struct XNetworkingSecurityInformation {

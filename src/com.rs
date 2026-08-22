@@ -31,7 +31,7 @@ use crate::xstore::{
     XStorePackageUpdate, XStoreProductKind, XStoreProductQueryCallback, XStoreProductQueryHandle,
     XStoreRateAndReviewResult,
 };
-use crate::{E_FAIL, results::*, threading, xasync};
+use crate::{E_FAIL, E_NOTIMPL, results::*, threading, xasync};
 
 #[interface("8836fe87-edb9-4fe3-8dad-05f0d2cd5b40")]
 pub unsafe trait IXFeature: IUnknown {
@@ -202,7 +202,6 @@ impl IXStore_Impl for XStoreObject_Impl {
         &self,
         _store_context_handle: XStoreContextHandle,
     ) -> () {
-        todo!()
     }
 
     unsafe fn x_store_query_associated_products_async(
@@ -212,7 +211,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _max_items_to_retrieve_per_page: u32,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_associated_products_result(
@@ -220,7 +219,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_products_async(
@@ -233,7 +232,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _action_filters_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_products_result(
@@ -241,7 +240,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_entitled_products_async(
@@ -251,7 +250,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _max_items_to_retrieve_per_page: u32,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_entitled_products_result(
@@ -259,7 +258,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_product_for_current_game_async(
@@ -267,7 +266,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_context_handle: XStoreContextHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_product_for_current_game_result(
@@ -275,7 +274,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_product_for_package_async(
@@ -285,7 +284,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifier: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_product_for_package_result(
@@ -293,7 +292,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_enumerate_products_query(
@@ -302,14 +301,14 @@ impl IXStore_Impl for XStoreObject_Impl {
         _context: *mut c_void,
         _callback: Option<XStoreProductQueryCallback>,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_products_query_has_more_pages(
         &self,
         _product_query_handle: XStoreProductQueryHandle,
     ) -> BOOL {
-        todo!()
+        false.into()
     }
 
     unsafe fn x_store_products_query_next_page_async(
@@ -317,7 +316,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _product_query_handle: XStoreProductQueryHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_products_query_next_page_result(
@@ -325,14 +324,13 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_close_products_query_handle(
         &self,
         _product_query_handle: XStoreProductQueryHandle,
     ) -> () {
-        todo!()
     }
 
     unsafe fn x_store_acquire_license_for_package_async(
@@ -341,7 +339,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifier: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_acquire_license_for_package_result(
@@ -349,18 +347,18 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _store_license_handle: *mut XStoreLicenseHandle,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_is_license_valid(&self, _store_license_handle: XStoreLicenseHandle) -> BOOL {
-        todo!()
+        true.into()
     }
 
     unsafe fn x_store_close_license_handle(
         &self,
         _store_license_handle: XStoreLicenseHandle,
     ) -> () {
-        todo!()
+        
     }
 
     unsafe fn x_store_can_acquire_license_for_store_id_async(
@@ -369,7 +367,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_product_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_can_acquire_license_for_store_id_result(
@@ -377,7 +375,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _store_can_acquire_license: *mut XStoreCanAcquireLicenseResult,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_can_acquire_license_for_package_async(
@@ -386,7 +384,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifier: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_can_acquire_license_for_package_result(
@@ -394,7 +392,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _store_can_acquire_license: *mut XStoreCanAcquireLicenseResult,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_add_on_licenses_async(
@@ -402,7 +400,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_context_handle: XStoreContextHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_add_on_licenses_result_count(
@@ -410,7 +408,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _count: *mut u32,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_add_on_licenses_result(
@@ -419,7 +417,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _count: u32,
         _add_on_licenses: *mut XStoreAddonLicense,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_consumable_balance_remaining_async(
@@ -428,7 +426,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_product_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_consumable_balance_remaining_result(
@@ -436,7 +434,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _consumable_result: *mut XStoreConsumableResult,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn __reserved_slot_35(&self) {
@@ -448,7 +446,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _consumable_result: *mut XStoreConsumableResult,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_get_user_collections_id_async(
@@ -458,7 +456,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _publisher_user_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_get_user_collections_id_result_size(
@@ -466,7 +464,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _size: *mut usize,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_get_user_collections_id_result(
@@ -475,7 +473,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _size: usize,
         _result: *mut c_char,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_get_user_purchase_id_async(
@@ -485,7 +483,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _publisher_user_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_get_user_purchase_id_result_size(
@@ -493,7 +491,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _size: *mut usize,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_get_user_purchase_id_result(
@@ -502,7 +500,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _size: usize,
         _result: *mut c_char,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_license_token_async(
@@ -513,7 +511,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _custom_developer_string: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_license_token_result_size(
@@ -521,7 +519,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _size: *mut usize,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_license_token_result(
@@ -530,7 +528,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _size: usize,
         _result: *mut c_char,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn __reserved_slot_46(&self) {
@@ -553,11 +551,11 @@ impl IXStore_Impl for XStoreObject_Impl {
         _extended_json_data: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_purchase_u_i_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_rate_and_review_u_i_async(
@@ -565,7 +563,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_context_handle: XStoreContextHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_rate_and_review_u_i_result(
@@ -573,7 +571,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _result: *mut XStoreRateAndReviewResult,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_redeem_token_u_i_async(
@@ -585,11 +583,11 @@ impl IXStore_Impl for XStoreObject_Impl {
         _disallow_csv_redemption: BOOL,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_redeem_token_u_i_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_game_and_dlc_package_updates_async(
@@ -597,7 +595,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_context_handle: XStoreContextHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_game_and_dlc_package_updates_result_count(
@@ -605,7 +603,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _count: *mut u32,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_game_and_dlc_package_updates_result(
@@ -614,7 +612,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _count: u32,
         _package_updates: *mut XStorePackageUpdate,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_download_package_updates_async(
@@ -624,11 +622,11 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifiers_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_download_package_updates_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_download_and_install_package_updates_async(
@@ -638,14 +636,14 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifiers_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_download_and_install_package_updates_result(
         &self,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_download_and_install_packages_async(
@@ -655,7 +653,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_ids_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_download_and_install_packages_result_count(
@@ -663,7 +661,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _count: *mut u32,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_download_and_install_packages_result(
@@ -672,7 +670,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _count: u32,
         _package_identifiers: *mut *mut c_char,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_package_identifier(
@@ -681,7 +679,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _size: usize,
         _package_identifier: *mut c_char,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_register_game_license_changed(
@@ -701,7 +699,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL {
-        todo!()
+        true.into()
     }
 
     unsafe fn x_store_register_package_license_lost(
@@ -712,7 +710,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _callback: Option<XStorePackageLicenseLostCallback>,
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_unregister_package_license_lost(
@@ -721,7 +719,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL {
-        todo!()
+        true.into()
     }
 
     unsafe fn __reserved_slot_70(&self) {
@@ -734,7 +732,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_acquire_license_for_durables_result(
@@ -742,7 +740,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _store_license_handle: *mut XStoreLicenseHandle,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_associated_products_u_i_async(
@@ -752,14 +750,14 @@ impl IXStore_Impl for XStoreObject_Impl {
         _product_kinds: XStoreProductKind,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_associated_products_u_i_result(
         &self,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_product_page_u_i_async(
@@ -768,11 +766,11 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_product_page_u_i_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_associated_products_for_store_id_async(
@@ -783,7 +781,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _max_items_to_retrieve_per_page: u32,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_associated_products_for_store_id_result(
@@ -791,7 +789,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_package_updates_async(
@@ -801,7 +799,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifiers_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_package_updates_result_count(
@@ -809,7 +807,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _count: *mut u32,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_query_package_updates_result(
@@ -818,7 +816,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _count: u32,
         _package_updates: *mut XStorePackageUpdate,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_gifting_u_i_async(
@@ -829,11 +827,11 @@ impl IXStore_Impl for XStoreObject_Impl {
         _extended_json_data: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 
     unsafe fn x_store_show_gifting_u_i_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+        E_NOTIMPL
     }
 }
 
