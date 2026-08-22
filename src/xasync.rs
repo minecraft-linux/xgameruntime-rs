@@ -126,6 +126,8 @@ unsafe extern "system" fn run_async_helper<T: Sized>(
         return E_POINTER;
     };
 
+    assert_ne!(unsafe { &*data.async_ }.queue, null_mut());
+
     match op {
         XAsyncOp::Begin => unsafe { schedule(data.async_, 0) }
             .map(|_| S_OK)
@@ -236,6 +238,7 @@ unsafe extern "system" fn run_sync_helper<T: Sized, F: Fn() -> Result<T, HRESULT
 
     match op {
         XAsyncOp::Begin => unsafe {
+            assert_ne!((&*data.async_).queue, null_mut());
             match (async_context.future)() {
                 Ok(value) => {
                     async_context.result = S_OK;
@@ -294,7 +297,7 @@ where
             async_,
             async_context.cast(),
             null_mut(),
-            c"run_async".as_ptr(),
+            c"run_sync".as_ptr(),
             run_sync_helper::<T, F>,
         )
     } {
