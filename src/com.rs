@@ -692,7 +692,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _callback: Option<XStoreGameLicenseChangedCallback>,
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT {
-        todo!()
+        S_OK
     }
 
     unsafe fn x_store_unregister_game_license_changed(
