@@ -12,6 +12,8 @@ use windows_core::{GUID, HRESULT, Interface};
 use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
 use windows_sys::minwindef::HMODULE;
 
+#[cfg(feature = "xuser")]
+mod authenticator;
 mod com;
 pub mod results;
 pub mod threading;

@@ -1601,7 +1601,7 @@ impl IXAsync_Impl for XAsync_Impl {
         );
         let blk = unsafe { &mut *async_block };
         // required_buffer_size == 0 => cleanup state as no result is expected, otherwise the state is kept until x_async_get_result is called
-        let (Some(state), _) = blk.get_state_ex(required_buffer_size == 0) else {
+        let (Some(state), _) = blk.get_state_ex(false) else {
             return;
         };
         if result == E_PENDING {
@@ -1619,6 +1619,9 @@ impl IXAsync_Impl for XAsync_Impl {
             )
             .is_ok()
         {
+            if required_buffer_size == 0 {
+                let _ = blk.get_state_ex(true);
+            }
             // TODO bug we should wait for complete to run
             unsafe { state.set_result_size(required_buffer_size) };
             let queue = unsafe { state.get_queue() };

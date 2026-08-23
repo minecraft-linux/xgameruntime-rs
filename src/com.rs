@@ -54,6 +54,10 @@ pub struct XPersistentLocalStorage {
 
 impl IXPersistentLocalStorage_Impl for XPersistentLocalStorage_Impl {
     unsafe fn x_persistent_local_storage_get_path_size(&self, path_size: *mut usize) -> HRESULT {
+        println!(
+            "x_persistent_local_storage_get_path_size: {}",
+            self.tmp_path
+        );
         unsafe {
             *path_size = self.tmp_path.len() + 1;
         }
@@ -66,6 +70,7 @@ impl IXPersistentLocalStorage_Impl for XPersistentLocalStorage_Impl {
         path: *mut c_char,
         path_used: *mut usize,
     ) -> HRESULT {
+        println!("x_persistent_local_storage_get_path: {}", self.tmp_path);
         let bytes = self.tmp_path.as_bytes();
         let len = bytes.len().min(path_size.saturating_sub(1));
         for (index, byte) in bytes.iter().copied().take(len).enumerate() {
@@ -88,6 +93,10 @@ impl IXPersistentLocalStorage_Impl for XPersistentLocalStorage_Impl {
         &self,
         info: *mut XPersistentLocalStorageSpaceInfo,
     ) -> HRESULT {
+        println!(
+            "x_persistent_local_storage_get_space_info: {}",
+            self.tmp_path
+        );
         unsafe {
             *info = XPersistentLocalStorageSpaceInfo {
                 available_free_bytes: 1024 * 1024 * 1024,
@@ -1115,7 +1124,7 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL {
-        todo!()
+        true.into()
     }
 
     unsafe fn x_networking_query_configuration_setting(
