@@ -523,7 +523,7 @@ impl IXUser_Impl for XUser_Impl {
         #[cfg(feature = "xuser")]
         let handle2 = self.runtime.handle().clone();
         unsafe {
-            xasync::run(async_ as *mut XAsyncBlock, {
+            xasync::run(async_, {
                 async move {
                     #[cfg(feature = "xuser")]
                     {
@@ -615,7 +615,10 @@ impl IXUser_Impl for XUser_Impl {
                     }
                     #[cfg(not(feature = "xuser"))]
                     {
-                        return Err::<*mut c_void, _>(E_FAIL);
+                        use crate::results::E_ABORT;
+
+                        println!("stubbed user add");
+                        return Err::<*mut c_void, _>(E_ABORT);
                     }
                 }
             })
@@ -628,9 +631,9 @@ impl IXUser_Impl for XUser_Impl {
         new_user: *mut XUserHandle,
     ) -> HRESULT {
         println!("x_user_add_result called");
-        unsafe { xasync::get_result(async_ as *mut XAsyncBlock, null_mut(), new_user).unwrap() };
-        // *new_user = h.into_raw();
-        S_OK
+        unsafe { xasync::get_result(async_, null_mut(), new_user) }
+            .map(|_| S_OK)
+            .unwrap_or_else(|e| e)
     }
 
     unsafe fn x_user_get_local_id(
@@ -781,7 +784,7 @@ impl IXUser_Impl for XUser_Impl {
             url
         );
         unsafe {
-            xasync::run(async_ as *mut XAsyncBlock, {
+            xasync::run(async_, {
                 async move {
                     let token = handle
                         .spawn(async move {
@@ -867,7 +870,7 @@ impl IXUser_Impl for XUser_Impl {
             return E_FAIL;
         }
         let pbuf = buffer.cast::<XUserGetTokenAndSignatureDataWrapper>();
-        unsafe { xasync::get_result(async_ as *mut XAsyncBlock, null_mut(), pbuf).unwrap() };
+        unsafe { xasync::get_result(async_, null_mut(), pbuf).unwrap() };
         println!("x_user_get_token_and_signature_result b");
         println!(
             "x_user_get_token_and_signature_result b {}",
@@ -919,11 +922,7 @@ impl IXUser_Impl for XUser_Impl {
             "x_user_get_token_and_signature_utf16_async called with url: {}",
             unsafe { url.to_string() }.unwrap()
         );
-        unsafe {
-            xasync::run(async_ as *mut XAsyncBlock, {
-                async { Ok::<_, HRESULT>(()) }
-            })
-        }
+        unsafe { xasync::run(async_, async { Ok::<_, HRESULT>(()) }) }
     }
 
     unsafe fn x_user_get_token_and_signature_utf16_result_size(
