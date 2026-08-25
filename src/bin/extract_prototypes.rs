@@ -245,7 +245,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         let methods_by_iid = methods_by_clsid_by_iid.entry(&m.clsid).or_insert_with(||HashMap::new());
-        let methods = methods_by_iid.entry(&m.clsid).or_insert_with(||Vec::new());
+        let methods = methods_by_iid.entry(&m.iid).or_insert_with(||Vec::new());
         if methods.len() < (vtable_index + 1) as usize {
             methods.resize((vtable_index + 1) as usize, String::new());
         }
