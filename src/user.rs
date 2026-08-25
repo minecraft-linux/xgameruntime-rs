@@ -11,7 +11,7 @@ use crate::{
 #[cfg(feature = "xuser")]
 use reqwest::Client;
 use serde::Deserialize;
-use std::ptr::null_mut;
+use std::ptr::{self, null_mut};
 #[cfg(feature = "xuser")]
 use std::ptr::slice_from_raw_parts_mut;
 #[cfg(feature = "xuser")]
@@ -20,7 +20,7 @@ use std::{
     ffi::{CStr, c_char},
     os::raw::c_void,
 };
-use windows_core::{HRESULT, IUnknown, Interface, implement, interface};
+use windows_core::{BOOL, HRESULT, IUnknown, Interface, implement, interface};
 #[cfg(feature = "xuser")]
 use xal_new::{self as xal, SignaturePolicyCache};
 #[cfg(feature = "xuser")]
@@ -420,13 +420,38 @@ pub unsafe trait IXUser: IUnknown {
 
 #[interface("cef4fac0-7676-4a94-a119-4c43f9eb5b74")]
 pub unsafe trait IXUser2: IUnknown {
-    pub unsafe fn get_gamertag(&self) -> *const c_char;
+    unsafe fn x_user_get_gamertag(self: &Self, _user: XUserHandle, _gamertag_component: XUserGamertagComponent, _gamertag_size: usize, _gamertag: *mut c_char, _gamertag_used: *mut usize) -> HRESULT;
 }
 
 #[interface("26f3c674-a2fe-44fa-b6c4-a323bc94ff53")]
 pub unsafe trait IXUser3: IXUser {}
 
-#[implement(IXUser, IXUser2, IXUser3)]
+// XUserDefaultAudioEndpointUtf16ChangedCallback
+pub type XUserDefaultAudioEndpointUtf16ChangedCallback = unsafe extern "system" fn(_context: *mut c_void, _user: XUserLocalId, _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind, _endpoint_id_utf16: *const u16) -> ();
+
+// Class _GUID_7d824997_10dc_45ab_86b7_2737767c0bf1
+// IID _GUID_7d824997_10dc_45ab_86b7_2737767c0bf1
+#[interface("0cc6a956-e7e1-4fdf-9341-9d5da649ebc8")]
+pub unsafe trait IXUserDevice : IUnknown {
+// XUserFindForDevice
+unsafe fn x_user_find_for_device(self: &Self, _device_id: *const c_void, _handle: *mut XUserHandle) -> HRESULT;
+// XUserRegisterForDeviceAssociationChanged
+unsafe fn x_user_register_for_device_association_changed(self: &Self, _queue: XTaskQueueHandle, _context: *mut c_void, _callback: Option<XUserDeviceAssociationChangedCallback>, _token: *mut XTaskQueueRegistrationToken) -> HRESULT;
+// XUserUnregisterForDeviceAssociationChanged
+unsafe fn x_user_unregister_for_device_association_changed(self: &Self, _token: XTaskQueueRegistrationToken, _wait: BOOL) -> BOOL;
+// XUserGetDefaultAudioEndpointUtf16
+unsafe fn x_user_get_default_audio_endpoint_utf16(self: &Self, _user: XUserLocalId, _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind, _endpoint_id_utf16_count: usize, _endpoint_id_utf16: *mut u16, _endpoint_id_utf16_used: *mut usize) -> HRESULT;
+// XUserRegisterForDefaultAudioEndpointUtf16Changed
+unsafe fn x_user_register_for_default_audio_endpoint_utf16_changed(self: &Self, _queue: XTaskQueueHandle, _context: *mut c_void, _callback: Option<XUserDefaultAudioEndpointUtf16ChangedCallback>, _token: *mut XTaskQueueRegistrationToken) -> HRESULT;
+// XUserUnregisterForDefaultAudioEndpointUtf16Changed
+unsafe fn x_user_unregister_for_default_audio_endpoint_utf16_changed(self: &Self, _token: XTaskQueueRegistrationToken, _wait: BOOL) -> BOOL;
+// XUserFindControllerForUserWithUiAsync
+unsafe fn x_user_find_controller_for_user_with_ui_async(self: &Self, _user: XUserHandle, _async_: *mut XAsyncBlock) -> HRESULT;
+// XUserFindControllerForUserWithUiResult
+unsafe fn x_user_find_controller_for_user_with_ui_result(self: &Self, _async_: *mut XAsyncBlock, _device_id: *mut c_void) -> HRESULT;
+}
+
+#[implement(IXUser, IXUser2, IXUser3, IXUserDevice)]
 pub struct XUser {
     pub runtime: tokio::runtime::Runtime,
 }
@@ -498,8 +523,13 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
 }
 
 impl IXUser2_Impl for XUser_Impl {
-    unsafe fn get_gamertag(&self) -> *const c_char {
-        c"FakeGamertag".as_ptr() as *const c_char
+    unsafe fn x_user_get_gamertag(&self,_user: XUserHandle,_gamertag_component: XUserGamertagComponent,_gamertag_size: usize,gamertag: *mut c_char,gamertag_used: *mut usize) -> HRESULT {
+        println!("x_user_get_gamertag");
+        unsafe { std::ptr::copy_nonoverlapping(c"ChristopherHX".as_ptr(), gamertag as *mut i8, 14) };
+        if !gamertag_used.is_null() {
+            unsafe { *gamertag_used = 13 };
+        }
+        S_OK
     }
 }
 
@@ -684,9 +714,11 @@ impl IXUser_Impl for XUser_Impl {
         new_user: *mut XUserHandle,
     ) -> HRESULT {
         println!("x_user_add_result called");
-        unsafe { xasync::get_result(async_, null_mut(), new_user) }
+        let err = unsafe { xasync::get_result(async_, null_mut(), new_user) }
             .map(|_| S_OK)
-            .unwrap_or_else(|e| e)
+            .unwrap_or_else(|e| e);
+        println!("x_user_add_result {}", err);
+        err
     }
 
     unsafe fn x_user_get_local_id(
@@ -694,6 +726,7 @@ impl IXUser_Impl for XUser_Impl {
         user: XUserHandle,
         user_local_id: *mut XUserLocalId,
     ) -> HRESULT {
+        println!("x_user_get_local_id");
         unsafe {
             IXUserHandle::from_raw_borrowed(&user)
                 .map(|f| {
@@ -709,25 +742,31 @@ impl IXUser_Impl for XUser_Impl {
         _user_local_id: XUserLocalId,
         _handle: *mut XUserHandle,
     ) -> HRESULT {
+        println!("x_user_find_user_by_local_id");
         E_FAIL
     }
 
     unsafe fn x_user_get_id(&self, user: XUserHandle, user_id: *mut u64) -> HRESULT {
-        unsafe {
+        println!("x_user_get_id");
+        let err = unsafe {
             IXUserHandle::from_raw_borrowed(&user)
                 .map(|f| {
                     *user_id = f.get_xuid();
                     S_OK
                 })
                 .unwrap_or(E_FAIL)
-        }
+        };
+        println!("x_user_get_id {err}");
+        err
     }
 
     unsafe fn x_user_find_user_by_id(&self, _user_id: u64, _handle: *mut XUserHandle) -> HRESULT {
+        println!("x_user_find_user_by_id");
         E_FAIL
     }
 
     unsafe fn x_user_get_is_guest(&self, _user: XUserHandle, is_guest: *mut bool) -> HRESULT {
+        println!("x_user_get_is_guest");
         unsafe {
             *is_guest = false;
         };
@@ -879,6 +918,7 @@ impl IXUser_Impl for XUser_Impl {
         async_: *mut XAsyncBlock,
         buffer_size: *mut usize,
     ) -> HRESULT {
+        println!("x_user_get_token_and_signature_result_size");
         if buffer_size.is_null() {
             return E_POINTER;
         }
@@ -1065,7 +1105,8 @@ impl IXUser_Impl for XUser_Impl {
         _token: XTaskQueueRegistrationToken,
         _wait: bool,
     ) -> HRESULT {
-        todo!()
+        // todo!()
+        S_OK
     }
 
     unsafe fn x_user_get_sign_out_deferral(
@@ -1145,6 +1186,40 @@ impl IXUser_Impl for XUser_Impl {
         _operation: XUserPlatformOperation,
         _result: XUserPlatformSpopOperationResult,
     ) -> HRESULT {
+        todo!()
+    }
+}
+
+impl IXUserDevice_Impl for XUser_Impl {
+    unsafe fn x_user_find_for_device(&self,_device_id: *const c_void,_handle: *mut XUserHandle) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_register_for_device_association_changed(&self,_queue: XTaskQueueHandle,_context: *mut c_void,_callback: Option<XUserDeviceAssociationChangedCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_unregister_for_device_association_changed(&self,_token: XTaskQueueRegistrationToken,_wait: BOOL) -> BOOL {
+        todo!()
+    }
+
+    unsafe fn x_user_get_default_audio_endpoint_utf16(&self,_user: XUserLocalId,_default_audio_endpoint_kind: XUserDefaultAudioEndpointKind,_endpoint_id_utf16_count: usize,_endpoint_id_utf16: *mut u16,_endpoint_id_utf16_used: *mut usize) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_register_for_default_audio_endpoint_utf16_changed(&self,_queue: XTaskQueueHandle,_context: *mut c_void,_callback: Option<XUserDefaultAudioEndpointUtf16ChangedCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_unregister_for_default_audio_endpoint_utf16_changed(&self,_token: XTaskQueueRegistrationToken,_wait: BOOL) -> BOOL {
+        todo!()
+    }
+
+    unsafe fn x_user_find_controller_for_user_with_ui_async(&self,_user: XUserHandle,_async_: *mut XAsyncBlock) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_find_controller_for_user_with_ui_result(&self,_async_: *mut XAsyncBlock,_device_id: *mut c_void) -> HRESULT {
         todo!()
     }
 }

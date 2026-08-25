@@ -1,8 +1,11 @@
-use std::env::temp_dir;
+use std::env::{home_dir, temp_dir};
 use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
+use std::path::Path;
 use std::ptr::null_mut;
 use std::sync::{Mutex, OnceLock};
+use windows::libloaderapi::GetModuleFileNameW;
+use windows::minwindef::MAX_PATH;
 use windows_core::{BOOL, GUID, HRESULT, IUnknown, Interface, PCWSTR, implement, interface};
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
@@ -11,7 +14,11 @@ const CLSID_XPERSISTENT_LOCAL_STORAGE: GUID =
     GUID::from_u128(0xf4faf4d4_2d04_4fce_b3e0_474a713a3e84);
 
 const CLSID_XUSER: GUID = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
+const CLSID_XUserDEVICE: GUID = GUID::from_u128(0x7d824997_10dc_45ab_86b7_2737767c0bf1);
+const CLSID_XPACKAGE: GUID = GUID::from_u128(0xaf406016_e850_4aa8_a88d_2f3dcb9dac7e);
+const CLSID_XGAMESAVE: GUID = GUID::from_u128(0x704c3f58_e629_4cc2_b197_30511b996fe2);
 
+use crate::stub::XStub;
 use crate::threading::{IXAsync, XAsyncBlock, XTaskQueueHandle, XTaskQueueRegistrationToken};
 use crate::user::{IXUser, XUser, XUserHandle};
 use crate::xasync::get_result;
@@ -20,7 +27,7 @@ use crate::xnetworking::{
     XNetworkingConnectivityCostHint, XNetworkingConnectivityHint, XNetworkingConnectivityLevelHint,
     XNetworkingSecurityInformation, XNetworkingStatisticsBuffer, XNetworkingStatisticsType,
 };
-use crate::xpackage::XPackageMountHandle;
+use crate::xpackage::{IXPackage, XPackageMountHandle};
 use crate::xpersistedlocalstorage::{
     IXPersistentLocalStorage, IXPersistentLocalStorage_Impl, XPersistentLocalStorageSpaceInfo,
 };
@@ -1088,17 +1095,19 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
 
     unsafe fn x_networking_query_preferred_local_udp_multiplayer_port_async(
         &self,
-        _async_block: *mut XAsyncBlock,
+        async_block: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        unsafe { xasync::run_sync(async_block, || {
+            return Ok(0u16);
+        }) }
     }
 
     unsafe fn x_networking_query_preferred_local_udp_multiplayer_port_async_result(
         &self,
-        _async_block: *mut XAsyncBlock,
-        _preferred_local_udp_multiplayer_port: *mut u16,
+        async_block: *mut XAsyncBlock,
+        preferred_local_udp_multiplayer_port: *mut u16,
     ) -> HRESULT {
-        todo!()
+        unsafe { xasync::get_result(async_block, null_mut(), preferred_local_udp_multiplayer_port)}.map(|_|S_OK).unwrap_or_else(|e|e)
     }
 
     unsafe fn x_networking_register_preferred_local_udp_multiplayer_port_changed(
@@ -1166,6 +1175,8 @@ static XPERSISTENT_LOCAL_STORAGE_SINGLETON: OnceLock<GlobalInterface<IXPersisten
     OnceLock::new();
 static XUSER_SINGLETON: OnceLock<GlobalInterface<IXUser>> = OnceLock::new();
 static XASYNC_SINGLETON: OnceLock<GlobalInterface<IXAsync>> = OnceLock::new();
+static XSTUB_SINGLETON: OnceLock<GlobalInterface<IXPackage>> = OnceLock::new();
+
 fn xfeature_singleton() -> &'static IXFeature {
     &XFEATURE_SINGLETON
         .get_or_init(|| GlobalInterface(XFeature.into()))
@@ -1187,9 +1198,14 @@ fn xnetworking_singleton() -> &'static IXNetworking {
 fn xpersistent_local_storage_singleton() -> &'static IXPersistentLocalStorage {
     &XPERSISTENT_LOCAL_STORAGE_SINGLETON
         .get_or_init(|| {
+            let mut path = [0u16; MAX_PATH as usize];
+            let len = unsafe { GetModuleFileNameW(None, &mut path) };
+            let path = String::from_utf16_lossy(&path[..len as usize]);
+            let path = Path::new(&path).parent();
+
             GlobalInterface(
                 XPersistentLocalStorage {
-                    tmp_path: temp_dir().to_string_lossy().into_owned(),
+                    tmp_path: path.unwrap().to_str().unwrap().to_owned()/*home_dir().unwrap().join("path").to_string_lossy().to_string()*/,
                 }
                 .into(),
             )
@@ -1239,6 +1255,18 @@ fn xasync_singleton() -> &'static IXAsync {
         .0
 }
 
+fn xstub_singleton() -> &'static IXPackage {
+    &XSTUB_SINGLETON
+        .get_or_init(|| {
+            GlobalInterface(
+                XStub {
+                }
+                .into(),
+            )
+        })
+        .0
+}
+
 fn query<T: Interface + Clone>(
     object: &T,
     interface_id: *const GUID,
@@ -1253,7 +1281,7 @@ fn query<T: Interface + Clone>(
         // println!("query: ack {:#32x}", interface_id.to_u128());
         S_OK
     } else {
-        println!("query: nack {:#32x}", interface_id.to_u128());
+        println!("query: nack {:?}", interface_id);
         unsafe {
             *out = std::ptr::null_mut();
         }
@@ -1294,8 +1322,12 @@ pub fn query_api_impl(
         }
         #[cfg(feature = "xuser")]
         CLSID_XUSER => query(xuser_singleton(), interface_id, out),
+        // #[cfg(feature = "xuser")]
+        // CLSID_XUSERDEVICE => query(xuser_singleton(), interface_id, out),
         #[cfg(feature = "xasync")]
         xasync::CLSID_XASYNC => query(xasync_singleton(), interface_id, out),
+        CLSID_XGAMESAVE => query(xstub_singleton(), interface_id, out),
+        // CLSID_XPACKAGE => query(xstub_singleton(), interface_id, out),
         _ => {
             let resp = crate::delegated_query_api_impl(runtime_class_id, interface_id, out);
             if resp.is_err() {

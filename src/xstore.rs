@@ -165,7 +165,7 @@ impl Default for XStoreGameLicense {
     fn default() -> Self {
         Self {
             sku_store_id: [0; STORE_SKU_ID_SIZE],
-            is_active: false,
+            is_active: true,
             is_trial_owned_by_this_user: false,
             is_disc_license: false,
             is_trial: false,

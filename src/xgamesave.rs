@@ -35,8 +35,7 @@ pub struct XGameSaveContainerInfo {
 }
 
 // Class _GUID_704c3f58_e629_4cc2_b197_30511b996fe2
-// IID _GUID_704c3f58_e629_4cc2_b197_30511b996fe2
-#[interface("704c3f58-e629-4cc2-b197-30511b996fe2")]
+#[interface("ab4ae4fb-6508-4950-a032-45fd4bf8c43b")]
 pub unsafe trait IXGameSave: IUnknown {
     // XGameSaveInitializeProvider
     pub unsafe fn x_game_save_initialize_provider(

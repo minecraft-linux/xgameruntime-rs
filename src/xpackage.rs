@@ -119,7 +119,7 @@ pub struct XPackageChunkSelector {
 
 // Class _GUID_af406016_e850_4aa8_a88d_2f3dcb9dac7e
 // IID _GUID_af406016_e850_4aa8_a88d_2f3dcb9dac7e
-#[interface("af406016-e850-4aa8-a88d-2f3dcb9dac7e")]
+#[interface("e2a4734b-2f4a-456d-aa8f-d065e04fb209")]
 pub unsafe trait IXPackage: IUnknown {
     // XPackageGetCurrentProcessPackageIdentifier
     pub unsafe fn x_package_get_current_process_package_identifier(
