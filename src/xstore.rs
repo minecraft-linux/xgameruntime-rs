@@ -700,3 +700,8 @@ pub unsafe trait IXStore: IUnknown {
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
 }
+
+#[interface("60B09F4E-1B85-45B1-826C-169118E230E1")]
+pub unsafe trait IXStore2 : IXStore {
+    
+}

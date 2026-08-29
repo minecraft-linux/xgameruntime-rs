@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::env::{home_dir, temp_dir};
 use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
@@ -7,6 +8,8 @@ use std::sync::{Mutex, OnceLock};
 use windows::libloaderapi::GetModuleFileNameW;
 use windows::minwindef::MAX_PATH;
 use windows_core::{BOOL, GUID, HRESULT, IUnknown, Interface, PCWSTR, implement, interface};
+use xodus::secrets;
+use xodus::tokens::TokenManager;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
@@ -20,7 +23,7 @@ const CLSID_XGAMESAVE: GUID = GUID::from_u128(0x704c3f58_e629_4cc2_b197_30511b99
 
 use crate::stub::XStub;
 use crate::threading::{IXAsync, XAsyncBlock, XTaskQueueHandle, XTaskQueueRegistrationToken};
-use crate::user::{IXUser, XUser, XUserHandle};
+use crate::user::{IXUser, XUser, XUserHandle, do_license_token};
 use crate::xasync::get_result;
 use crate::xnetworking::{
     IXNetworking, IXNetworking_Impl, XNetworkingConfigurationSetting,
@@ -29,14 +32,10 @@ use crate::xnetworking::{
 };
 use crate::xpackage::{IXPackage, XPackageMountHandle};
 use crate::xpersistedlocalstorage::{
-    IXPersistentLocalStorage, IXPersistentLocalStorage_Impl, XPersistentLocalStorageSpaceInfo,
+    IXPersistentLocalStorage_Impl, IXPersistentLocalStorage2, IXPersistentLocalStorage2_Impl, XPersistentLocalStorageSpaceInfo,
 };
 use crate::xstore::{
-    self, IXStore, IXStore_Impl, XStoreAddonLicense, XStoreCanAcquireLicenseResult,
-    XStoreConsumableResult, XStoreContextHandle, XStoreGameLicense,
-    XStoreGameLicenseChangedCallback, XStoreLicenseHandle, XStorePackageLicenseLostCallback,
-    XStorePackageUpdate, XStoreProductKind, XStoreProductQueryCallback, XStoreProductQueryHandle,
-    XStoreRateAndReviewResult,
+    self, IXStore,IXStore2, IXStore_Impl, IXStore2_Impl, XStoreAddonLicense, XStoreCanAcquireLicenseResult, XStoreConsumableResult, XStoreContextHandle, XStoreGameLicense, XStoreGameLicenseChangedCallback, XStoreLicenseHandle, XStorePackageLicenseLostCallback, XStorePackageUpdate, XStoreProductKind, XStoreProductQueryCallback, XStoreProductQueryHandle, XStoreRateAndReviewResult,
 };
 use crate::{E_FAIL, E_NOTIMPL, results::*, threading, xasync};
 
@@ -54,10 +53,11 @@ impl IXFeature_Impl for XFeature_Impl {
     }
 }
 
-#[implement(IXPersistentLocalStorage)]
+#[implement(IXPersistentLocalStorage2)]
 pub struct XPersistentLocalStorage {
     tmp_path: String,
 }
+impl IXPersistentLocalStorage2_Impl for XPersistentLocalStorage_Impl {}
 
 impl IXPersistentLocalStorage_Impl for XPersistentLocalStorage_Impl {
     unsafe fn x_persistent_local_storage_get_path_size(&self, path_size: *mut usize) -> HRESULT {
@@ -164,7 +164,7 @@ pub type XNetworkingPreferredLocalUdpMultiplayerPortChangedCallback =
 #[interface("bf2346b2-39af-4658-b5ea-44713c7e83b3")]
 pub unsafe trait IXNetworking2: IXNetworking {}
 
-#[implement(xstore::IXStore, IXStoreAlias1, IXStoreAlias2, IXStoreAlias3)]
+#[implement(xstore::IXStore, IXStoreAlias1, IXStoreAlias2, IXStoreAlias3, IXStore2)]
 pub struct XStoreObject;
 
 impl IXStore_Impl for XStoreObject_Impl {
@@ -173,6 +173,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _user: XUserHandle,
         store_context_handle: *mut XStoreContextHandle,
     ) -> HRESULT {
+        println!("x_store_create_context");
         unsafe {
             *store_context_handle = 1;
         };
@@ -184,6 +185,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_context_handle: XStoreContextHandle,
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_query_game_license_async");
         unsafe {
             xasync::run_sync(async_.cast(), move || {
                 // println!("storeContextHandle: {storeContextHandle}");
@@ -197,7 +199,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         async_: *mut XAsyncBlock,
         license: *mut XStoreGameLicense,
     ) -> HRESULT {
-        // println!("XStoreQueryGameLicenseResult");
+        println!("XStoreQueryGameLicenseResult");
         if async_.is_null() || license.is_null() {
             return E_POINTER;
         }
@@ -227,6 +229,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _max_items_to_retrieve_per_page: u32,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_query_associated_products_async");
         E_NOTIMPL
     }
 
@@ -235,6 +238,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
+        println!("x_store_query_associated_products_result");
         E_NOTIMPL
     }
 
@@ -248,6 +252,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _action_filters_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_query_products_async");
         E_NOTIMPL
     }
 
@@ -256,6 +261,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
+        println!("x_store_query_products_result");
         E_NOTIMPL
     }
 
@@ -266,6 +272,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _max_items_to_retrieve_per_page: u32,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_query_entitled_products_async");
         E_NOTIMPL
     }
 
@@ -355,6 +362,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifier: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_acquire_license_for_package_async");
         E_NOTIMPL
     }
 
@@ -363,6 +371,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _store_license_handle: *mut XStoreLicenseHandle,
     ) -> HRESULT {
+        println!("x_store_acquire_license_for_package_result");
         E_NOTIMPL
     }
 
@@ -382,6 +391,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_product_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_can_acquire_license_for_store_id_async");
         E_NOTIMPL
     }
 
@@ -390,6 +400,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _store_can_acquire_license: *mut XStoreCanAcquireLicenseResult,
     ) -> HRESULT {
+        println!("x_store_can_acquire_license_for_store_id_result");
         E_NOTIMPL
     }
 
@@ -399,6 +410,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifier: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_can_acquire_license_for_package_async");
         E_NOTIMPL
     }
 
@@ -407,6 +419,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _store_can_acquire_license: *mut XStoreCanAcquireLicenseResult,
     ) -> HRESULT {
+        println!("x_store_can_acquire_license_for_package_result");
         E_NOTIMPL
     }
 
@@ -415,6 +428,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_context_handle: XStoreContextHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_query_add_on_licenses_async");
         E_NOTIMPL
     }
 
@@ -423,6 +437,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _count: *mut u32,
     ) -> HRESULT {
+        println!("x_store_query_add_on_licenses_result_count");
         E_NOTIMPL
     }
 
@@ -432,6 +447,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _count: u32,
         _add_on_licenses: *mut XStoreAddonLicense,
     ) -> HRESULT {
+        println!("x_store_query_add_on_licenses_result");
         E_NOTIMPL
     }
 
@@ -441,6 +457,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_product_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_query_consumable_balance_remaining_async");
         E_NOTIMPL
     }
 
@@ -449,6 +466,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _consumable_result: *mut XStoreConsumableResult,
     ) -> HRESULT {
+        println!("x_store_query_consumable_balance_remaining_result");
         E_NOTIMPL
     }
 
@@ -521,29 +539,92 @@ impl IXStore_Impl for XStoreObject_Impl {
     unsafe fn x_store_query_license_token_async(
         &self,
         _store_context_handle: XStoreContextHandle,
-        _product_ids: *const *mut c_char,
-        _product_ids_count: usize,
-        _custom_developer_string: *const c_char,
-        _async_: *mut XAsyncBlock,
+        product_ids: *const *mut c_char,
+        product_ids_count: usize,
+        custom_developer_string: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        E_NOTIMPL
+        println!("x_store_query_license_token_async");
+        // E_NOTIMPL
+        let mut products = Vec::with_capacity(product_ids_count);
+        unsafe {
+            for i in 0..product_ids_count {
+                products.push(CStr::from_ptr(*product_ids.add(i)).to_str().unwrap().to_owned());
+            }
+            let dev_str = CStr::from_ptr(custom_developer_string).to_str().unwrap().to_owned();
+            xasync::run_dyn(async_, async move{
+                let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+                let token = runtime.spawn(async {
+                    let client = reqwest::Client::builder()
+                        .use_rustls_tls()
+                        .http1_only()
+                        .connection_verbose(true)
+                        .pool_max_idle_per_host(0)
+                        .connect_timeout(std::time::Duration::from_secs(5))
+                        .timeout(std::time::Duration::from_secs(10))
+                        .build()
+                        .unwrap(); //
+                    std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
+                    println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
+                    secrets::init_secrets().expect("Unable to initialize credentials");
+                    let tokens: TokenManager = TokenManager::with_keychain_and_memory();
+
+                    let token = do_license_token(&client, &tokens, products, dev_str).await.unwrap();
+                    println!("{}", token);
+
+                    token
+                }).await.unwrap();
+
+                let req_size = token.len() + 1;
+                Ok::<_, HRESULT>((
+                    move |b: *mut c_void, s: usize| {
+                        std::ptr::copy_nonoverlapping(
+                            token.as_ptr(),
+                            b as *mut u8,
+                            token.len(),
+                        );
+                        unsafe { *((b as *mut u8).add(token.len())) = 0 };
+                        return s;
+                    },
+                    req_size,
+                ))
+            } )
+        }
     }
 
     unsafe fn x_store_query_license_token_result_size(
         &self,
-        _async_: *mut XAsyncBlock,
-        _size: *mut usize,
+        async_: *mut XAsyncBlock,
+        s: *mut usize,
     ) -> HRESULT {
-        E_NOTIMPL
+        println!("x_store_query_license_token_result_size");
+        if s.is_null() {
+            return E_POINTER;
+        }
+        match unsafe { xasync::get_result_size(async_) } {
+            Err(hr) => hr,
+            Ok(size) => unsafe {
+                *s = size;
+                S_OK
+            },
+        }
     }
 
     unsafe fn x_store_query_license_token_result(
         &self,
-        _async_: *mut XAsyncBlock,
-        _size: usize,
-        _result: *mut c_char,
+        async_: *mut XAsyncBlock,
+        size: usize,
+        result: *mut c_char,
     ) -> HRESULT {
-        E_NOTIMPL
+        println!("x_store_query_license_token_result");
+        // E_NOTIMPL
+        match unsafe {
+            xasync::get_result_dyn(async_, null_mut(), size, result as * mut c_void, null_mut())
+        } {
+            Err(hr) => return hr,
+            _ => S_OK,
+        }
+
     }
 
     unsafe fn __reserved_slot_46(&self) {
@@ -725,7 +806,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _callback: Option<XStorePackageLicenseLostCallback>,
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT {
-        E_NOTIMPL
+        S_OK.into()
     }
 
     unsafe fn x_store_unregister_package_license_lost(
@@ -747,6 +828,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_acquire_license_for_durables_async");
         E_NOTIMPL
     }
 
@@ -755,6 +837,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _store_license_handle: *mut XStoreLicenseHandle,
     ) -> HRESULT {
+        println!("x_store_acquire_license_for_durables_result");
         E_NOTIMPL
     }
 
@@ -850,6 +933,7 @@ impl IXStore_Impl for XStoreObject_Impl {
     }
 }
 
+impl IXStore2_Impl for XStoreObject_Impl {}
 impl IXStoreAlias1_Impl for XStoreObject_Impl {}
 impl IXStoreAlias2_Impl for XStoreObject_Impl {}
 impl IXStoreAlias3_Impl for XStoreObject_Impl {}
@@ -1171,7 +1255,7 @@ unsafe impl<T> Sync for GlobalInterface<T> {}
 static XFEATURE_SINGLETON: OnceLock<GlobalInterface<IXFeature>> = OnceLock::new();
 static XSTORE_SINGLETON: OnceLock<GlobalInterface<IXStore>> = OnceLock::new();
 static XNETWORKING_SINGLETON: OnceLock<GlobalInterface<IXNetworking>> = OnceLock::new();
-static XPERSISTENT_LOCAL_STORAGE_SINGLETON: OnceLock<GlobalInterface<IXPersistentLocalStorage>> =
+static XPERSISTENT_LOCAL_STORAGE_SINGLETON: OnceLock<GlobalInterface<IXPersistentLocalStorage2>> =
     OnceLock::new();
 static XUSER_SINGLETON: OnceLock<GlobalInterface<IXUser>> = OnceLock::new();
 static XASYNC_SINGLETON: OnceLock<GlobalInterface<IXAsync>> = OnceLock::new();
@@ -1195,7 +1279,7 @@ fn xnetworking_singleton() -> &'static IXNetworking {
         .0
 }
 
-fn xpersistent_local_storage_singleton() -> &'static IXPersistentLocalStorage {
+fn xpersistent_local_storage_singleton() -> &'static IXPersistentLocalStorage2 {
     &XPERSISTENT_LOCAL_STORAGE_SINGLETON
         .get_or_init(|| {
             let mut path = [0u16; MAX_PATH as usize];
@@ -1222,6 +1306,7 @@ fn xuser_singleton() -> &'static IXUser {
                         .enable_all()
                         .build()
                         .unwrap(),
+                    handle: Cell::new(None),
                 }
                 .into(),
             )

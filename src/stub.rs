@@ -1,118 +1,260 @@
-use std::ffi::{c_char, c_void};
+use std::{ffi::{CStr, CString, c_char, c_void}, io::{Read, Write}, os::windows::fs::MetadataExt, path::Path, ptr::{dangling, null_mut}};
 
+use windows::{libloaderapi::GetModuleFileNameW, minwindef::MAX_PATH};
 use windows_core::{BOOL, HRESULT, implement};
-use crate::{E_NOTIMPL, threading::{XTaskQueueHandle, XTaskQueueRegistrationToken}, user::XUserHandle, xasync::XAsyncBlock, xgamesave::{IXGameSave, IXGameSave_Impl, XGameSaveBlob, XGameSaveBlobInfoCallback, XGameSaveContainerHandle, XGameSaveContainerInfoCallback, XGameSaveProviderHandle, XGameSaveUpdateHandle}, xpackage::{IXPackage_Impl, XPackageChunkAvailability, XPackageChunkSelector, XPackageInstallationMonitorHandle, XPackageInstallationProgress, XPackageInstallationProgressCallback, *}};
+use crate::{E_FAIL, E_NOTIMPL, S_OK, threading::{XTaskQueueHandle, XTaskQueueRegistrationToken}, user::XUserHandle, xasync::{self, XAsyncBlock}, xgamesave::{IXGameSave, IXGameSave_Impl, IXGameSave2, IXGameSave2_Impl, IXGameSave3, IXGameSave3_Impl, XGameSaveBlob, XGameSaveBlobInfo, XGameSaveBlobInfoCallback, XGameSaveContainerHandle, XGameSaveContainerInfo, XGameSaveContainerInfoCallback, XGameSaveProviderHandle, XGameSaveUpdateHandle}, xpackage::{IXPackage_Impl, XPackageChunkAvailability, XPackageChunkSelector, XPackageInstallationMonitorHandle, XPackageInstallationProgress, XPackageInstallationProgressCallback, *}};
 
-#[implement(IXGameSave, IXPackage)]
+#[implement(IXGameSave, IXGameSave2, IXGameSave3, IXPackage)]
 pub struct XStub;
 
+impl IXGameSave3_Impl for XStub_Impl {}
+
+struct XGameSaveUpdate {
+    container: *mut XGameSaveContainer,
+    container_display_name: String,
+}
+
+struct XGameSaveContainer {
+    container_name: String,
+    provider: *mut XGameSaveProvider,
+}
+
+struct XGameSaveProvider {
+    root: String
+}
+
+impl XGameSaveProvider {
+    fn new() -> Self {
+        let mut path = [0u16; MAX_PATH as usize];
+        let len = unsafe { GetModuleFileNameW(None, &mut path) };
+        let path = String::from_utf16_lossy(&path[..len as usize]);
+        let path = Path::new(&path).parent();
+
+        Self { root: path.unwrap().join("savedata").to_str().unwrap().to_owned() }
+    }
+}
+
 impl IXGameSave_Impl for XStub_Impl {
-    unsafe fn x_game_save_initialize_provider(&self,_requesting_user: XUserHandle,_configuration_id: *const c_char,_sync_on_demand: BOOL,_provider: *mut XGameSaveProviderHandle) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_initialize_provider(&self,_requesting_user: XUserHandle,_configuration_id: *const c_char,_sync_on_demand: BOOL, provider: *mut XGameSaveProviderHandle) -> HRESULT {
+        // todo!()
+        * provider = Box::into_raw(Box::new(XGameSaveProvider::new())) as XGameSaveProviderHandle;
+        S_OK
     }
 
-    unsafe fn x_game_save_initialize_provider_async(&self,_requesting_user: XUserHandle,_configuration_id: *const c_char,_sync_on_demand: BOOL,_async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_initialize_provider_async(&self, _requesting_user: XUserHandle,configuration_id: *const c_char, sync_on_demand: BOOL, async_: *mut XAsyncBlock) -> HRESULT {
+        let b : bool = sync_on_demand.into();
+        println!("x_game_save_initialize_provider_async {} {b}", unsafe { CStr::from_ptr(configuration_id) }.to_string_lossy());
+        unsafe { xasync::run(async_, async {
+            Ok(Box::into_raw(Box::new(XGameSaveProvider::new())))
+        }) }
     }
 
-    unsafe fn x_game_save_initialize_provider_result(&self,_async_: *mut XAsyncBlock,_provider: *mut XGameSaveProviderHandle) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_initialize_provider_result(&self, async_: *mut XAsyncBlock, provider: *mut XGameSaveProviderHandle) -> HRESULT {
+        unsafe { xasync::get_result(async_, null_mut(), provider).map_or_else(|e|e, |_| S_OK) }
     }
 
     unsafe fn x_game_save_close_provider(&self,_provider: XGameSaveProviderHandle) -> () {
-        todo!()
     }
 
     unsafe fn x_game_save_get_remaining_quota(&self,_provider: XGameSaveProviderHandle,_remaining_quota: *mut i64) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_game_save_get_remaining_quota_async(&self,_provider: XGameSaveProviderHandle,_async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_get_remaining_quota_async(&self,_provider: XGameSaveProviderHandle, async_: *mut XAsyncBlock) -> HRESULT {
+        unsafe { xasync::run(async_, async {
+            Ok(16 * 1024 * 1024 as i64)
+        }) }
     }
 
-    unsafe fn x_game_save_get_remaining_quota_result(&self,_async_: *mut XAsyncBlock,_remaining_quota: *mut i64) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_get_remaining_quota_result(&self,async_: *mut XAsyncBlock,remaining_quota: *mut i64) -> HRESULT {
+        unsafe { xasync::get_result(async_, null_mut(), remaining_quota).map_or_else(|e|e, |_| S_OK) }
     }
 
-    unsafe fn x_game_save_delete_container(&self,_provider: XGameSaveProviderHandle,_container_name: *const c_char) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_delete_container(&self,_provider: XGameSaveProviderHandle, container_name: *const c_char) -> HRESULT {
+        println!("x_game_save_delete_container {}", CStr::from_ptr(container_name).to_string_lossy());
+        S_OK
     }
 
-    unsafe fn x_game_save_delete_container_async(&self,_provider: XGameSaveProviderHandle,_container_name: *const c_char,_async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_delete_container_async(&self,_provider: XGameSaveProviderHandle, container_name: *const c_char,_async_: *mut XAsyncBlock) -> HRESULT {
+        println!("x_game_save_delete_container {}", CStr::from_ptr(container_name).to_string_lossy());
+        E_FAIL
     }
 
     unsafe fn x_game_save_delete_container_result(&self,_async_: *mut XAsyncBlock) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_game_save_get_container_info(&self,_provider: XGameSaveProviderHandle,_container_name: *const c_char,_context: *mut c_void,_callback: Option<XGameSaveContainerInfoCallback>) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_get_container_info(&self,_provider: XGameSaveProviderHandle, container_name: *const c_char, context: *mut c_void, callback: Option<XGameSaveContainerInfoCallback>) -> HRESULT {
+        println!("x_game_save_get_container_info {}", CStr::from_ptr(container_name).to_string_lossy());
+        let info = XGameSaveContainerInfo {
+            name: container_name.cast(),
+            blob_count: 1,
+            display_name: container_name.cast(),
+            total_size: 0,
+            last_modified_time: 0,
+            needs_sync: false,
+        };
+        callback.unwrap()(&info, context);
+        S_OK
     }
 
     unsafe fn x_game_save_enumerate_container_info(&self,_provider: XGameSaveProviderHandle,_context: *mut c_void,_callback: Option<XGameSaveContainerInfoCallback>) -> HRESULT {
-        todo!()
+        println!("x_game_save_enumerate_container_info");
+        S_OK
     }
 
     unsafe fn x_game_save_enumerate_container_info_by_name(&self,_provider: XGameSaveProviderHandle,_container_name_prefix: *const c_char,_context: *mut c_void,_callback: Option<XGameSaveContainerInfoCallback>) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_game_save_create_container(&self,_provider: XGameSaveProviderHandle,_container_name: *const c_char,_container_context: *mut XGameSaveContainerHandle) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_create_container(&self, provider: XGameSaveProviderHandle, container_name: *const c_char, container_context: *mut XGameSaveContainerHandle) -> HRESULT {
+        let provider_ = unsafe {
+            &*(provider as *mut XGameSaveProvider)
+        };
+        let context = Box::new(XGameSaveContainer{ provider: provider as *mut XGameSaveProvider, container_name: unsafe { CStr::from_ptr(container_name).to_string_lossy().to_string() } } );
+        println!("x_game_save_create_container {} {}", provider_.root, context.container_name);
+        unsafe { *container_context = Box::into_raw(context) as XGameSaveContainerHandle };
+        S_OK
     }
 
-    unsafe fn x_game_save_close_container(&self,_context: XGameSaveContainerHandle) -> () {
-        todo!()
+    unsafe fn x_game_save_close_container(&self, context: XGameSaveContainerHandle) -> () {
+        let context = unsafe { Box::<XGameSaveContainer>::from_raw(context as *mut XGameSaveContainer) };
+        println!("x_game_save_close_container {}", context.container_name)
     }
 
-    unsafe fn x_game_save_enumerate_blob_info(&self,_container: XGameSaveContainerHandle,_context: *mut c_void,_callback: Option<XGameSaveBlobInfoCallback>) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_enumerate_blob_info(&self, container: XGameSaveContainerHandle, context: *mut c_void, callback: Option<XGameSaveBlobInfoCallback>) -> HRESULT {
+        let container = unsafe { &*(container as *mut XGameSaveContainer) };
+        let provider = unsafe { &*container.provider };
+        println!("x_game_save_enumerate_blob_info {}", container.container_name);
+        let file = Path::new(&provider.root).join(&container.container_name).to_string_lossy().to_string();
+        println!("{}", file);
+        std::fs::create_dir_all(&file).unwrap();
+        let folder = std::fs::read_dir(file).unwrap();
+        for f in folder {
+            let f = f.unwrap();
+            let c_string = CString::new(f.file_name().to_string_lossy().to_string()).unwrap();
+            let info = XGameSaveBlobInfo {
+                name: c_string.as_ptr(),
+                size: f.metadata().unwrap().file_size() as u32,
+            };
+            println!("Entry {} {}", f.file_name().to_string_lossy(), info.size);
+            callback.unwrap()(&info, context);
+        }
+        S_OK
     }
 
-    unsafe fn x_game_save_enumerate_blob_info_by_name(&self,_container: XGameSaveContainerHandle,_blob_name_prefix: *const c_char,_context: *mut c_void,_callback: Option<XGameSaveBlobInfoCallback>) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_enumerate_blob_info_by_name(&self, container: XGameSaveContainerHandle, blob_name_prefix: *const c_char,_context: *mut c_void,_callback: Option<XGameSaveBlobInfoCallback>) -> HRESULT {
+        let container = unsafe { &*(container as *mut XGameSaveContainer) };
+        println!("x_game_save_enumerate_blob_info_by_name {} {}", container.container_name, unsafe {
+            CStr::from_ptr(blob_name_prefix).to_string_lossy()
+        });
+        S_OK
     }
 
-    unsafe fn x_game_save_read_blob_data(&self,_container: XGameSaveContainerHandle,_blob_names: *const *mut c_char,_count_of_blobs: *mut u32,_blobs_size: usize,_blob_data: *mut XGameSaveBlob) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_read_blob_data(&self, container: XGameSaveContainerHandle, blob_names: *const *mut c_char, count_of_blobs: *mut u32, blobs_size: usize, blob_data: *mut XGameSaveBlob) -> HRESULT {
+        let container = unsafe { &*(container as *mut XGameSaveContainer) };
+        let provider = unsafe { &*container.provider };
+        let file = Path::new(&provider.root).join(&container.container_name);
+        println!("x_game_save_read_blob_data {}", container.container_name);
+        let mut data : *mut u8 = blob_data.add(unsafe { *count_of_blobs } as usize).cast();
+        for i in 0..unsafe { *count_of_blobs } {
+            println!("x_game_save_read_blob_data {} {}", container.container_name, unsafe { CStr::from_ptr(*blob_names.add(i as usize)) }.to_string_lossy()); 
+            let info = &mut *blob_data.add(i as usize);
+            let name = CStr::from_ptr(*blob_names.add(i as usize));
+            let bname = name.to_bytes_with_nul();
+            // advance data payload
+            info.info.name = data as *mut i8;
+            // copy c string
+            std::slice::from_raw_parts_mut(data, bname.len()).iter_mut().zip(bname).for_each(|(a, b)| *a = *b);
+            data = data.add(bname.len());
+
+            let mut f = std::fs::File::open(file.join(name.to_string_lossy().to_string())).unwrap();
+            info.info.size = f.metadata().unwrap().len() as u32;
+
+            f.read_exact(std::slice::from_raw_parts_mut(data, info.info.size as usize)).unwrap();
+            info.data = data;
+
+            data = data.add(info.info.size as usize);
+
+            // info.info.name
+
+            // size->size += strlen(info->name) + 1; // length + null 
+            // size->size += info->size + sizeof(XGameSaveBlob);   
+        }
+        S_OK
     }
 
-    unsafe fn x_game_save_read_blob_data_async(&self,_container: XGameSaveContainerHandle,_blob_names: *const *mut c_char,_count_of_blobs: u32,_async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_read_blob_data_async(&self,container: XGameSaveContainerHandle, blob_names: *const *mut c_char, count_of_blobs: u32, async_: *mut XAsyncBlock) -> HRESULT {
+        let container = unsafe { &*(container as *mut XGameSaveContainer) };
+        println!("x_game_save_read_blob_data_async {}", container.container_name);
+
+        for i in 0..unsafe { count_of_blobs } {
+            println!("x_game_save_read_blob_data_async {} {}", container.container_name, unsafe { CStr::from_ptr(*blob_names.add(i as usize)) }.to_string_lossy());   
+        }
+        unsafe { xasync::run_dyn(async_, async move {
+            Ok((|buffer, size| {
+
+                0
+            }, 0))
+        }) }
     }
 
-    unsafe fn x_game_save_read_blob_data_result(&self,_async_: *mut XAsyncBlock,_blobs_size: usize,_blob_data: *mut XGameSaveBlob,_count_of_blobs: *mut u32) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_read_blob_data_result(&self,async_: *mut XAsyncBlock, blobs_size: usize, blob_data: *mut XGameSaveBlob, count_of_blobs: *mut u32) -> HRESULT {
+        let mut used_size = 0;
+        unsafe { xasync::get_result_dyn(async_, null_mut(), blobs_size, blob_data as *mut c_void, &mut used_size) }.unwrap();
+        unsafe { *count_of_blobs = used_size as u32 };
+        S_OK
     }
 
-    unsafe fn x_game_save_create_update(&self,_container: XGameSaveContainerHandle,_container_display_name: *const c_char,_update_context: *mut XGameSaveUpdateHandle) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_create_update(&self, container: XGameSaveContainerHandle, container_display_name: *const c_char, update_context: *mut XGameSaveUpdateHandle) -> HRESULT {
+        let raw = container as *mut XGameSaveContainer;
+        let container = unsafe { &*(raw) };
+        let update = Box::new(XGameSaveUpdate{ container: raw, container_display_name: CStr::from_ptr(container_display_name).to_string_lossy().to_string() } );
+        println!("x_game_save_create_update {} {}", container.container_name, update.container_display_name);
+        unsafe { *update_context = Box::into_raw(update) as XGameSaveUpdateHandle };
+        S_OK
     }
 
-    unsafe fn x_game_save_close_update(&self,_context: XGameSaveUpdateHandle) -> () {
-        todo!()
+    unsafe fn x_game_save_close_update(&self, context: XGameSaveUpdateHandle) -> () {
+        unsafe { Box::<XGameSaveUpdate>::from_raw(context as *mut XGameSaveUpdate) };
     }
 
-    unsafe fn x_game_save_submit_blob_write(&self,_update_context: XGameSaveUpdateHandle,_blob_name: *const c_char,_data: *const u8,_byte_count: usize) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_submit_blob_write(&self, update_context: XGameSaveUpdateHandle, blob_name: *const c_char, data: *const u8, byte_count: usize) -> HRESULT {
+        let update_context = unsafe { &*(update_context as *mut XGameSaveUpdate) };
+        println!("x_game_save_submit_blob_write {} {}", update_context.container_display_name, CStr::from_ptr(blob_name).to_string_lossy());
+        let container = unsafe { &*update_context.container };
+        let provider = unsafe { &*container.provider };
+        let file = Path::new(&provider.root).join(&container.container_name).join(CStr::from_ptr(blob_name).to_string_lossy().to_string());
+        println!("{}", file.to_string_lossy());
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let mut f = std::fs::File::create(file).unwrap();
+        f.write_all(std::slice::from_raw_parts(data, byte_count)).unwrap();
+        f.sync_all().unwrap();
+        S_OK
     }
 
-    unsafe fn x_game_save_submit_blob_delete(&self,_update_context: XGameSaveUpdateHandle,_blob_name: *const c_char) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_submit_blob_delete(&self, update_context: XGameSaveUpdateHandle, blob_name: *const c_char) -> HRESULT {
+        let update_context = unsafe { &*(update_context as *mut XGameSaveUpdate) };
+        println!("x_game_save_submit_blob_delete {} {}", update_context.container_display_name, CStr::from_ptr(blob_name).to_string_lossy());
+        S_OK
     }
 
-    unsafe fn x_game_save_submit_update(&self,_update_context: XGameSaveUpdateHandle) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_submit_update(&self, update_context: XGameSaveUpdateHandle) -> HRESULT {
+        let update_context = unsafe { &*(update_context as *mut XGameSaveUpdate) };
+        println!("x_game_save_submit_update_async {}", update_context.container_display_name);
+        S_OK
     }
 
-    unsafe fn x_game_save_submit_update_async(&self,_update_context: XGameSaveUpdateHandle,_async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_submit_update_async(&self, update_context: XGameSaveUpdateHandle, async_: *mut XAsyncBlock) -> HRESULT {
+        unsafe { xasync::run(async_, async move {
+            let update_context = unsafe { &*(update_context as *mut XGameSaveUpdate) };
+            println!("x_game_save_submit_update_async {}", update_context.container_display_name);
+            Ok(())
+        }) }
     }
 
     unsafe fn x_game_save_submit_update_result(&self,_async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+        unsafe { xasync::get_status(_async_, false).map_or_else(|e|e, |_| S_OK) }
     }
 
     unsafe fn x_game_save_files_get_folder_with_ui_async(&self,_requesting_user: XUserHandle,_configuration_id: *const char,_async_: *mut XAsyncBlock) -> HRESULT {
@@ -196,6 +338,10 @@ impl IXGameSave_Impl for XStub_Impl {
     }
 }
 
+impl IXGameSave2_Impl for XStub_Impl {
+    
+}
+
 impl IXPackage_Impl for XStub_Impl {
     unsafe fn x_package_get_current_process_package_identifier(&self,_buffer_size: usize,_buffer: *mut c_char) -> HRESULT {
         // todo!()
@@ -211,7 +357,7 @@ impl IXPackage_Impl for XStub_Impl {
     }
 
     unsafe fn x_package_close_installation_monitor_handle(&self,_installation_monitor: XPackageInstallationMonitorHandle) -> () {
-        todo!()
+        // todo!()
     }
 
     unsafe fn x_package_get_installation_progress(&self,_installation_monitor: XPackageInstallationMonitorHandle,_progress: *mut XPackageInstallationProgress) -> () {
@@ -227,7 +373,7 @@ impl IXPackage_Impl for XStub_Impl {
     }
 
     unsafe fn x_package_unregister_installation_progress_changed(&self,_installation_monitor: XPackageInstallationMonitorHandle,_token: XTaskQueueRegistrationToken,_wait: BOOL) -> BOOL {
-        todo!()
+        true.into()
     }
 
     unsafe fn x_package_get_user_locale(&self,_locale_size: usize,_locale: *mut c_char) -> HRESULT {
@@ -239,7 +385,7 @@ impl IXPackage_Impl for XStub_Impl {
     }
 
     unsafe fn x_package_enumerate_chunk_availability(&self,_package_identifier: *const c_char,_type_: XPackageChunkSelectorType,_context: *mut c_void,_callback: Option<XPackageChunkAvailabilityCallback>) -> HRESULT {
-        todo!()
+        S_OK
     }
 
     unsafe fn x_package_change_chunk_install_order(&self,_package_identifier: *const c_char,_selector_count: u32,_selectors: *mut XPackageChunkSelector) -> HRESULT {
@@ -344,7 +490,8 @@ impl IXPackage_Impl for XStub_Impl {
 
     unsafe fn x_package_enumerate_packages(&self,_kind: XPackageKind,_scope: XPackageEnumerationScope,_context: *mut c_void,_callback: Option<XPackageEnumerationCallback>) -> HRESULT {
         // todo!()
-        E_NOTIMPL
+        println!("x_package_enumerate_packages");
+        S_OK
     }
 
     unsafe fn x_package_register_package_installed(&self,_queue: XTaskQueueHandle,_context: *mut c_void,_callback: Option<XPackageInstalledCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {

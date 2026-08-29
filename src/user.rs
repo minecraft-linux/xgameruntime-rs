@@ -10,7 +10,11 @@ use crate::{
 };
 #[cfg(feature = "xuser")]
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use xodus::models::licensing::LicenseUserIdentity;
+#[cfg(feature = "xuser")]
+use xodus::models::soap::BodyContent;
+use std::cell::Cell;
 use std::ptr::{self, null_mut};
 #[cfg(feature = "xuser")]
 use std::ptr::slice_from_raw_parts_mut;
@@ -276,7 +280,7 @@ pub unsafe trait IXUser: IUnknown {
         user: XUserHandle,
         options: XUserPrivilegeOptions,
         privilege: XUserPrivilege,
-        has_privilege: *mut bool,
+        has_privilege: *mut u8,
         reason: *mut XUserPrivilegeDenyReason,
     ) -> HRESULT;
     pub unsafe fn x_user_resolve_privilege_with_ui_async(
@@ -426,6 +430,9 @@ pub unsafe trait IXUser2: IUnknown {
 #[interface("26f3c674-a2fe-44fa-b6c4-a323bc94ff53")]
 pub unsafe trait IXUser3: IXUser {}
 
+#[interface("079415e3-6727-437f-8e9d-8f8f9b2439f7")]
+pub unsafe trait IXUser4: IXUser {}
+
 // XUserDefaultAudioEndpointUtf16ChangedCallback
 pub type XUserDefaultAudioEndpointUtf16ChangedCallback = unsafe extern "system" fn(_context: *mut c_void, _user: XUserLocalId, _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind, _endpoint_id_utf16: *const u16) -> ();
 
@@ -451,14 +458,15 @@ unsafe fn x_user_find_controller_for_user_with_ui_async(self: &Self, _user: XUse
 unsafe fn x_user_find_controller_for_user_with_ui_result(self: &Self, _async_: *mut XAsyncBlock, _device_id: *mut c_void) -> HRESULT;
 }
 
-#[implement(IXUser, IXUser2, IXUser3, IXUserDevice)]
+#[implement(IXUser, IXUser2, IXUser3, IXUser4, IXUserDevice)]
 pub struct XUser {
     pub runtime: tokio::runtime::Runtime,
+    pub handle: Cell<Option<IXUserHandle>>,
 }
 
 #[cfg(feature = "xuser")]
 #[interface("01acd177-91f9-4763-a38e-ccbb55ce32e0")]
-unsafe trait IXUserHandle: IUnknown {
+pub unsafe trait IXUserHandle: IUnknown {
     unsafe fn get_xuid(&self) -> u64;
     unsafe fn get_local_id(&self) -> XUserLocalId;
     unsafe fn get_auth(&self) -> *const Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>;
@@ -467,7 +475,7 @@ unsafe trait IXUserHandle: IUnknown {
 
 #[cfg(not(feature = "xuser"))]
 #[interface("01acd177-91f9-4763-a38e-ccbb55ce32e0")]
-unsafe trait IXUserHandle: IUnknown {
+pub unsafe trait IXUserHandle: IUnknown {
     unsafe fn get_xuid(&self) -> u64;
     unsafe fn get_local_id(&self) -> XUserLocalId;
     unsafe fn get_runtime(&self) -> *const tokio::runtime::Handle;
@@ -534,6 +542,7 @@ impl IXUser2_Impl for XUser_Impl {
 }
 
 impl IXUser3_Impl for XUser_Impl {}
+impl IXUser4_Impl for XUser_Impl {}
 
 impl IXUser_Impl for XUser_Impl {
     unsafe fn x_user_duplicate_handle(
@@ -615,7 +624,7 @@ impl IXUser_Impl for XUser_Impl {
                                 std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
                                 println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
                                 secrets::init_secrets().expect("Unable to initialize credentials");
-                                let tokens = TokenManager::with_keychain_and_memory();
+                                let tokens: TokenManager = TokenManager::with_keychain_and_memory();
 
                                 let mut path = [0u16; MAX_PATH as usize];
                                 let len = GetModuleFileNameW(None, &mut path);
@@ -642,6 +651,8 @@ impl IXUser_Impl for XUser_Impl {
                                     panic!("No gdk game?");
                                 }
                                 let config = config.unwrap();
+
+                                // do_license_token(&client, &tokens).await.unwrap();
 
                                 let (c, resp, device) =
                                     do_sisu(&client, &tokens, &config.msa_app_id, i64::from_str_radix(&config.title_id, 16).unwrap(), def_policy.clone())
@@ -718,6 +729,11 @@ impl IXUser_Impl for XUser_Impl {
             .map(|_| S_OK)
             .unwrap_or_else(|e| e);
         println!("x_user_add_result {}", err);
+        if err.is_ok() {
+            self.handle.replace(unsafe {
+                Some(IXUserHandle::from_raw_borrowed(&*new_user).cloned().unwrap())
+            });
+        }
         err
     }
 
@@ -739,11 +755,12 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_find_user_by_local_id(
         &self,
-        _user_local_id: XUserLocalId,
-        _handle: *mut XUserHandle,
+        user_local_id: XUserLocalId,
+        handle: *mut XUserHandle,
     ) -> HRESULT {
-        println!("x_user_find_user_by_local_id");
-        E_FAIL
+        println!("x_user_find_user_by_local_id {}", user_local_id.value);
+        *handle = (*self.handle.as_ptr()).clone().unwrap().into_raw();
+        S_OK
     }
 
     unsafe fn x_user_get_id(&self, user: XUserHandle, user_id: *mut u64) -> HRESULT {
@@ -760,9 +777,10 @@ impl IXUser_Impl for XUser_Impl {
         err
     }
 
-    unsafe fn x_user_find_user_by_id(&self, _user_id: u64, _handle: *mut XUserHandle) -> HRESULT {
-        println!("x_user_find_user_by_id");
-        E_FAIL
+    unsafe fn x_user_find_user_by_id(&self, user_id: u64, handle: *mut XUserHandle) -> HRESULT {
+        println!("x_user_find_user_by_id {}", user_id);
+        *handle = (*self.handle.as_ptr()).clone().unwrap().into_raw();
+        S_OK
     }
 
     unsafe fn x_user_get_is_guest(&self, _user: XUserHandle, is_guest: *mut bool) -> HRESULT {
@@ -826,15 +844,16 @@ impl IXUser_Impl for XUser_Impl {
         &self,
         _user: XUserHandle,
         _options: XUserPrivilegeOptions,
-        _privilege: XUserPrivilege,
-        has_privilege: *mut bool,
+        privilege: XUserPrivilege,
+        has_privilege: *mut u8,
         reason: *mut XUserPrivilegeDenyReason,
     ) -> HRESULT {
+        println!("x_user_check_privilege {}", privilege as u64);
         unsafe {
-            *has_privilege = true;
+            *has_privilege = 1;
         };
         unsafe {
-            *reason = XUserPrivilegeDenyReason::None;
+            *reason = XUserPrivilegeDenyReason::Unknown;
         };
         S_OK
     }
@@ -1388,4 +1407,183 @@ async fn get_xsts_token(
         .await
         .unwrap();
     token
+}
+
+#[cfg(feature = "xuser")]
+pub async fn do_license_token(
+    client: &Client,
+    manager: &TokenManager,
+    products: Vec<String>,
+    custom_developer_string: String,
+) -> Result<
+    String,
+    Box<dyn std::error::Error>,
+> {
+    let Token::Legacy(token) = manager.get_user_sts_token()? else {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::AddrNotAvailable,
+            "error",
+        )));
+    };
+    let Token::Legacy(device_token) = manager.get_device_sts_token()? else {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "error",
+        )));
+    };
+    let device_token_resp: xodus::models::soap::RequestSecurityTokenResponse =
+        xodus::api::live::exchange_device_token(
+            client,
+            device_token.clone(),
+            "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+            "www.microsoft.com".to_owned(),
+            Some(xodus::models::soap::PolicyReference::mbi_ssl()),
+        )
+        .await?;
+
+    let Token::Compact(ms_device_token) = device_token_resp.into() else {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::ArgumentListTooLong,
+            "error",
+        )));
+    };
+    let user = manager.get_user().unwrap();
+
+    let user_token = xodus::api::live::exchange_user_token(
+        client,
+        token,
+        user.username,
+        device_token,
+        None,
+        Some("Silent".to_string()),
+        "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+        &[(
+            "www.microsoft.com".to_owned(),
+            Some(xodus::models::soap::PolicyReference::mbi_ssl()),
+        )],
+    )
+    .await?;
+
+    let user_token: Token = match user_token {
+        ExchangeUserTokenOutcome::Fault(_) => {
+            todo!()
+        }
+        ExchangeUserTokenOutcome::Issued(
+            BodyContent::RequestSecurityTokenResponseCollection(mut collection),
+        ) => {
+            let token = collection.security_tokens.remove(0);
+            token.into()
+        }
+        ExchangeUserTokenOutcome::Issued(BodyContent::RequestSecurityTokenResponse(
+            token,
+        )) => (*token).into(),
+        _ => unreachable!("Only responses are handled"),
+    };
+    let Token::Compact(user_token) = user_token else {
+        todo!();
+    };
+
+    let token = get_license_token(client, ms_device_token, user_token, user.puid, products, custom_developer_string).await?;
+
+    Ok(token)
+}
+
+// {"parentProductId":"9PGW18NPBZV5","enforceSellableBy":true,"relatedProductIds":"[\"9NZ12RV7B7R3\",\"9P0WDBKKS7MK\",\"9MV1BF8J0TTX\",\"9P427LFN9KCD\",\"9NBLGGH2JHXJ\",\"9MV69L4JSD31\",\"9P1XF6ZQGV3R\",\"9P5JQ1XPRGN6\",\"9N98Z825TNFW\",\"9P4BFQNXLMDR\",\"9NGG3CWJMC7V\",\"9PBP71DDVCT9\",\"9PB1LJZFN9XK\",\"9P2VR3K66TJX\",\"9P4HCS6S5C2K\",\"9N5KX36SQJ9Q\",\"9P8MK4NC0LJB\",\"9P5KH0238TPW\",\"9P45BPZCP004\",\"9PKCNQ57B2JG\",\"9N6184JJ7NSG\"]","customDeveloperString":"c0c83208-ea4f-4c64-b4f4-9667120cf9f2","beneficiaries":[{"identityValue":"t=<token>","localTicketReference":"<reference>","identityType":"Msa"}]}
+
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseTokenRequest {
+    pub parent_product_id: String,
+    pub enforce_sellable_by: bool,
+    pub related_product_ids: Vec<String>,
+    pub custom_developer_string: String,
+    pub beneficiaries: Vec<LicenseUserIdentity>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseTokenResponse {
+    pub license_token: String,
+}
+
+pub async fn get_license_token(
+    client: &reqwest::Client,
+    device_ms_token: String,
+    user_ms_token: String,
+    ticket_reference: String,
+    products: Vec<String>,
+    custom_developer_string: String,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let response = client
+        .post("https://licensing.mp.microsoft.com/v8.0/licenseToken")
+        .header("from", "XboxLicenseManager")
+        .header("Authorization", device_ms_token)
+        .header("user-agent", "XboxLm-PC/Microsoft.GamingServices_32.107.4002.0_x64__8wekyb3d8bbwe")
+        .json(&LicenseTokenRequest {
+            parent_product_id: "9P8MK4NC0LJB".to_owned(),
+            enforce_sellable_by: true,
+            related_product_ids: products,
+            custom_developer_string: custom_developer_string,
+            beneficiaries: vec![LicenseUserIdentity {
+                identity_type: "Msa".to_string(),
+                identity_value: user_ms_token,
+                local_ticket_reference: ticket_reference,
+            }],
+        })
+        .send()
+        .await?;
+
+    // println!("status {}", response.status());
+    // let resp = response.text().await.unwrap();
+    // println!("{}", resp);
+    let token_resp : LicenseTokenResponse = response.json().await?;
+
+    Ok(token_resp.license_token)
+}
+
+#[tokio::test]
+async fn test() {
+    unsafe {
+        let client = reqwest::Client::builder()
+            .use_rustls_tls()
+            .http1_only()
+            .connection_verbose(true)
+            .pool_max_idle_per_host(0)
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap(); //
+        std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
+        println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
+        secrets::init_secrets().expect("Unable to initialize credentials");
+        let tokens: TokenManager = TokenManager::with_keychain_and_memory();
+
+        // let r = client
+        //     .get("https://title.mgt.xboxlive.com/titles/default/endpoints?type=1")
+        //     .send()
+        //     .await
+        //     .unwrap()
+        //     .json::<xal_new::response::TitleEndpointsResponse>()
+        //     .await
+        //     .unwrap();
+        // println!("{:?}", r);
+
+        // let def_policy = SignaturePolicyCache::new(r);
+
+
+        // let (_, resp, _) = do_sisu(&client, &tokens, "0000000040159362", 896928775, def_policy)
+        //     .await
+        //     .expect("ok");
+
+        // println!("title {}", resp.title_token.token);
+        // println!("user {}", resp.user_token.token);
+        // println!("webpage {}", resp.web_page);
+
+
+        let token = do_license_token(&client, &tokens, vec!["9NZ12RV7B7R3".to_owned(), "9P0WDBKKS7MK".to_owned()], "0A5E1450-0D5F-40E3-A8BC-543707684BF4".to_owned()).await.unwrap();
+        println!("{}", token);
+        // do_sisu(&client, &tokens, ).await.unwrap();
+    }
+
 }
