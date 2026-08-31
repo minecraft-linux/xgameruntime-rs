@@ -414,13 +414,14 @@ impl IXPackage_Impl for XStub_Impl {
 
     unsafe fn x_package_is_packaged_process(&self,) -> BOOL {
         println!("x_package_is_packaged_process");
-        false.into()
-        // true.into()
+        // false.into()
+        true.into()
     }
 
-    unsafe fn x_package_create_installation_monitor(&self, package_identifier: *const c_char,_selector_count: u32,_selectors: *mut XPackageChunkSelector,_minimum_update_interval_ms: u32,_queue: XTaskQueueHandle,_installation_monitor: *mut XPackageInstallationMonitorHandle) -> HRESULT {
+    unsafe fn x_package_create_installation_monitor(&self, package_identifier: *const c_char, selector_count: u32, selectors: *mut XPackageChunkSelector,_minimum_update_interval_ms: u32,_queue: XTaskQueueHandle, installation_monitor: *mut XPackageInstallationMonitorHandle) -> HRESULT {
         // todo!()
         println!("x_package_create_installation_monitor: {}", CStr::from_ptr(package_identifier).to_string_lossy());
+        *installation_monitor = 1;
         S_OK
     }
 
@@ -429,8 +430,9 @@ impl IXPackage_Impl for XStub_Impl {
         // todo!()
     }
 
-    unsafe fn x_package_get_installation_progress(&self,_installation_monitor: XPackageInstallationMonitorHandle,_progress: *mut XPackageInstallationProgress) -> () {
+    unsafe fn x_package_get_installation_progress(&self,_installation_monitor: XPackageInstallationMonitorHandle, progress: *mut XPackageInstallationProgress) -> () {
         println!("x_package_get_installation_progress");
+        *progress = XPackageInstallationProgress { total_bytes: 1000, installed_bytes: 1000, launch_bytes: 1000, launchable: true, completed: true };
     }
 
     unsafe fn x_package_update_installation_monitor(&self,_installation_monitor: XPackageInstallationMonitorHandle) -> BOOL {
@@ -439,8 +441,9 @@ impl IXPackage_Impl for XStub_Impl {
         true.into()
     }
 
-    unsafe fn x_package_register_installation_progress_changed(&self,_installation_monitor: XPackageInstallationMonitorHandle,_context: *mut c_void,_callback: Option<XPackageInstallationProgressCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {
+    unsafe fn x_package_register_installation_progress_changed(&self, installation_monitor: XPackageInstallationMonitorHandle, context: *mut c_void, callback: Option<XPackageInstallationProgressCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {
         println!("x_package_register_installation_progress_changed");
+        callback.unwrap()(context, installation_monitor);
         S_OK
     }
 
@@ -453,11 +456,14 @@ impl IXPackage_Impl for XStub_Impl {
         todo!()
     }
 
-    unsafe fn x_package_find_chunk_availability(&self,_package_identifier: *const c_char,_selector_count: u32,_selectors: *mut XPackageChunkSelector,_availability: *mut XPackageChunkAvailability) -> HRESULT {
-        todo!()
+    unsafe fn x_package_find_chunk_availability(&self,_package_identifier: *const c_char, selector_count: u32, selectors: *mut XPackageChunkSelector, availability: *mut XPackageChunkAvailability) -> HRESULT {
+        println!("x_package_find_chunk_availability {}", if selector_count == 1 && (&*selectors).type_ == XPackageChunkSelectorType::Chunk { (&*selectors).data.chunk_id.to_string() } else { CStr::from_ptr((&*selectors).data.tag).to_string_lossy().to_string() });
+        *availability = XPackageChunkAvailability::Ready;
+        S_OK
     }
 
     unsafe fn x_package_enumerate_chunk_availability(&self,_package_identifier: *const c_char,_type_: XPackageChunkSelectorType,_context: *mut c_void,_callback: Option<XPackageChunkAvailabilityCallback>) -> HRESULT {
+        println!("x_package_enumerate_chunk_availability");
         S_OK
     }
 
@@ -526,17 +532,17 @@ impl IXPackage_Impl for XStub_Impl {
         println!("x_package_enumerate_packages2");
         let details = XPackageDetails {
             package_identifier: c"Halo4".as_ptr(),
-            version: 0,
+            version: 100,
             kind: XPackageKind::Content,
             display_name: c"Halo4".as_ptr(),
             description: c"Halo4".as_ptr(),
             publisher: c"MS".as_ptr(),
-            store_id: c"9nn6vs9spw2r".as_ptr(),
+            store_id: c"9NN6VS9SPW2R".as_ptr(),
             installing: false,
             index: 0,
             count: 1,
             age_restricted: false,
-            title_i_d: c"9nn6vs9spw2r".as_ptr(),
+            title_i_d: c"9NN6VS9SPW2R".as_ptr(),
         };
         unsafe { callback.unwrap()(context, &details) };
         S_OK

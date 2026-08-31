@@ -15,6 +15,7 @@ pub enum XPackageChunkAvailability {
     Unavailable,
 }
 #[repr(u32)]
+#[derive(PartialEq)]
 pub enum XPackageChunkSelectorType {
     Language,
     Tag,
@@ -105,16 +106,16 @@ pub type XPackageChunkAvailabilityCallback = unsafe extern "system" fn(
 
 #[repr(C)]
 pub union XPackageChunkSelectorData {
-    language: *const c_char,
-    tag: *const c_char,
-    feature: *const c_char,
-    chunk_id: u32,
+    pub language: *const c_char,
+    pub tag: *const c_char,
+    pub feature: *const c_char,
+    pub chunk_id: u32,
 }
 
 #[repr(C)]
 pub struct XPackageChunkSelector {
-    type_: XPackageChunkSelectorType,
-    data: XPackageChunkSelectorData,
+    pub type_: XPackageChunkSelectorType,
+    pub data: XPackageChunkSelectorData,
 }
 
 // Class _GUID_af406016_e850_4aa8_a88d_2f3dcb9dac7e

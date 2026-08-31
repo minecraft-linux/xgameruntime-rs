@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::env::{home_dir, temp_dir};
 use std::ffi::{CStr, c_char, c_void};
@@ -169,6 +170,13 @@ pub unsafe trait IXNetworking2: IXNetworking {}
 #[implement(xstore::IXStore, IXStoreAlias1, IXStoreAlias2, IXStoreAlias3, IXStore2)]
 pub struct XStoreObject;
 
+fn debug_cstr<'t>(c: *const c_char) -> Cow<'t, str> {
+    if c.is_null() {
+        return Cow::Borrowed("");
+    }
+    unsafe { CStr::from_ptr(c).to_string_lossy() }
+}
+
 impl IXStore_Impl for XStoreObject_Impl {
     unsafe fn x_store_create_context(
         &self,
@@ -331,7 +339,7 @@ impl IXStore_Impl for XStoreObject_Impl {
     ) -> HRESULT {
         println!("x_store_enumerate_products_query");
         let product = XStoreProduct {
-            store_id: c"9nn6vs9spw2r".as_ptr(),
+            store_id: c"9NN6VS9SPW2R".as_ptr(),
             title: c"Halo 4".as_ptr(),
             description: c"Erleben Sie die triumphale Wiederkehr des Master Chief, um ein uraltes Böses zu bekämpfen, das auf Rache und Vernichtung sinnt. Als Gestrandeter auf einer mysteriösen Welt sieht er sich neuen Feinden und einer tödlichen Technologie gegenüber, die die Welt für immer verändern werden.".as_ptr(),
             language: c"de-DE".as_ptr(),
@@ -400,19 +408,21 @@ impl IXStore_Impl for XStoreObject_Impl {
         &self,
         _store_context_handle: XStoreContextHandle,
         _package_identifier: *const c_char,
-        _async_: *mut XAsyncBlock,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_acquire_license_for_package_async");
-        E_NOTIMPL
+        unsafe { xasync::run(async_, async {
+            Ok(1 as XStoreLicenseHandle)
+        }) }
     }
 
     unsafe fn x_store_acquire_license_for_package_result(
         &self,
-        _async_: *mut XAsyncBlock,
-        _store_license_handle: *mut XStoreLicenseHandle,
+        async_: *mut XAsyncBlock,
+        store_license_handle: *mut XStoreLicenseHandle,
     ) -> HRESULT {
         println!("x_store_acquire_license_for_package_result");
-        E_NOTIMPL
+        unsafe { xasync::get_result(async_, null_mut(), store_license_handle) }.map_or_else(|h|h, |_|S_OK)
     }
 
     unsafe fn x_store_is_license_valid(&self, _store_license_handle: XStoreLicenseHandle) -> BOOL {
@@ -695,18 +705,20 @@ impl IXStore_Impl for XStoreObject_Impl {
     unsafe fn x_store_show_purchase_u_i_async(
         &self,
         _store_context_handle: XStoreContextHandle,
-        _store_id: *const c_char,
-        _name: *const c_char,
-        _extended_json_data: *const c_char,
-        _async_: *mut XAsyncBlock,
+        store_id: *const c_char,
+        name: *const c_char,
+        extended_json_data: *const c_char,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        println!("x_store_show_purchase_u_i_async");
-        E_NOTIMPL
+        println!("x_store_show_purchase_u_i_async {} {}, {}", debug_cstr(store_id), debug_cstr(name), debug_cstr(extended_json_data));
+        unsafe { xasync::run(async_, async {
+            Ok(())
+        }) }
     }
 
-    unsafe fn x_store_show_purchase_u_i_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
+    unsafe fn x_store_show_purchase_u_i_result(&self, async_: *mut XAsyncBlock) -> HRESULT {
         println!("x_store_show_purchase_u_i_result");
-        E_NOTIMPL
+        unsafe { xasync::get_status(async_, false).map_or_else(|h| h, |_|S_OK) }
     }
 
     unsafe fn x_store_show_rate_and_review_u_i_async(
@@ -811,31 +823,42 @@ impl IXStore_Impl for XStoreObject_Impl {
     unsafe fn x_store_download_and_install_packages_async(
         &self,
         _store_context_handle: XStoreContextHandle,
-        _store_ids: *const *mut c_char,
-        _store_ids_count: usize,
-        _async_: *mut XAsyncBlock,
+        store_ids: *const *mut c_char,
+        store_ids_count: usize,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_download_and_install_packages_async");
-        E_NOTIMPL
+        unsafe { xasync::run_dyn(async_, async {
+            let req_size = 0;
+                Ok::<_, HRESULT>((
+                    move |b: *mut c_void, s: usize| {
+                        return s;
+                    },
+                    req_size,
+                ))
+        }) }
     }
 
     unsafe fn x_store_download_and_install_packages_result_count(
         &self,
-        _async_: *mut XAsyncBlock,
-        _count: *mut u32,
+        async_: *mut XAsyncBlock,
+        count: *mut u32,
     ) -> HRESULT {
         println!("x_store_download_and_install_packages_result_count");
-        E_NOTIMPL
+        unsafe { xasync::get_result_size(async_).map_or_else(|h|h, |s| {
+            *count = s as u32;
+            S_OK
+        }) }
     }
 
     unsafe fn x_store_download_and_install_packages_result(
         &self,
         _async_: *mut XAsyncBlock,
-        _count: u32,
-        _package_identifiers: *mut *mut c_char,
+        count: u32,
+        package_identifiers: *mut *mut c_char,
     ) -> HRESULT {
         println!("x_store_download_and_install_packages_result");
-        E_NOTIMPL
+        S_OK
     }
 
     unsafe fn x_store_query_package_identifier(
@@ -1470,7 +1493,7 @@ pub fn query_api_impl(
     }
 
     let class_id = unsafe { *runtime_class_id };
-    println!("query_api_impl: {:?}", class_id);
+    // println!("query_api_impl: {:?}", class_id);
     let res = match class_id {
         IXFeature::IID => {
             // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
