@@ -11,10 +11,14 @@ use crate::{
 #[cfg(feature = "xuser")]
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use windows::libloaderapi::GetModuleFileNameW;
+use windows::minwindef::MAX_PATH;
 use xodus::models::licensing::LicenseUserIdentity;
 #[cfg(feature = "xuser")]
 use xodus::models::soap::BodyContent;
 use std::cell::Cell;
+use std::io::Read;
+use std::path::Path;
 use std::ptr::{self, null_mut};
 #[cfg(feature = "xuser")]
 use std::ptr::slice_from_raw_parts_mut;
@@ -244,7 +248,7 @@ pub unsafe trait IXUser: IUnknown {
     pub unsafe fn x_user_get_is_guest(
         self: &Self,
         user: XUserHandle,
-        is_guest: *mut bool,
+        is_guest: *mut u8,
     ) -> HRESULT;
     pub unsafe fn x_user_get_state(
         self: &Self,
@@ -433,6 +437,9 @@ pub unsafe trait IXUser3: IXUser {}
 #[interface("079415e3-6727-437f-8e9d-8f8f9b2439f7")]
 pub unsafe trait IXUser4: IXUser {}
 
+#[interface("eb9bf948-18dc-4d82-bbcc-40e0a809c4c0")]
+pub unsafe trait IXUser5: IXUser {}
+
 // XUserDefaultAudioEndpointUtf16ChangedCallback
 pub type XUserDefaultAudioEndpointUtf16ChangedCallback = unsafe extern "system" fn(_context: *mut c_void, _user: XUserLocalId, _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind, _endpoint_id_utf16: *const u16) -> ();
 
@@ -458,7 +465,7 @@ unsafe fn x_user_find_controller_for_user_with_ui_async(self: &Self, _user: XUse
 unsafe fn x_user_find_controller_for_user_with_ui_result(self: &Self, _async_: *mut XAsyncBlock, _device_id: *mut c_void) -> HRESULT;
 }
 
-#[implement(IXUser, IXUser2, IXUser3, IXUser4, IXUserDevice)]
+#[implement(IXUser, IXUser2, IXUser3, IXUser4, IXUser5, IXUserDevice)]
 pub struct XUser {
     pub runtime: tokio::runtime::Runtime,
     pub handle: Cell<Option<IXUserHandle>>,
@@ -501,10 +508,18 @@ struct XUserHandleObject {
 
 #[derive(Deserialize, Debug)]
 pub struct Game {
+    #[serde(rename = "StoreId")]
+    pub store_id: String,
     #[serde(rename = "TitleId")]
     pub title_id: String,
     #[serde(rename = "MSAAppId")]
-    pub msa_app_id: String,
+    pub msa_app_id: Option<String>,
+}
+
+impl Game {
+    pub fn get_title_id(&self) -> i64 {
+        i64::from_str_radix(&self.title_id, 16).unwrap()
+    }
 }
 
 #[cfg(feature = "xuser")]
@@ -543,6 +558,7 @@ impl IXUser2_Impl for XUser_Impl {
 
 impl IXUser3_Impl for XUser_Impl {}
 impl IXUser4_Impl for XUser_Impl {}
+impl IXUser5_Impl for XUser_Impl {}
 
 impl IXUser_Impl for XUser_Impl {
     unsafe fn x_user_duplicate_handle(
@@ -583,6 +599,9 @@ impl IXUser_Impl for XUser_Impl {
         _options: XUserAddOptions,
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        // xasync::run(async_, async {
+        //     Err::<(),_>(E_FAIL)
+        // })
         println!("x_user_add_async called");
         #[cfg(feature = "xuser")]
         let handle = self.runtime.handle().clone();
@@ -655,7 +674,7 @@ impl IXUser_Impl for XUser_Impl {
                                 // do_license_token(&client, &tokens).await.unwrap();
 
                                 let (c, resp, device) =
-                                    do_sisu(&client, &tokens, &config.msa_app_id, i64::from_str_radix(&config.title_id, 16).unwrap(), def_policy.clone())
+                                    do_sisu(&client, &tokens, config.msa_app_id.as_ref().map_or_else(|| "", |x|x), i64::from_str_radix(&config.title_id, 16).unwrap(), def_policy.clone())
                                         .await
                                         .unwrap();
 
@@ -758,9 +777,7 @@ impl IXUser_Impl for XUser_Impl {
         user_local_id: XUserLocalId,
         handle: *mut XUserHandle,
     ) -> HRESULT {
-        println!("x_user_find_user_by_local_id {}", user_local_id.value);
-        *handle = (*self.handle.as_ptr()).clone().unwrap().into_raw();
-        S_OK
+        E_FAIL
     }
 
     unsafe fn x_user_get_id(&self, user: XUserHandle, user_id: *mut u64) -> HRESULT {
@@ -779,19 +796,20 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_find_user_by_id(&self, user_id: u64, handle: *mut XUserHandle) -> HRESULT {
         println!("x_user_find_user_by_id {}", user_id);
-        *handle = (*self.handle.as_ptr()).clone().unwrap().into_raw();
-        S_OK
+        // *handle = (*self.handle.as_ptr()).clone().unwrap().into_raw();
+        E_FAIL
     }
 
-    unsafe fn x_user_get_is_guest(&self, _user: XUserHandle, is_guest: *mut bool) -> HRESULT {
+    unsafe fn x_user_get_is_guest(&self, _user: XUserHandle, is_guest: *mut u8) -> HRESULT {
         println!("x_user_get_is_guest");
         unsafe {
-            *is_guest = false;
+            *is_guest = 0u8;
         };
         S_OK
     }
 
     unsafe fn x_user_get_state(&self, _user: XUserHandle, state: *mut XUserState) -> HRESULT {
+        println!("x_user_get_state");
         unsafe {
             *state = XUserState::SignedIn;
         };
@@ -834,6 +852,7 @@ impl IXUser_Impl for XUser_Impl {
         _user: XUserHandle,
         age_group: *mut XUserAgeGroup,
     ) -> HRESULT {
+        println!("x_user_get_age_group");
         unsafe {
             *age_group = XUserAgeGroup::Adult;
         };
@@ -853,7 +872,7 @@ impl IXUser_Impl for XUser_Impl {
             *has_privilege = 1;
         };
         unsafe {
-            *reason = XUserPrivilegeDenyReason::Unknown;
+            *reason = XUserPrivilegeDenyReason::None;
         };
         S_OK
     }
@@ -1521,7 +1540,7 @@ pub async fn get_license_token(
         .header("Authorization", device_ms_token)
         .header("user-agent", "XboxLm-PC/Microsoft.GamingServices_32.107.4002.0_x64__8wekyb3d8bbwe")
         .json(&LicenseTokenRequest {
-            parent_product_id: "9P8MK4NC0LJB".to_owned(),
+            parent_product_id: load_game_config().unwrap().store_id,//
             enforce_sellable_by: true,
             related_product_ids: products,
             custom_developer_string: custom_developer_string,
@@ -1586,4 +1605,56 @@ async fn test() {
         // do_sisu(&client, &tokens, ).await.unwrap();
     }
 
+}
+
+pub async fn load_game_config_async() -> Option<Game> {
+    let mut config: Option<Game> = None;
+    loop {
+        let mut path = [0u16; MAX_PATH as usize];
+        let len = unsafe { GetModuleFileNameW(None, &mut path) };
+        let path = String::from_utf16_lossy(&path[..len as usize]);
+        let mut path = Path::new(&path);
+
+        let Some(parent) = path.parent()else {
+            break;
+        };
+
+        if let Ok(mut fs) = tokio::fs::File::open(path.join("MicrosoftGame.config")).await {
+            use tokio::io::AsyncReadExt;
+            let mut bytes = String::new();
+            fs.read_to_string(&mut bytes).await.unwrap();
+
+            config = Some(quick_xml::de::from_str(&bytes).unwrap());
+            break;
+        }
+
+        path = parent;
+    }
+    config
+}
+
+pub fn load_game_config() -> Option<Game> {
+    let mut path = [0u16; MAX_PATH as usize];
+    let len = unsafe { GetModuleFileNameW(None, &mut path) };
+    let path = String::from_utf16_lossy(&path[..len as usize]);
+    let mut path = Path::new(&path);
+    let mut config: Option<Game> = None;
+    loop {
+        println!("{}", path.to_string_lossy());
+
+        let Some(parent) = path.parent()else {
+            break;
+        };
+
+        if let Ok(mut fs) = std::fs::File::open(path.join("MicrosoftGame.config")) {
+            let mut bytes = String::new();
+            fs.read_to_string(&mut bytes).unwrap();
+
+            config = Some(quick_xml::de::from_str(&bytes).unwrap());
+            break;
+        }
+
+        path = parent;
+    }
+    config
 }

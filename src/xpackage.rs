@@ -267,7 +267,7 @@ pub unsafe trait IXPackage: IUnknown {
     // XPackageCloseMountHandle
     pub unsafe fn x_package_close_mount_handle(self: &Self, _mount: XPackageMountHandle) -> ();
     pub unsafe fn __reserved_slot_27(&self);
-    pub unsafe fn __reserved_slot_28(&self);
+    pub unsafe fn x_package_enumerate_packages2(self: &Self, _kind: XPackageKind, _scope: XPackageEnumerationScope, _context: *mut c_void, _callback: Option<XPackageEnumerationCallback>) -> HRESULT;
     pub unsafe fn __reserved_slot_29(&self);
     // XPackageGetWriteStats
     pub unsafe fn x_package_get_write_stats(
@@ -323,3 +323,6 @@ pub unsafe trait IXPackage: IUnknown {
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
 }
+
+#[interface("3720DE07-E8E4-44A3-AD32-B359E8ADBE55")]
+pub unsafe trait IXPackage2: IXPackage {}

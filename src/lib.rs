@@ -1,7 +1,7 @@
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr::null_mut;
 use std::result::Result;
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 
 use windows::minwindef::LPARAM;
 use windows::windef::HWND;
@@ -196,10 +196,6 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
             }
         };
 
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .unwrap();
-
     Ok(DelegatedApi {
         module,
         initialize_api_impl_ex2,
@@ -207,6 +203,8 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
         uninitialize_api_impl,
     })
 }
+
+static START: Once = Once::new();
 
 fn initialize_delegate(
     gdk_ver: Ulong,
@@ -219,7 +217,11 @@ fn initialize_delegate(
         state.ref_count += 1;
         return S_OK;
     }
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
+    START.call_once(|| {
+        rustls::crypto::ring::default_provider()
+            .install_default().unwrap();
+            env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
+    });
     println!("Loading delegated API...");
 
     let api = match unsafe { load_delegated_api() } {
@@ -237,10 +239,11 @@ fn initialize_delegate(
     };
     if hr != S_OK {
         println!("Failed to initialize delegated API: {:#X}", hr.0);
-        unsafe {
-            FreeLibrary(api.module);
-        }
-        return hr;
+        // panic!("Failed to initialize delegated API");
+        // unsafe {
+        //     FreeLibrary(api.module);
+        // }
+        // return hr;
     }
 
     println!("Delegated API initialized successfully.");

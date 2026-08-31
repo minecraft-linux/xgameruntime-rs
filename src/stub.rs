@@ -2,12 +2,73 @@ use std::{ffi::{CStr, CString, c_char, c_void}, io::{Read, Write}, os::windows::
 
 use windows::{libloaderapi::GetModuleFileNameW, minwindef::MAX_PATH};
 use windows_core::{BOOL, HRESULT, implement};
-use crate::{E_FAIL, E_NOTIMPL, S_OK, threading::{XTaskQueueHandle, XTaskQueueRegistrationToken}, user::XUserHandle, xasync::{self, XAsyncBlock}, xgamesave::{IXGameSave, IXGameSave_Impl, IXGameSave2, IXGameSave2_Impl, IXGameSave3, IXGameSave3_Impl, XGameSaveBlob, XGameSaveBlobInfo, XGameSaveBlobInfoCallback, XGameSaveContainerHandle, XGameSaveContainerInfo, XGameSaveContainerInfoCallback, XGameSaveProviderHandle, XGameSaveUpdateHandle}, xpackage::{IXPackage_Impl, XPackageChunkAvailability, XPackageChunkSelector, XPackageInstallationMonitorHandle, XPackageInstallationProgress, XPackageInstallationProgressCallback, *}};
+use crate::{E_FAIL, E_NOTIMPL, S_OK, threading::{XTaskQueueHandle, XTaskQueueRegistrationToken}, user::{XUserHandle, load_game_config}, xasync::{self, XAsyncBlock}, xgamesave::{IXGameSave, IXGameSave_Impl, IXGameSave2, IXGameSave2_Impl, IXGameSave3, IXGameSave3_Impl, XGameSaveBlob, XGameSaveBlobInfo, XGameSaveBlobInfoCallback, XGameSaveContainerHandle, XGameSaveContainerInfo, XGameSaveContainerInfoCallback, XGameSaveProviderHandle, XGameSaveUpdateHandle}, xlaunch::{IXLaunch_Impl, IXLaunch2_Impl, IXLaunch3_Impl}, xpackage::{IXPackage_Impl, XPackageChunkAvailability, XPackageChunkSelector, XPackageInstallationMonitorHandle, XPackageInstallationProgress, XPackageInstallationProgressCallback, *}, xsystem::{IXSystem_Impl, IXSystem2_Impl, IXSystem3_Impl, IXSystem4_Impl, IXSystem5_Impl, XSystemHandleCallback}};
+use crate::xsystem::IXSystem;
+use crate::xsystem::IXSystem5;
+use crate::xlaunch::IXLaunch;
+use crate::xlaunch::IXLaunch2;
+use crate::xlaunch::IXLaunch3;
 
-#[implement(IXGameSave, IXGameSave2, IXGameSave3, IXPackage)]
+#[implement(IXGameSave, IXGameSave2, IXGameSave3, IXSystem, IXSystem5, IXPackage, IXPackage2, IXLaunch, IXLaunch2,IXLaunch3)]
 pub struct XStub;
 
 impl IXGameSave3_Impl for XStub_Impl {}
+
+impl IXLaunch_Impl for XStub_Impl {
+    unsafe fn x_game_get_xbox_title_id(&self, title_id: *mut u32) -> HRESULT {
+        println!("x_game_get_xbox_title_id");
+        load_game_config().map_or_else(|| E_FAIL, |cfg| {
+            unsafe { *title_id = cfg.get_title_id() as u32 };
+            println!("x_game_get_xbox_title_id {}", cfg.get_title_id());
+            S_OK
+        })
+    }
+
+    unsafe fn x_launch_new_game(&self,_exe_path: *const c_char,_args: *const c_char,_default_user: XUserHandle) -> () {
+        todo!()
+    }
+
+    unsafe fn x_launch_restart_on_crash(&self,_args: *const c_char,_reserved: u32) -> HRESULT {
+        todo!()
+    }
+}
+impl IXLaunch2_Impl for XStub_Impl {}
+impl IXLaunch3_Impl for XStub_Impl {}
+
+
+impl IXSystem_Impl for XStub_Impl {
+    unsafe fn x_system_get_console_id(&self,_console_id_size: usize,_console_id: *mut c_char,_console_id_used: *mut usize) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_system_get_xbox_live_sandbox_id(&self, sandbox_id_size: usize, sandbox_id: *mut c_char, sandbox_id_used: *mut usize) -> HRESULT {
+        println!("x_system_get_xbox_live_sandbox_id");
+        let out = unsafe { &mut *std::slice::from_raw_parts_mut(sandbox_id, sandbox_id_size) };
+        out.iter_mut().zip(c"RETAIL".to_bytes_with_nul().iter()).for_each(|(d,i)| *d = *i as i8);
+        S_OK
+    }
+
+    unsafe fn x_system_get_app_specific_device_id(&self,_app_specific_device_id_size: usize,_app_specific_device_id: *mut c_char,_app_specific_device_id_used: *mut usize) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_system_handle_track(&self,_callback: XSystemHandleCallback,_context: *mut c_void) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_system_is_handle_valid(&self,_handle: i64) -> BOOL {
+        todo!()
+    }
+
+    unsafe fn x_system_allow_full_download_bandwidth(&self,_enable: BOOL) -> () {
+        todo!()
+    }
+}
+
+impl IXSystem2_Impl for XStub_Impl {}
+impl IXSystem3_Impl for XStub_Impl {}
+impl IXSystem4_Impl for XStub_Impl {}
+impl IXSystem5_Impl for XStub_Impl {}
 
 struct XGameSaveUpdate {
     container: *mut XGameSaveContainer,
@@ -130,7 +191,9 @@ impl IXGameSave_Impl for XStub_Impl {
         println!("{}", file);
         std::fs::create_dir_all(&file).unwrap();
         let folder = std::fs::read_dir(file).unwrap();
+        let mut anyFiles = false;
         for f in folder {
+            anyFiles = true;
             let f = f.unwrap();
             let c_string = CString::new(f.file_name().to_string_lossy().to_string()).unwrap();
             let info = XGameSaveBlobInfo {
@@ -140,7 +203,7 @@ impl IXGameSave_Impl for XStub_Impl {
             println!("Entry {} {}", f.file_name().to_string_lossy(), info.size);
             callback.unwrap()(&info, context);
         }
-        S_OK
+        if anyFiles { S_OK } else { E_FAIL }
     }
 
     unsafe fn x_game_save_enumerate_blob_info_by_name(&self, container: XGameSaveContainerHandle, blob_name_prefix: *const c_char,_context: *mut c_void,_callback: Option<XGameSaveBlobInfoCallback>) -> HRESULT {
@@ -344,39 +407,49 @@ impl IXGameSave2_Impl for XStub_Impl {
 
 impl IXPackage_Impl for XStub_Impl {
     unsafe fn x_package_get_current_process_package_identifier(&self,_buffer_size: usize,_buffer: *mut c_char) -> HRESULT {
+        println!("x_package_get_current_process_package_identifier");
         // todo!()
         E_NOTIMPL
     }
 
     unsafe fn x_package_is_packaged_process(&self,) -> BOOL {
-        true.into()
+        println!("x_package_is_packaged_process");
+        false.into()
+        // true.into()
     }
 
-    unsafe fn x_package_create_installation_monitor(&self,_package_identifier: *const c_char,_selector_count: u32,_selectors: *mut XPackageChunkSelector,_minimum_update_interval_ms: u32,_queue: XTaskQueueHandle,_installation_monitor: *mut XPackageInstallationMonitorHandle) -> HRESULT {
-        todo!()
+    unsafe fn x_package_create_installation_monitor(&self, package_identifier: *const c_char,_selector_count: u32,_selectors: *mut XPackageChunkSelector,_minimum_update_interval_ms: u32,_queue: XTaskQueueHandle,_installation_monitor: *mut XPackageInstallationMonitorHandle) -> HRESULT {
+        // todo!()
+        println!("x_package_create_installation_monitor: {}", CStr::from_ptr(package_identifier).to_string_lossy());
+        S_OK
     }
 
     unsafe fn x_package_close_installation_monitor_handle(&self,_installation_monitor: XPackageInstallationMonitorHandle) -> () {
+        println!("x_package_close_installation_monitor_handle");
         // todo!()
     }
 
     unsafe fn x_package_get_installation_progress(&self,_installation_monitor: XPackageInstallationMonitorHandle,_progress: *mut XPackageInstallationProgress) -> () {
-        todo!()
+        println!("x_package_get_installation_progress");
     }
 
     unsafe fn x_package_update_installation_monitor(&self,_installation_monitor: XPackageInstallationMonitorHandle) -> BOOL {
-        todo!()
-    }
-
-    unsafe fn x_package_register_installation_progress_changed(&self,_installation_monitor: XPackageInstallationMonitorHandle,_context: *mut c_void,_callback: Option<XPackageInstallationProgressCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {
-        todo!()
-    }
-
-    unsafe fn x_package_unregister_installation_progress_changed(&self,_installation_monitor: XPackageInstallationMonitorHandle,_token: XTaskQueueRegistrationToken,_wait: BOOL) -> BOOL {
+        println!("x_package_update_installation_monitor");
+        // todo!()
         true.into()
     }
 
-    unsafe fn x_package_get_user_locale(&self,_locale_size: usize,_locale: *mut c_char) -> HRESULT {
+    unsafe fn x_package_register_installation_progress_changed(&self,_installation_monitor: XPackageInstallationMonitorHandle,_context: *mut c_void,_callback: Option<XPackageInstallationProgressCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {
+        println!("x_package_register_installation_progress_changed");
+        S_OK
+    }
+
+    unsafe fn x_package_unregister_installation_progress_changed(&self,_installation_monitor: XPackageInstallationMonitorHandle,_token: XTaskQueueRegistrationToken,_wait: BOOL) -> BOOL {
+        println!("x_package_unregister_installation_progress_changed");
+        true.into()
+    }
+
+    unsafe fn x_package_get_user_locale(&self, locale_size: usize, locale: *mut c_char) -> HRESULT {
         todo!()
     }
 
@@ -421,7 +494,7 @@ impl IXPackage_Impl for XStub_Impl {
     }
 
     unsafe fn x_package_unregister_package_installed(&self,_token: XTaskQueueRegistrationToken,_wait: BOOL) -> BOOL {
-        todo!()
+        true.into()
     }
 
     unsafe fn __reserved_slot_23(&self,) {
@@ -444,12 +517,34 @@ impl IXPackage_Impl for XStub_Impl {
         todo!()
     }
 
-    unsafe fn __reserved_slot_28(&self,) {
-        todo!()
+    // //XPackageEnumeratePackages
+    // unsafe fn __reserved_slot_28(&self,) {
+    //     println!("XPackageEnumeratePackages");
+    //     todo!()
+    // }
+    unsafe fn x_package_enumerate_packages2(self: &Self, _kind: XPackageKind, _scope: XPackageEnumerationScope, context: *mut c_void, callback: Option<XPackageEnumerationCallback>) -> HRESULT {
+        println!("x_package_enumerate_packages2");
+        let details = XPackageDetails {
+            package_identifier: c"Halo4".as_ptr(),
+            version: 0,
+            kind: XPackageKind::Content,
+            display_name: c"Halo4".as_ptr(),
+            description: c"Halo4".as_ptr(),
+            publisher: c"MS".as_ptr(),
+            store_id: c"9nn6vs9spw2r".as_ptr(),
+            installing: false,
+            index: 0,
+            count: 1,
+            age_restricted: false,
+            title_i_d: c"9nn6vs9spw2r".as_ptr(),
+        };
+        unsafe { callback.unwrap()(context, &details) };
+        S_OK
     }
 
+    // XPackageRegisterPackageInstalled
     unsafe fn __reserved_slot_29(&self,) {
-        todo!()
+        println!("XPackageRegisterPackageInstalled");
     }
 
     unsafe fn x_package_get_write_stats(&self,_write_stats: *mut XPackageWriteStats) -> HRESULT {
@@ -495,6 +590,9 @@ impl IXPackage_Impl for XStub_Impl {
     }
 
     unsafe fn x_package_register_package_installed(&self,_queue: XTaskQueueHandle,_context: *mut c_void,_callback: Option<XPackageInstalledCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {
-        todo!()
+        // todo!()
+        S_OK
     }
 }
+
+impl IXPackage2_Impl for XStub_Impl { }

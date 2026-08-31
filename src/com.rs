@@ -3,7 +3,7 @@ use std::env::{home_dir, temp_dir};
 use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
 use std::path::Path;
-use std::ptr::null_mut;
+use std::ptr::{null, null_mut};
 use std::sync::{Mutex, OnceLock};
 use windows::libloaderapi::GetModuleFileNameW;
 use windows::minwindef::MAX_PATH;
@@ -25,6 +25,7 @@ use crate::stub::XStub;
 use crate::threading::{IXAsync, XAsyncBlock, XTaskQueueHandle, XTaskQueueRegistrationToken};
 use crate::user::{IXUser, XUser, XUserHandle, do_license_token};
 use crate::xasync::get_result;
+use crate::xlaunch::IXLaunch;
 use crate::xnetworking::{
     IXNetworking, IXNetworking_Impl, XNetworkingConfigurationSetting,
     XNetworkingConnectivityCostHint, XNetworkingConnectivityHint, XNetworkingConnectivityLevelHint,
@@ -35,8 +36,9 @@ use crate::xpersistedlocalstorage::{
     IXPersistentLocalStorage_Impl, IXPersistentLocalStorage2, IXPersistentLocalStorage2_Impl, XPersistentLocalStorageSpaceInfo,
 };
 use crate::xstore::{
-    self, IXStore,IXStore2, IXStore_Impl, IXStore2_Impl, XStoreAddonLicense, XStoreCanAcquireLicenseResult, XStoreConsumableResult, XStoreContextHandle, XStoreGameLicense, XStoreGameLicenseChangedCallback, XStoreLicenseHandle, XStorePackageLicenseLostCallback, XStorePackageUpdate, XStoreProductKind, XStoreProductQueryCallback, XStoreProductQueryHandle, XStoreRateAndReviewResult,
+    self, IXStore, IXStore_Impl, IXStore2, IXStore2_1_Impl, IXStore2_Impl, XStoreAddonLicense, XStoreCanAcquireLicenseResult, XStoreConsumableResult, XStoreContextHandle, XStoreGameLicense, XStoreGameLicenseChangedCallback, XStoreLicenseHandle, XStorePackageLicenseLostCallback, XStorePackageUpdate, XStorePrice, XStoreProduct, XStoreProductKind, XStoreProductQueryCallback, XStoreProductQueryHandle, XStoreRateAndReviewResult,
 };
+use crate::xsystem::IXSystem;
 use crate::{E_FAIL, E_NOTIMPL, results::*, threading, xasync};
 
 #[interface("8836fe87-edb9-4fe3-8dad-05f0d2cd5b40")]
@@ -270,18 +272,21 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_context_handle: XStoreContextHandle,
         _product_kinds: XStoreProductKind,
         _max_items_to_retrieve_per_page: u32,
-        _async_: *mut XAsyncBlock,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_query_entitled_products_async");
-        E_NOTIMPL
+        unsafe { xasync::run(async_, async {
+            Ok(0 as XStoreProductQueryHandle)
+        }) }
     }
 
     unsafe fn x_store_query_entitled_products_result(
         &self,
-        _async_: *mut XAsyncBlock,
-        _product_query_handle: *mut XStoreProductQueryHandle,
+        async_: *mut XAsyncBlock,
+        product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
-        E_NOTIMPL
+        println!("x_store_query_entitled_products_result");
+        unsafe { xasync::get_result(async_, null_mut(), product_query_handle).map_or_else(|a| a, |_|S_OK) }
     }
 
     unsafe fn x_store_query_product_for_current_game_async(
@@ -321,16 +326,49 @@ impl IXStore_Impl for XStoreObject_Impl {
     unsafe fn x_store_enumerate_products_query(
         &self,
         _product_query_handle: XStoreProductQueryHandle,
-        _context: *mut c_void,
-        _callback: Option<XStoreProductQueryCallback>,
+        context: *mut c_void,
+        callback: Option<XStoreProductQueryCallback>,
     ) -> HRESULT {
-        E_NOTIMPL
+        println!("x_store_enumerate_products_query");
+        let product = XStoreProduct {
+            store_id: c"9nn6vs9spw2r".as_ptr(),
+            title: c"Halo 4".as_ptr(),
+            description: c"Erleben Sie die triumphale Wiederkehr des Master Chief, um ein uraltes Böses zu bekämpfen, das auf Rache und Vernichtung sinnt. Als Gestrandeter auf einer mysteriösen Welt sieht er sich neuen Feinden und einer tödlichen Technologie gegenüber, die die Welt für immer verändern werden.".as_ptr(),
+            language: c"de-DE".as_ptr(),
+            in_app_offer_token: null(),
+            link_uri: null_mut(),
+            product_kind: XStoreProductKind::Durable,
+            price: XStorePrice {
+                price: 32.0,
+                base_price: 32.0,
+                currency_code: c"EUR".as_ptr(),
+                formatted_base_price: [0i8; 16],
+                recurrence_price: 0.0,
+                formatted_price: [0i8; 16],
+                formatted_recurrence_price: [0i8; 16],
+                is_on_sale: false,
+                sale_end_date: 0,
+            },
+            has_digital_download: true,
+            is_in_user_collection: true,
+            keywords_count: 0,
+            keywords: null(),
+            skus_count: 0,
+            skus: null_mut(),
+            images_count: 0,
+            images: null_mut(),
+            videos_count: 0,
+            videos: null_mut(),
+        };
+        callback.unwrap()(&product, context);
+        S_OK
     }
 
     unsafe fn x_store_products_query_has_more_pages(
         &self,
         _product_query_handle: XStoreProductQueryHandle,
     ) -> BOOL {
+        println!("x_store_products_query_has_more_pages");
         false.into()
     }
 
@@ -339,6 +377,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _product_query_handle: XStoreProductQueryHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_products_query_next_page_async");
         E_NOTIMPL
     }
 
@@ -354,6 +393,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         &self,
         _product_query_handle: XStoreProductQueryHandle,
     ) -> () {
+        println!("x_store_close_products_query_handle");
     }
 
     unsafe fn x_store_acquire_license_for_package_async(
@@ -376,6 +416,7 @@ impl IXStore_Impl for XStoreObject_Impl {
     }
 
     unsafe fn x_store_is_license_valid(&self, _store_license_handle: XStoreLicenseHandle) -> BOOL {
+        println!("x_store_is_license_valid");
         true.into()
     }
 
@@ -383,6 +424,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         &self,
         _store_license_handle: XStoreLicenseHandle,
     ) -> () {
+        println!("x_store_close_license_handle");
     }
 
     unsafe fn x_store_can_acquire_license_for_store_id_async(
@@ -479,6 +521,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _consumable_result: *mut XStoreConsumableResult,
     ) -> HRESULT {
+        println!("x_store_report_consumable_fulfillment_result");
         E_NOTIMPL
     }
 
@@ -489,6 +532,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _publisher_user_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_get_user_collections_id_async");
         E_NOTIMPL
     }
 
@@ -497,6 +541,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _size: *mut usize,
     ) -> HRESULT {
+        println!("x_store_get_user_collections_id_result_size");
         E_NOTIMPL
     }
 
@@ -506,6 +551,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _size: usize,
         _result: *mut c_char,
     ) -> HRESULT {
+        println!("x_store_get_user_collections_id_result");
         E_NOTIMPL
     }
 
@@ -516,6 +562,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _publisher_user_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_get_user_purchase_id_async");
         E_NOTIMPL
     }
 
@@ -524,6 +571,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _size: *mut usize,
     ) -> HRESULT {
+        println!("x_store_get_user_purchase_id_result_size");
         E_NOTIMPL
     }
 
@@ -533,6 +581,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _size: usize,
         _result: *mut c_char,
     ) -> HRESULT {
+        println!("x_store_get_user_purchase_id_result");
         E_NOTIMPL
     }
 
@@ -605,6 +654,7 @@ impl IXStore_Impl for XStoreObject_Impl {
             Err(hr) => hr,
             Ok(size) => unsafe {
                 *s = size;
+                println!("x_store_query_license_token_result_size {}", size);
                 S_OK
             },
         }
@@ -622,7 +672,10 @@ impl IXStore_Impl for XStoreObject_Impl {
             xasync::get_result_dyn(async_, null_mut(), size, result as * mut c_void, null_mut())
         } {
             Err(hr) => return hr,
-            _ => S_OK,
+            _ => {
+                println!("x_store_query_license_token_result: {}", CStr::from_ptr(result).to_string_lossy());
+                S_OK
+            },
         }
 
     }
@@ -647,10 +700,12 @@ impl IXStore_Impl for XStoreObject_Impl {
         _extended_json_data: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_show_purchase_u_i_async");
         E_NOTIMPL
     }
 
     unsafe fn x_store_show_purchase_u_i_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
+        println!("x_store_show_purchase_u_i_result");
         E_NOTIMPL
     }
 
@@ -659,6 +714,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_context_handle: XStoreContextHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_show_rate_and_review_u_i_async");
         E_NOTIMPL
     }
 
@@ -667,6 +723,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _result: *mut XStoreRateAndReviewResult,
     ) -> HRESULT {
+        println!("x_store_show_rate_and_review_u_i_result");
         E_NOTIMPL
     }
 
@@ -679,10 +736,12 @@ impl IXStore_Impl for XStoreObject_Impl {
         _disallow_csv_redemption: BOOL,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_show_redeem_token_u_i_async");
         E_NOTIMPL
     }
 
     unsafe fn x_store_show_redeem_token_u_i_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
+        println!("x_store_show_redeem_token_u_i_result");
         E_NOTIMPL
     }
 
@@ -691,6 +750,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_context_handle: XStoreContextHandle,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_query_game_and_dlc_package_updates_async");
         E_NOTIMPL
     }
 
@@ -699,6 +759,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _count: *mut u32,
     ) -> HRESULT {
+        println!("x_store_query_game_and_dlc_package_updates_result_count");
         E_NOTIMPL
     }
 
@@ -708,6 +769,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _count: u32,
         _package_updates: *mut XStorePackageUpdate,
     ) -> HRESULT {
+        println!("x_store_query_game_and_dlc_package_updates_result");
         E_NOTIMPL
     }
 
@@ -718,10 +780,12 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifiers_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_download_package_updates_async");
         E_NOTIMPL
     }
 
     unsafe fn x_store_download_package_updates_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
+        println!("x_store_download_package_updates_result");
         E_NOTIMPL
     }
 
@@ -732,6 +796,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifiers_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_download_and_install_package_updates_async");
         E_NOTIMPL
     }
 
@@ -739,6 +804,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         &self,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_download_and_install_package_updates_result");
         E_NOTIMPL
     }
 
@@ -749,6 +815,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_ids_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_download_and_install_packages_async");
         E_NOTIMPL
     }
 
@@ -757,6 +824,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _count: *mut u32,
     ) -> HRESULT {
+        println!("x_store_download_and_install_packages_result_count");
         E_NOTIMPL
     }
 
@@ -766,6 +834,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _count: u32,
         _package_identifiers: *mut *mut c_char,
     ) -> HRESULT {
+        println!("x_store_download_and_install_packages_result");
         E_NOTIMPL
     }
 
@@ -775,6 +844,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _size: usize,
         _package_identifier: *mut c_char,
     ) -> HRESULT {
+        println!("x_store_query_package_identifier");
         E_NOTIMPL
     }
 
@@ -786,6 +856,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _callback: Option<XStoreGameLicenseChangedCallback>,
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT {
+        println!("x_store_register_game_license_changed");
         S_OK
     }
 
@@ -795,6 +866,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL {
+        println!("x_store_unregister_game_license_changed");
         true.into()
     }
 
@@ -806,6 +878,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _callback: Option<XStorePackageLicenseLostCallback>,
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT {
+        println!("x_store_register_package_license_lost");
         S_OK.into()
     }
 
@@ -815,6 +888,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _token: XTaskQueueRegistrationToken,
         _wait: BOOL,
     ) -> BOOL {
+        println!("x_store_unregister_package_license_lost");
         true.into()
     }
 
@@ -848,6 +922,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _product_kinds: XStoreProductKind,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_show_associated_products_u_i_async");
         E_NOTIMPL
     }
 
@@ -855,6 +930,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         &self,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_show_associated_products_u_i_result");
         E_NOTIMPL
     }
 
@@ -864,10 +940,12 @@ impl IXStore_Impl for XStoreObject_Impl {
         _store_id: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_show_product_page_u_i_async");
         E_NOTIMPL
     }
 
     unsafe fn x_store_show_product_page_u_i_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
+        println!("x_store_show_product_page_u_i_result");
         E_NOTIMPL
     }
 
@@ -879,6 +957,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _max_items_to_retrieve_per_page: u32,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_query_associated_products_for_store_id_async");
         E_NOTIMPL
     }
 
@@ -887,6 +966,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
+        println!("x_store_query_associated_products_for_store_id_result");
         E_NOTIMPL
     }
 
@@ -897,6 +977,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _package_identifiers_count: usize,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_query_package_updates_async");
         E_NOTIMPL
     }
 
@@ -905,6 +986,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _async_: *mut XAsyncBlock,
         _count: *mut u32,
     ) -> HRESULT {
+        println!("x_store_query_package_updates_result_count");
         E_NOTIMPL
     }
 
@@ -914,6 +996,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         _count: u32,
         _package_updates: *mut XStorePackageUpdate,
     ) -> HRESULT {
+        println!("x_store_query_package_updates_result");
         E_NOTIMPL
     }
 
@@ -925,15 +1008,18 @@ impl IXStore_Impl for XStoreObject_Impl {
         _extended_json_data: *const c_char,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        println!("x_store_show_gifting_u_i_asyncx_store_show_gifting_u_i_async");
         E_NOTIMPL
     }
 
     unsafe fn x_store_show_gifting_u_i_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
+        println!("x_store_show_gifting_u_i_result");
         E_NOTIMPL
     }
 }
 
 impl IXStore2_Impl for XStoreObject_Impl {}
+impl IXStore2_1_Impl for XStoreObject_Impl {}
 impl IXStoreAlias1_Impl for XStoreObject_Impl {}
 impl IXStoreAlias2_Impl for XStoreObject_Impl {}
 impl IXStoreAlias3_Impl for XStoreObject_Impl {}
@@ -1384,7 +1470,7 @@ pub fn query_api_impl(
     }
 
     let class_id = unsafe { *runtime_class_id };
-    // println!("query_api_impl: {:#8x}-{:#4x}-{:#4x}-{:#4x}", class_id.data1, class_id.data2, class_id.data3, class_id.data4);
+    println!("query_api_impl: {:?}", class_id);
     let res = match class_id {
         IXFeature::IID => {
             // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
@@ -1412,7 +1498,9 @@ pub fn query_api_impl(
         #[cfg(feature = "xasync")]
         xasync::CLSID_XASYNC => query(xasync_singleton(), interface_id, out),
         CLSID_XGAMESAVE => query(xstub_singleton(), interface_id, out),
-        // CLSID_XPACKAGE => query(xstub_singleton(), interface_id, out),
+        CLSID_XPACKAGE => query(xstub_singleton(), interface_id, out),
+        IXSystem::IID => query(xstub_singleton(), interface_id, out),
+        IXLaunch::IID => query(xstub_singleton(), interface_id, out),
         _ => {
             let resp = crate::delegated_query_api_impl(runtime_class_id, interface_id, out);
             if resp.is_err() {
