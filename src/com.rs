@@ -338,9 +338,40 @@ impl IXStore_Impl for XStoreObject_Impl {
         callback: Option<XStoreProductQueryCallback>,
     ) -> HRESULT {
         println!("x_store_enumerate_products_query");
-        let product = XStoreProduct {
-            store_id: c"9NN6VS9SPW2R".as_ptr(),
-            title: c"Halo 4".as_ptr(),
+        // let product = XStoreProduct {
+        //     store_id: c"9NN6VS9SPW2R".as_ptr(),
+        //     title: c"Halo 4".as_ptr(),
+        //     description: c"Erleben Sie die triumphale Wiederkehr des Master Chief, um ein uraltes Böses zu bekämpfen, das auf Rache und Vernichtung sinnt. Als Gestrandeter auf einer mysteriösen Welt sieht er sich neuen Feinden und einer tödlichen Technologie gegenüber, die die Welt für immer verändern werden.".as_ptr(),
+        //     language: c"de-DE".as_ptr(),
+        //     in_app_offer_token: null(),
+        //     link_uri: null_mut(),
+        //     product_kind: XStoreProductKind::Durable,
+        //     price: XStorePrice {
+        //         price: 32.0,
+        //         base_price: 32.0,
+        //         currency_code: c"EUR".as_ptr(),
+        //         formatted_base_price: [0i8; 16],
+        //         recurrence_price: 0.0,
+        //         formatted_price: [0i8; 16],
+        //         formatted_recurrence_price: [0i8; 16],
+        //         is_on_sale: false,
+        //         sale_end_date: 0,
+        //     },
+        //     has_digital_download: true,
+        //     is_in_user_collection: true,
+        //     keywords_count: 0,
+        //     keywords: null(),
+        //     skus_count: 0,
+        //     skus: null_mut(),
+        //     images_count: 0,
+        //     images: null_mut(),
+        //     videos_count: 0,
+        //     videos: null_mut(),
+        // };
+        // callback.unwrap()(&product, context);
+        let product: XStoreProduct = XStoreProduct {
+            store_id: c"9N9RNPBLR7X3".as_ptr(),
+            title: c"HaloReach".as_ptr(),
             description: c"Erleben Sie die triumphale Wiederkehr des Master Chief, um ein uraltes Böses zu bekämpfen, das auf Rache und Vernichtung sinnt. Als Gestrandeter auf einer mysteriösen Welt sieht er sich neuen Feinden und einer tödlichen Technologie gegenüber, die die Welt für immer verändern werden.".as_ptr(),
             language: c"de-DE".as_ptr(),
             in_app_offer_token: null(),
@@ -369,6 +400,7 @@ impl IXStore_Impl for XStoreObject_Impl {
             videos: null_mut(),
         };
         callback.unwrap()(&product, context);
+
         S_OK
     }
 

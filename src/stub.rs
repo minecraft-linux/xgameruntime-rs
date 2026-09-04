@@ -414,8 +414,10 @@ impl IXPackage_Impl for XStub_Impl {
 
     unsafe fn x_package_is_packaged_process(&self,) -> BOOL {
         println!("x_package_is_packaged_process");
-        // false.into()
-        true.into()
+        // false for halo campaign evolved
+        false.into()
+        // true for the halo mcc
+        // true.into()
     }
 
     unsafe fn x_package_create_installation_monitor(&self, package_identifier: *const c_char, selector_count: u32, selectors: *mut XPackageChunkSelector,_minimum_update_interval_ms: u32,_queue: XTaskQueueHandle, installation_monitor: *mut XPackageInstallationMonitorHandle) -> HRESULT {
@@ -453,7 +455,9 @@ impl IXPackage_Impl for XStub_Impl {
     }
 
     unsafe fn x_package_get_user_locale(&self, locale_size: usize, locale: *mut c_char) -> HRESULT {
-        todo!()
+        assert!(locale_size >= 3);
+        std::slice::from_raw_parts_mut(locale as *mut u8, 3).copy_from_slice(c"DE".to_bytes_with_nul());
+        S_OK
     }
 
     unsafe fn x_package_find_chunk_availability(&self,_package_identifier: *const c_char, selector_count: u32, selectors: *mut XPackageChunkSelector, availability: *mut XPackageChunkAvailability) -> HRESULT {
@@ -530,20 +534,36 @@ impl IXPackage_Impl for XStub_Impl {
     // }
     unsafe fn x_package_enumerate_packages2(self: &Self, _kind: XPackageKind, _scope: XPackageEnumerationScope, context: *mut c_void, callback: Option<XPackageEnumerationCallback>) -> HRESULT {
         println!("x_package_enumerate_packages2");
+        // let details = XPackageDetails {
+        //     package_identifier: c"Halo4".as_ptr(),
+        //     version: 100,
+        //     kind: XPackageKind::Content,
+        //     display_name: c"Halo4".as_ptr(),
+        //     description: c"Halo4".as_ptr(),
+        //     publisher: c"MS".as_ptr(),
+        //     store_id: c"9NN6VS9SPW2R".as_ptr(),
+        //     installing: false,
+        //     index: 0,
+        //     count: 2,
+        //     age_restricted: false,
+        //     title_i_d: c"9NN6VS9SPW2R".as_ptr(),
+        // };
+        // unsafe { callback.unwrap()(context, &details) };
         let details = XPackageDetails {
-            package_identifier: c"Halo4".as_ptr(),
+            package_identifier: c"HaloReach".as_ptr(),
             version: 100,
             kind: XPackageKind::Content,
-            display_name: c"Halo4".as_ptr(),
-            description: c"Halo4".as_ptr(),
+            display_name: c"HaloReach".as_ptr(),
+            description: c"HaloReach".as_ptr(),
             publisher: c"MS".as_ptr(),
-            store_id: c"9NN6VS9SPW2R".as_ptr(),
+            store_id: c"9N9RNPBLR7X3".as_ptr(),
             installing: false,
-            index: 0,
-            count: 1,
+            index: 1,
+            count: 2,
             age_restricted: false,
-            title_i_d: c"9NN6VS9SPW2R".as_ptr(),
+            title_i_d: c"9N9RNPBLR7X3".as_ptr(),
         };
+        
         unsafe { callback.unwrap()(context, &details) };
         S_OK
     }

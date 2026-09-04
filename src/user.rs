@@ -977,6 +977,7 @@ impl IXUser_Impl for XUser_Impl {
         ptr_to_buffer: *mut *mut XUserGetTokenAndSignatureData,
         buffer_used: *mut usize,
     ) -> HRESULT {
+        println!("x_user_get_token_and_signature_result a");
         match unsafe {
             xasync::get_result_dyn(async_, null_mut(), buffer_size, buffer, buffer_used)
         } {
