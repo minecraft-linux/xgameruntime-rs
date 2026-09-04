@@ -117,8 +117,9 @@ impl IXGameSave_Impl for XStub_Impl {
     unsafe fn x_game_save_close_provider(&self,_provider: XGameSaveProviderHandle) -> () {
     }
 
-    unsafe fn x_game_save_get_remaining_quota(&self,_provider: XGameSaveProviderHandle,_remaining_quota: *mut i64) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_get_remaining_quota(&self,_provider: XGameSaveProviderHandle, remaining_quota: *mut i64) -> HRESULT {
+        *remaining_quota = 16 * 1024 * 1024 as i64;
+        S_OK
     }
 
     unsafe fn x_game_save_get_remaining_quota_async(&self,_provider: XGameSaveProviderHandle, async_: *mut XAsyncBlock) -> HRESULT {
