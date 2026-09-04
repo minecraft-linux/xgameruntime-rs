@@ -137,13 +137,15 @@ impl IXGameSave_Impl for XStub_Impl {
         S_OK
     }
 
-    unsafe fn x_game_save_delete_container_async(&self,_provider: XGameSaveProviderHandle, container_name: *const c_char,_async_: *mut XAsyncBlock) -> HRESULT {
+    unsafe fn x_game_save_delete_container_async(&self,_provider: XGameSaveProviderHandle, container_name: *const c_char, async_: *mut XAsyncBlock) -> HRESULT {
         println!("x_game_save_delete_container {}", CStr::from_ptr(container_name).to_string_lossy());
-        E_FAIL
+        unsafe { xasync::run(async_, async {
+            Ok(())
+        } ) }
     }
 
-    unsafe fn x_game_save_delete_container_result(&self,_async_: *mut XAsyncBlock) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_delete_container_result(&self,async_: *mut XAsyncBlock) -> HRESULT {
+        unsafe { xasync::get_status(async_, false).map_or_else(|h|h, |_|S_OK) }
     }
 
     unsafe fn x_game_save_get_container_info(&self,_provider: XGameSaveProviderHandle, container_name: *const c_char, context: *mut c_void, callback: Option<XGameSaveContainerInfoCallback>) -> HRESULT {
