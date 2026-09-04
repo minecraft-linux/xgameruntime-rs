@@ -468,7 +468,7 @@ unsafe fn x_user_find_controller_for_user_with_ui_async(self: &Self, _user: XUse
 unsafe fn x_user_find_controller_for_user_with_ui_result(self: &Self, _async_: *mut XAsyncBlock, _device_id: *mut c_void) -> HRESULT;
 }
 
-#[implement(IXUser, IXUser2, IXUser3, IXUser4, IXUser5, IXUserDevice)]
+#[implement(IXUser, IXUser2, IXUser3, IXUser4, IXUser5, IXUser6, IXUserDevice)]
 pub struct XUser {
     pub runtime: tokio::runtime::Runtime,
     pub handle: Cell<Option<IXUserHandle>>,
