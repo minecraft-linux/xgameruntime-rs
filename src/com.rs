@@ -1313,9 +1313,10 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
 
     unsafe fn x_networking_query_preferred_local_udp_multiplayer_port(
         &self,
-        _preferred_local_udp_multiplayer_port: *mut u16,
+        preferred_local_udp_multiplayer_port: *mut u16,
     ) -> HRESULT {
-        todo!()
+        *preferred_local_udp_multiplayer_port = 1600u16;
+        S_OK
     }
 
     unsafe fn x_networking_query_preferred_local_udp_multiplayer_port_async(
@@ -1323,7 +1324,7 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         async_block: *mut XAsyncBlock,
     ) -> HRESULT {
         unsafe { xasync::run_sync(async_block, || {
-            return Ok(0u16);
+            return Ok(1600u16);
         }) }
     }
 
