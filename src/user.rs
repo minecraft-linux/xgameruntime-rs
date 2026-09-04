@@ -440,6 +440,9 @@ pub unsafe trait IXUser4: IXUser {}
 #[interface("eb9bf948-18dc-4d82-bbcc-40e0a809c4c0")]
 pub unsafe trait IXUser5: IXUser {}
 
+#[interface("1bf2f8c5-d507-4e52-bb05-f726d0e71161")]
+pub unsafe trait IXUser6: IXUser {}
+
 // XUserDefaultAudioEndpointUtf16ChangedCallback
 pub type XUserDefaultAudioEndpointUtf16ChangedCallback = unsafe extern "system" fn(_context: *mut c_void, _user: XUserLocalId, _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind, _endpoint_id_utf16: *const u16) -> ();
 
@@ -559,6 +562,7 @@ impl IXUser2_Impl for XUser_Impl {
 impl IXUser3_Impl for XUser_Impl {}
 impl IXUser4_Impl for XUser_Impl {}
 impl IXUser5_Impl for XUser_Impl {}
+impl IXUser6_Impl for XUser_Impl {}
 
 impl IXUser_Impl for XUser_Impl {
     unsafe fn x_user_duplicate_handle(
