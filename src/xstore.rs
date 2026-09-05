@@ -1,5 +1,6 @@
 use std::ffi::{c_char, c_void};
 
+use libc::time_t;
 use windows_core::{BOOL, HRESULT, IUnknown, interface};
 
 use crate::{
@@ -8,8 +9,20 @@ use crate::{
     xasync::XAsyncBlock,
 };
 
+const PRICE_MAX_SIZE : usize = 16;
+
 #[repr(C)]
-pub struct XStorePrice {}
+pub struct XStorePrice {
+    pub base_price: f32,
+    pub price: f32,
+    pub recurrence_price: f32,
+    pub currency_code: *const c_char,
+    pub formatted_base_price: [c_char; PRICE_MAX_SIZE],
+    pub formatted_price: [c_char; PRICE_MAX_SIZE],
+    pub formatted_recurrence_price: [c_char; PRICE_MAX_SIZE],
+    pub is_on_sale: bool,
+    pub sale_end_date: time_t,
+}
 
 pub type XStoreContextHandle = u64;
 pub type XStoreProductQueryHandle = u64;
@@ -165,7 +178,7 @@ impl Default for XStoreGameLicense {
     fn default() -> Self {
         Self {
             sku_store_id: [0; STORE_SKU_ID_SIZE],
-            is_active: false,
+            is_active: true,
             is_trial_owned_by_this_user: false,
             is_disc_license: false,
             is_trial: false,
@@ -699,4 +712,14 @@ pub unsafe trait IXStore: IUnknown {
         self: &Self,
         _async_: *mut XAsyncBlock,
     ) -> HRESULT;
+}
+
+#[interface("60B09F4E-1B85-45B1-826C-169118E230E1")]
+pub unsafe trait IXStore2 : IXStore2_1 {
+    
+}
+
+#[interface("de3dbdd4-0b37-4bdb-a10e-acf3a354d06a")]
+pub unsafe trait IXStore2_1 : IXStore {
+    
 }

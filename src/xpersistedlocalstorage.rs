@@ -12,9 +12,7 @@ pub struct XPersistentLocalStorageSpaceInfo {
     pub total_bytes: u64,
 }
 
-// Class _GUID_f4faf4d4_2d04_4fce_b3e0_474a713a3e84
-// IID _GUID_f4faf4d4_2d04_4fce_b3e0_474a713a3e84
-#[interface("f4faf4d4-2d04-4fce-b3e0-474a713a3e84")]
+#[interface("41a4e10c-5a7e-41d9-8c37-37bde62a07d6")]
 pub unsafe trait IXPersistentLocalStorage: IUnknown {
     // XPersistentLocalStorageGetPathSize
     pub unsafe fn x_persistent_local_storage_get_path_size(
@@ -51,3 +49,7 @@ pub unsafe trait IXPersistentLocalStorage: IUnknown {
         _mount_handle: *mut XPackageMountHandle,
     ) -> HRESULT;
 }
+
+#[interface("D29411DF-0794-4553-8B27-95FC02D0F75D")]
+pub unsafe trait IXPersistentLocalStorage2: IXPersistentLocalStorage { }
+

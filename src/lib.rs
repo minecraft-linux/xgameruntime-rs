@@ -1,7 +1,7 @@
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr::null_mut;
 use std::result::Result;
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 
 use windows::minwindef::LPARAM;
 use windows::windef::HWND;
@@ -12,7 +12,10 @@ use windows_core::{GUID, HRESULT, Interface};
 use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
 use windows_sys::minwindef::HMODULE;
 
+#[cfg(feature = "xuser")]
+mod authenticator;
 mod com;
+pub mod stub;
 pub mod results;
 pub mod threading;
 pub mod user;
@@ -193,10 +196,6 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
             }
         };
 
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .unwrap();
-
     Ok(DelegatedApi {
         module,
         initialize_api_impl_ex2,
@@ -204,6 +203,8 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
         uninitialize_api_impl,
     })
 }
+
+static START: Once = Once::new();
 
 fn initialize_delegate(
     gdk_ver: Ulong,
@@ -216,7 +217,11 @@ fn initialize_delegate(
         state.ref_count += 1;
         return S_OK;
     }
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
+    START.call_once(|| {
+        rustls::crypto::ring::default_provider()
+            .install_default().unwrap();
+            env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
+    });
     println!("Loading delegated API...");
 
     let api = match unsafe { load_delegated_api() } {
@@ -234,37 +239,38 @@ fn initialize_delegate(
     };
     if hr != S_OK {
         println!("Failed to initialize delegated API: {:#X}", hr.0);
-        unsafe {
-            FreeLibrary(api.module);
-        }
-        return hr;
+        // panic!("Failed to initialize delegated API");
+        // unsafe {
+        //     FreeLibrary(api.module);
+        // }
+        // return hr;
     }
 
     println!("Delegated API initialized successfully.");
 
-    let mut out: *mut c_void = std::ptr::null_mut();
+    // let mut out: *mut c_void = std::ptr::null_mut();
 
-    let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
+    // let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
 
-    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUser3::IID, &mut out) };
+    // let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUser3::IID, &mut out) };
 
-    assert_eq!(hr, HRESULT(0));
-    assert!(!out.is_null());
+    // assert_eq!(hr, HRESULT(0));
+    // assert!(!out.is_null());
 
-    if let Some(platform) = unsafe { IXUser3::from_raw_borrowed(&out) } {
-        let mut callback = XUserPlatformRemoteConnectEventHandler {
-            show: Some(show),
-            close: Some(hide),
-            context: std::ptr::null_mut(),
-        };
-        let hr = unsafe {
-            platform.x_user_platform_remote_connect_set_event_handlers(
-                std::ptr::null_mut(),
-                &mut callback,
-            )
-        };
-        assert_eq!(hr, HRESULT(0));
-    }
+    // if let Some(platform) = unsafe { IXUser3::from_raw_borrowed(&out) } {
+    //     let mut callback = XUserPlatformRemoteConnectEventHandler {
+    //         show: Some(show),
+    //         close: Some(hide),
+    //         context: std::ptr::null_mut(),
+    //     };
+    //     let hr = unsafe {
+    //         platform.x_user_platform_remote_connect_set_event_handlers(
+    //             std::ptr::null_mut(),
+    //             &mut callback,
+    //         )
+    //     };
+    //     assert_eq!(hr, HRESULT(0));
+    // }
 
     state.ref_count = 1;
     state.api = Some(api);
