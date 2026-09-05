@@ -1030,7 +1030,7 @@ impl IXUser_Impl for XUser_Impl {
                         let token_count = token.encode_utf16().count();
                         let token_start = size_of::<XUserGetTokenAndSignatureUtf16Data>();
 
-                        let req_size = token_start + token_count + 1;
+                        let req_size = token_start + (token_count + 1) * 2;
                         Ok::<_, HRESULT>((
                             move |b: *mut c_void, s: usize| {
                                 let data = &mut *b.cast::<XUserGetTokenAndSignatureUtf16Data>();
