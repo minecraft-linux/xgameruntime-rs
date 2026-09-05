@@ -254,14 +254,40 @@ impl IXGameSave_Impl for XStub_Impl {
         let container = unsafe { &*(container as *mut XGameSaveContainer) };
         println!("x_game_save_read_blob_data_async {}", container.container_name);
 
+        let mut blob_names_a = Vec::with_capacity(count_of_blobs as usize);
         for i in 0..unsafe { count_of_blobs } {
             println!("x_game_save_read_blob_data_async {} {}", container.container_name, unsafe { CStr::from_ptr(*blob_names.add(i as usize)) }.to_string_lossy());   
+            blob_names_a.push(unsafe { CStr::from_ptr(*blob_names.add(i as usize)) }.to_string_lossy().to_string());
         }
-        unsafe { xasync::run_dyn(async_, async move {
-            Ok((|buffer, size| {
+        let provider = unsafe { &*container.provider };
+        let file = Path::new(&provider.root).join(&container.container_name).clone();
 
-                0
-            }, 0))
+        unsafe { xasync::run_dyn(async_, async move {
+            Ok((move |buffer, size| {
+                let blob_data = buffer as *mut XGameSaveBlob;
+                let mut data : *mut u8 = blob_data.add(unsafe { count_of_blobs } as usize).cast();
+                for i in 0..unsafe { count_of_blobs } {
+                    let info = &mut *blob_data.add(i as usize);
+                    let name = &blob_names_a[i as usize];
+                    // advance data payload
+                    info.info.name = data as *mut i8;
+                    // copy c string‚
+                    std::slice::from_raw_parts_mut(data, name.len()).iter_mut().zip(name.as_bytes()).for_each(|(a, b)| *a = *b);
+                    data = data.add(name.len());
+                    // null byte
+                    *data = 0;
+                    data = data.add(1);
+
+                    let mut f = std::fs::File::open(file.join(name)).unwrap();
+                    info.info.size = f.metadata().unwrap().len() as u32;
+
+                    f.read_exact(std::slice::from_raw_parts_mut(data, info.info.size as usize)).unwrap();
+                    info.data = data;
+
+                    data = data.add(info.info.size as usize);
+                }
+                count_of_blobs as usize
+            }, count_of_blobs as usize))
         }) }
     }
 
@@ -409,10 +435,11 @@ impl IXGameSave2_Impl for XStub_Impl {
 }
 
 impl IXPackage_Impl for XStub_Impl {
-    unsafe fn x_package_get_current_process_package_identifier(&self,_buffer_size: usize,_buffer: *mut c_char) -> HRESULT {
+    unsafe fn x_package_get_current_process_package_identifier(&self, buffer_size: usize, buffer: *mut c_char) -> HRESULT {
         println!("x_package_get_current_process_package_identifier");
         // todo!()
-        E_NOTIMPL
+        std::slice::from_raw_parts_mut(buffer as *mut u8, 6).copy_from_slice(c"local".to_bytes_with_nul());
+        S_OK
     }
 
     unsafe fn x_package_is_packaged_process(&self,) -> BOOL {
@@ -589,7 +616,8 @@ impl IXPackage_Impl for XStub_Impl {
     }
 
     unsafe fn x_package_enumerate_features(&self,_package_identifier: *const c_char,_context: *mut c_void,_callback: Option<XPackageFeatureEnumerationCallback>) -> HRESULT {
-        todo!()
+        println!("x_package_enumerate_features");
+        S_OK
     }
 
     unsafe fn x_package_uninstall_package(&self,_package_identifier: *const c_char) -> BOOL {
