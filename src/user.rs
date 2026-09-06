@@ -1,7 +1,9 @@
 #[cfg(feature = "xuser")]
-use crate::authenticator::XalAuthenticator;
+use crate::{authenticator::XalAuthenticator, xbox_utils::ProfileUser};
 use crate::results::E_POINTER;
 use crate::threading::XAsyncBlock;
+#[cfg(feature = "xuser")]
+use crate::xbox_utils;
 use crate::{
     E_FAIL,
     results::S_OK,
@@ -9,8 +11,10 @@ use crate::{
     xasync,
 };
 #[cfg(feature = "xuser")]
-use reqwest::Client;
+use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "xuser")]
+use tokio_util::bytes::Bytes;
 use windows::libloaderapi::GetModuleFileNameW;
 use windows::minwindef::MAX_PATH;
 use xodus::models::licensing::LicenseUserIdentity;
@@ -826,29 +830,72 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_get_gamer_picture_async(
         &self,
-        _user: XUserHandle,
-        _picture_size: XUserGamerPictureSize,
-        _async_: *mut XAsyncBlock,
+        user: XUserHandle,
+        picture_size: XUserGamerPictureSize,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        println!("x_user_get_gamer_picture_async called");
+        #[cfg(feature = "xuser")]
+        {
+            let user = unsafe { IXUserHandle::from_raw_borrowed(&user) };
+            let xuid = user.map(|f| f.get_xuid());
+            let handle = user.map(|f| unsafe { (*f.get_runtime()).clone() }).unwrap();
+            let user = unsafe { (*user.unwrap().get_auth()).clone() };
+            unsafe {
+                xasync::run_dyn(async_, {
+                    async move {
+                        println!("x_user_get_gamer_picture_async async");
+                        let profile = get_gamerpicture(handle, user, xuid.unwrap(), picture_size).await;
+                        println!("x_user_get_gamer_picture_async got pic");
+                        let req_size = profile.len();
+                        Ok::<_, HRESULT>((
+                            move |b: *mut c_void, s: usize| {
+                                std::ptr::copy_nonoverlapping(
+                                    profile.as_ptr(),
+                                    b as *mut u8,
+                                    profile.len(),
+                                );
+                                return s;
+                            },
+                            req_size,
+                        ))
+                    }
+                })
+            }
+        }
+        #[cfg(not(feature = "xuser"))]
+        {
+            let _ = async_;
+            let _ = user;
+            crate::E_NOTIMPL
+        }
     }
 
     unsafe fn x_user_get_gamer_picture_result_size(
         &self,
-        _async_: *mut XAsyncBlock,
-        _buffer_size: *mut usize,
+        async_: *mut XAsyncBlock,
+        buffer_size: *mut usize,
     ) -> HRESULT {
-        todo!()
+        println!("x_user_get_gamer_picture_result_size");
+        let size = unsafe { xasync::get_result_size(async_).unwrap() };
+        unsafe { *buffer_size = size };
+        S_OK
     }
 
     unsafe fn x_user_get_gamer_picture_result(
         &self,
-        _async_: *mut XAsyncBlock,
-        _buffer_size: usize,
-        _buffer: *mut c_void,
-        _buffer_used: *mut usize,
+        async_: *mut XAsyncBlock,
+        buffer_size: usize,
+        buffer: *mut c_void,
+        buffer_used: *mut usize,
     ) -> HRESULT {
-        todo!()
+        println!("x_user_get_gamer_picture_result");
+        match unsafe {
+            xasync::get_result_dyn(async_, null_mut(), buffer_size, buffer, buffer_used)
+        } {
+            Err(hr) => hr,
+            _ => S_OK,
+        }
     }
 
     unsafe fn x_user_get_age_group(
@@ -1430,6 +1477,46 @@ async fn get_xsts_token(
         })
         .await
         .unwrap();
+    token
+}
+
+#[cfg(feature = "xuser")]
+async fn get_gamerpicture(
+    handle: tokio::runtime::Handle,
+    user: Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>,
+    xuid: u64,
+    size: XUserGamerPictureSize,
+) -> Bytes {
+    let token = handle
+        .spawn(async move {
+            let user = user.lock().await;
+            let user_token = user.auth.authorization_token.authorization_header_value();
+            let client = reqwest::Client::builder()
+                .use_rustls_tls()
+                .http1_only()
+                .connection_verbose(true)
+                .pool_max_idle_per_host(0)
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap();
+            let xuid = xuid.to_string();
+            let prof = xbox_utils::fetch_user_profiles(&client, &user_token, &[&xuid]).await.unwrap();
+            let prof = prof.into_iter().map(|(_, v)| v).next().unwrap();
+
+            let pic = prof.picture.unwrap() + match size {
+                XUserGamerPictureSize::Small => "&w=64&h=64",
+                XUserGamerPictureSize::Medium => "&w=208&h=208",
+                XUserGamerPictureSize::Large => "&w=424&h=424",
+                XUserGamerPictureSize::ExtraLarge => "&w=1080&h=1080",
+            };
+
+            let req= client.get(&pic).send().await.unwrap();
+            let data = req.bytes().await.unwrap();
+            Ok::<_,HRESULT>(data)
+        })
+        .await
+        .unwrap().unwrap();
     token
 }
 

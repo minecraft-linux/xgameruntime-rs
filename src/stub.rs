@@ -280,7 +280,9 @@ impl IXGameSave_Impl for XStub_Impl {
                 required_size += std::mem::size_of::<XGameSaveBlob>();
                 let name = &blob_names_a[i as usize];
                 required_size += name.len() + 1;
-                let f = std::fs::File::open(file.join(name)).unwrap();
+                let Ok(f) = std::fs::File::open(file.join(name)) else {
+                    return Err(E_FAIL);
+                };
                 required_size += f.metadata().unwrap().len() as usize;
             }
             
