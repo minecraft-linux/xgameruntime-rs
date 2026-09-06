@@ -261,7 +261,6 @@ impl IXGameSave_Impl for XStub_Impl {
         }
         let provider = unsafe { &*container.provider };
         let file = Path::new(&provider.root).join(&container.container_name).clone();
-
         unsafe { xasync::run_dyn(async_, async move {
             Ok((move |buffer, size| {
                 let blob_data = buffer as *mut XGameSaveBlob;
@@ -277,14 +276,23 @@ impl IXGameSave_Impl for XStub_Impl {
                     // null byte
                     *data = 0;
                     data = data.add(1);
+                    let h = std::fs::File::open(file.join(name));
+                    if h.is_ok() {
+                        let mut f = h.unwrap();
+                        info.info.size = f.metadata().unwrap().len() as u32;
 
-                    let mut f = std::fs::File::open(file.join(name)).unwrap();
-                    info.info.size = f.metadata().unwrap().len() as u32;
+                        let rs = f.read_exact(std::slice::from_raw_parts_mut(data, info.info.size as usize));
+                        if rs.is_err() {
+                            println!("read_exact error {:?}", rs.unwrap_err());
+                            info.info.size = 0;
+                        }
+                        info.data = data;
 
-                    f.read_exact(std::slice::from_raw_parts_mut(data, info.info.size as usize)).unwrap();
-                    info.data = data;
-
-                    data = data.add(info.info.size as usize);
+                        data = data.add(info.info.size as usize);
+                    } else {
+                        info.info.size = 0;
+                        info.data = data;
+                    }
                 }
                 count_of_blobs as usize
             }, count_of_blobs as usize))
