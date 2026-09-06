@@ -1460,7 +1460,13 @@ async fn get_xsts_token(
                 _ => match rb {
                     Ok(Some(rp)) => rp,
                     _ => {
-                        panic!("No relying party found for url: {}", url);
+                        let url = url::Url::parse(&url).unwrap();
+                        let host = url.host_str().unwrap();
+                        if host.ends_with(".atoma.cloud") || host.ends_with(".fatshark.services") || host.ends_with(".fatsharkgames.se") {
+                            "rp://bsp-auth.fatsharkgames.se/".to_owned()
+                        } else {
+                            panic!("No relying party found for url: {}", url);
+                        }
                     }
                 },
             };
