@@ -209,12 +209,25 @@ impl IXGameSave_Impl for XStub_Impl {
         if anyFiles { S_OK } else { E_FAIL }
     }
 
-    unsafe fn x_game_save_enumerate_blob_info_by_name(&self, container: XGameSaveContainerHandle, blob_name_prefix: *const c_char,_context: *mut c_void,_callback: Option<XGameSaveBlobInfoCallback>) -> HRESULT {
+    unsafe fn x_game_save_enumerate_blob_info_by_name(&self, container: XGameSaveContainerHandle, blob_name_prefix: *const c_char, context: *mut c_void, callback: Option<XGameSaveBlobInfoCallback>) -> HRESULT {
         let container = unsafe { &*(container as *mut XGameSaveContainer) };
-        println!("x_game_save_enumerate_blob_info_by_name {} {}", container.container_name, unsafe {
+        let provider = unsafe { &*container.provider };
+        let file = Path::new(&provider.root).join(&container.container_name);
+        let name = unsafe {
             CStr::from_ptr(blob_name_prefix).to_string_lossy()
-        });
-        S_OK
+        };
+        println!("x_game_save_enumerate_blob_info_by_name {} {}", container.container_name, name);
+
+        if let Ok(f) = std::fs::File::open(file.join(name.to_string())) {
+            let info = XGameSaveBlobInfo {
+                name: blob_name_prefix,
+                size: f.metadata().unwrap().len() as u32,
+            };
+            callback.unwrap()(&info, context);
+            S_OK
+        } else {
+            E_FAIL
+        }
     }
 
     unsafe fn x_game_save_read_blob_data(&self, container: XGameSaveContainerHandle, blob_names: *const *mut c_char, count_of_blobs: *mut u32, blobs_size: usize, blob_data: *mut XGameSaveBlob) -> HRESULT {
@@ -262,10 +275,20 @@ impl IXGameSave_Impl for XStub_Impl {
         let provider = unsafe { &*container.provider };
         let file = Path::new(&provider.root).join(&container.container_name).clone();
         unsafe { xasync::run_dyn(async_, async move {
+            let mut required_size = 0;
+            for i in 0..count_of_blobs {
+                required_size += std::mem::size_of::<XGameSaveBlob>();
+                let name = &blob_names_a[i as usize];
+                required_size += name.len() + 1;
+                let f = std::fs::File::open(file.join(name)).unwrap();
+                required_size += f.metadata().unwrap().len() as usize;
+            }
+            
             Ok((move |buffer, size| {
+                println!("x_game_save_read_blob_data_async size {size}");
                 let blob_data = buffer as *mut XGameSaveBlob;
-                let mut data : *mut u8 = blob_data.add(unsafe { count_of_blobs } as usize).cast();
-                for i in 0..unsafe { count_of_blobs } {
+                let mut data : *mut u8 = blob_data.add(count_of_blobs as usize).cast();
+                for i in 0..count_of_blobs {
                     let info = &mut *blob_data.add(i as usize);
                     let name = &blob_names_a[i as usize];
                     // advance data payload
@@ -276,33 +299,24 @@ impl IXGameSave_Impl for XStub_Impl {
                     // null byte
                     *data = 0;
                     data = data.add(1);
-                    let h = std::fs::File::open(file.join(name));
-                    if h.is_ok() {
-                        let mut f = h.unwrap();
-                        info.info.size = f.metadata().unwrap().len() as u32;
+                    let mut f = std::fs::File::open(file.join(name)).unwrap();
+                    info.info.size = f.metadata().unwrap().len() as u32;
 
-                        let rs = f.read_exact(std::slice::from_raw_parts_mut(data, info.info.size as usize));
-                        if rs.is_err() {
-                            println!("read_exact error {:?}", rs.unwrap_err());
-                            info.info.size = 0;
-                        }
-                        info.data = data;
+                    f.read_exact(std::slice::from_raw_parts_mut(data, info.info.size as usize)).unwrap();
+                    info.data = data;
 
-                        data = data.add(info.info.size as usize);
-                    } else {
-                        info.info.size = 0;
-                        info.data = data;
-                    }
+                    data = data.add(info.info.size as usize);
                 }
-                count_of_blobs as usize
-            }, count_of_blobs as usize))
+                println!("x_game_save_read_blob_data_async done size {size}");
+                required_size as usize
+            }, required_size))
         }) }
     }
 
     unsafe fn x_game_save_read_blob_data_result(&self,async_: *mut XAsyncBlock, blobs_size: usize, blob_data: *mut XGameSaveBlob, count_of_blobs: *mut u32) -> HRESULT {
         let mut used_size = 0;
         unsafe { xasync::get_result_dyn(async_, null_mut(), blobs_size, blob_data as *mut c_void, &mut used_size) }.unwrap();
-        unsafe { *count_of_blobs = used_size as u32 };
+        unsafe { *count_of_blobs = 1 as u32 };
         S_OK
     }
 
@@ -321,7 +335,7 @@ impl IXGameSave_Impl for XStub_Impl {
 
     unsafe fn x_game_save_submit_blob_write(&self, update_context: XGameSaveUpdateHandle, blob_name: *const c_char, data: *const u8, byte_count: usize) -> HRESULT {
         let update_context = unsafe { &*(update_context as *mut XGameSaveUpdate) };
-        println!("x_game_save_submit_blob_write {} {}", update_context.container_display_name, CStr::from_ptr(blob_name).to_string_lossy());
+        println!("x_game_save_submit_blob_write {} {} byte_count {byte_count}", update_context.container_display_name, CStr::from_ptr(blob_name).to_string_lossy());
         let container = unsafe { &*update_context.container };
         let provider = unsafe { &*container.provider };
         let file = Path::new(&provider.root).join(&container.container_name).join(CStr::from_ptr(blob_name).to_string_lossy().to_string());
@@ -354,6 +368,7 @@ impl IXGameSave_Impl for XStub_Impl {
     }
 
     unsafe fn x_game_save_submit_update_result(&self,_async_: *mut XAsyncBlock) -> HRESULT {
+        println!("x_game_save_submit_update_result");
         unsafe { xasync::get_status(_async_, false).map_or_else(|e|e, |_| S_OK) }
     }
 
