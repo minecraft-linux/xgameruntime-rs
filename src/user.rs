@@ -922,9 +922,11 @@ impl IXUser_Impl for XUser_Impl {
         unsafe {
             *has_privilege = 1;
         };
-        unsafe {
-            *reason = XUserPrivilegeDenyReason::None;
-        };
+        if !reason.is_null() {
+            unsafe {
+                *reason = XUserPrivilegeDenyReason::None;
+            };
+        }
         S_OK
     }
 
