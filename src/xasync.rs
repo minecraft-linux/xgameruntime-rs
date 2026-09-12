@@ -1,5 +1,5 @@
-use crate::S_OK;
 use crate::com::query_api_impl;
+use crate::{E_FAIL, S_OK};
 
 use crate::results::*;
 pub use crate::threading::{IXAsync, XAsyncBlock, XAsyncOp, XAsyncProvider, XAsyncProviderData};
@@ -76,6 +76,33 @@ pub unsafe fn get_result<T>(
             size_of::<T>() as usize,
             out.cast(),
             &mut buffer_used,
+        )
+    };
+    result((), hr)
+}
+
+pub unsafe fn get_result_dyn(
+    async_block: *mut XAsyncBlock,
+    identity: *const c_void,
+    buffer_size: usize,
+    buffer: *mut c_void,
+    buffer_used: *mut usize,
+) -> Result<(), HRESULT> {
+    let xasync = interface()?;
+    if !buffer_used.is_null() {
+        unsafe { *buffer_used = 0 };
+    }
+    let size = unsafe { get_result_size(async_block) }?;
+    if buffer_size < size {
+        return Err(E_FAIL);
+    }
+    let hr = unsafe {
+        xasync.x_async_get_result(
+            async_block.cast(),
+            identity.cast_mut(),
+            buffer_size,
+            buffer,
+            buffer_used,
         )
     };
     result((), hr)
@@ -205,6 +232,122 @@ where
             null_mut(),
             c"run_async".as_ptr(),
             run_async_helper::<T>,
+        )
+    } {
+        Ok(_) => S_OK,
+        Err(hr) => {
+            unsafe {
+                drop(Box::from_raw(async_context));
+            }
+            return hr;
+        }
+    }
+}
+
+struct XAsyncContextHelperDyn<F, R>
+where
+    F: Future<Output = Result<(R, usize), HRESULT>> + Send + 'static,
+    R: FnMut(*mut c_void, usize) -> usize,
+{
+    result: HRESULT,
+    canceled: bool,
+    payload: Option<R>,
+    future: Pin<Box<F>>,
+}
+
+unsafe extern "system" fn run_async_helper_dyn<F, R>(
+    op: XAsyncOp,
+    data: *const XAsyncProviderData,
+) -> HRESULT
+where
+    F: Future<Output = Result<(R, usize), HRESULT>> + Send + 'static,
+    R: FnMut(*mut c_void, usize) -> usize,
+{
+    let Some(data) = (unsafe { data.as_ref() }) else {
+        return E_POINTER;
+    };
+    let Some(async_context) =
+        (unsafe { (data.context as *mut XAsyncContextHelperDyn<F, R>).as_mut() })
+    else {
+        return E_POINTER;
+    };
+
+    assert_ne!(unsafe { &*data.async_ }.queue, null_mut());
+
+    match op {
+        XAsyncOp::Begin => unsafe { schedule(data.async_, 0) }
+            .map(|_| S_OK)
+            .unwrap_or_else(|hr| hr),
+        XAsyncOp::DoWork => {
+            let mut required_buffer_size = 0;
+            if async_context.canceled {
+                async_context.result = E_ABORT;
+            } else {
+                let waker = Waker::from(Arc::new(XAsyncWaker { block: data.async_ }));
+                let mut cx = Context::from_waker(&waker);
+                match async_context.future.as_mut().poll(&mut cx) {
+                    Poll::Ready(value) => {
+                        match value {
+                            Ok((value, len)) => {
+                                async_context.result = S_OK;
+                                required_buffer_size = len;
+                                async_context.payload = Some(value);
+                            }
+                            Err(hr) => async_context.result = hr,
+                        };
+                    }
+                    Poll::Pending => {
+                        return E_PENDING;
+                    }
+                }
+            }
+            unsafe { complete(data.async_, async_context.result, required_buffer_size) }
+                .map(|_| S_OK)
+                .unwrap_or_else(|hr| hr)
+        }
+        XAsyncOp::GetResult => {
+            if async_context.result == S_OK
+                && let Some(payload) = &mut async_context.payload
+            {
+                payload(data.buffer, data.buffer_size);
+            }
+            S_OK
+        }
+        XAsyncOp::Cancel => {
+            async_context.canceled = true;
+            S_OK
+        }
+        XAsyncOp::Cleanup => {
+            unsafe {
+                drop(Box::from_raw(async_context));
+            }
+            S_OK
+        }
+    }
+}
+
+pub unsafe fn run_dyn<F, R>(async_: *mut XAsyncBlock, future: F) -> HRESULT
+where
+    F: Future<Output = Result<(R, usize), HRESULT>> + Send + 'static,
+    R: FnMut(*mut c_void, usize) -> usize,
+{
+    if async_.is_null() {
+        return S_OK;
+    }
+
+    let async_context = Box::into_raw(Box::new(XAsyncContextHelperDyn {
+        canceled: false,
+        payload: None as Option<R>,
+        result: E_ABORT,
+        future: Box::pin(future),
+    }));
+    match unsafe {
+        begin(
+            async_,
+            async_context.cast(),
+            null_mut(),
+            c"run_async_dync_size".as_ptr(),
+            run_async_helper_dyn::<F, R>,
         )
     } {
         Ok(_) => S_OK,

@@ -15,6 +15,7 @@ pub enum XPackageChunkAvailability {
     Unavailable,
 }
 #[repr(u32)]
+#[derive(PartialEq)]
 pub enum XPackageChunkSelectorType {
     Language,
     Tag,
@@ -105,21 +106,21 @@ pub type XPackageChunkAvailabilityCallback = unsafe extern "system" fn(
 
 #[repr(C)]
 pub union XPackageChunkSelectorData {
-    language: *const c_char,
-    tag: *const c_char,
-    feature: *const c_char,
-    chunk_id: u32,
+    pub language: *const c_char,
+    pub tag: *const c_char,
+    pub feature: *const c_char,
+    pub chunk_id: u32,
 }
 
 #[repr(C)]
 pub struct XPackageChunkSelector {
-    type_: XPackageChunkSelectorType,
-    data: XPackageChunkSelectorData,
+    pub type_: XPackageChunkSelectorType,
+    pub data: XPackageChunkSelectorData,
 }
 
 // Class _GUID_af406016_e850_4aa8_a88d_2f3dcb9dac7e
 // IID _GUID_af406016_e850_4aa8_a88d_2f3dcb9dac7e
-#[interface("af406016-e850-4aa8-a88d-2f3dcb9dac7e")]
+#[interface("e2a4734b-2f4a-456d-aa8f-d065e04fb209")]
 pub unsafe trait IXPackage: IUnknown {
     // XPackageGetCurrentProcessPackageIdentifier
     pub unsafe fn x_package_get_current_process_package_identifier(
@@ -267,7 +268,7 @@ pub unsafe trait IXPackage: IUnknown {
     // XPackageCloseMountHandle
     pub unsafe fn x_package_close_mount_handle(self: &Self, _mount: XPackageMountHandle) -> ();
     pub unsafe fn __reserved_slot_27(&self);
-    pub unsafe fn __reserved_slot_28(&self);
+    pub unsafe fn x_package_enumerate_packages2(self: &Self, _kind: XPackageKind, _scope: XPackageEnumerationScope, _context: *mut c_void, _callback: Option<XPackageEnumerationCallback>) -> HRESULT;
     pub unsafe fn __reserved_slot_29(&self);
     // XPackageGetWriteStats
     pub unsafe fn x_package_get_write_stats(
@@ -323,3 +324,6 @@ pub unsafe trait IXPackage: IUnknown {
         _token: *mut XTaskQueueRegistrationToken,
     ) -> HRESULT;
 }
+
+#[interface("3720DE07-E8E4-44A3-AD32-B359E8ADBE55")]
+pub unsafe trait IXPackage2: IXPackage {}

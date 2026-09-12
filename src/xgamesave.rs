@@ -35,8 +35,8 @@ pub struct XGameSaveContainerInfo {
 }
 
 // Class _GUID_704c3f58_e629_4cc2_b197_30511b996fe2
-// IID _GUID_704c3f58_e629_4cc2_b197_30511b996fe2
-#[interface("704c3f58-e629-4cc2-b197-30511b996fe2")]
+
+#[interface("1bfff3af-f14a-40a3-8e35-9ada906593f9")]
 pub unsafe trait IXGameSave: IUnknown {
     // XGameSaveInitializeProvider
     pub unsafe fn x_game_save_initialize_provider(
@@ -267,4 +267,13 @@ pub unsafe trait IXGameSave: IUnknown {
     pub unsafe fn __reserved_slot_48(&self);
     // PFXGameSaveSetActiveDeviceChangedCallback
     pub unsafe fn __reserved_slot_49(&self);
+}
+
+#[interface("ab4ae4fb-6508-4950-a032-45fd4bf8c43b")]
+pub unsafe trait IXGameSave2: IXGameSave {
+}
+
+
+#[interface("704C3F58-E629-4CC2-B197-30511B996EE2")]
+pub unsafe trait IXGameSave3: IXGameSave {
 }

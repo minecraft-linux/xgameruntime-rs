@@ -69,3 +69,20 @@ pub unsafe trait IXSystem: IUnknown {
     // XSystemAllowFullDownloadBandwidth
     pub unsafe fn x_system_allow_full_download_bandwidth(self: &Self, _enable: BOOL) -> ();
 }
+
+#[interface("6fd71f09-7513-49f0-89bc-bfaf5df6f852")]
+pub unsafe trait IXSystem2: IXSystem {
+}
+
+
+#[interface("67ce4bfc-b1d1-4ac7-bc3a-cb9219a97a85")]
+pub unsafe trait IXSystem3: IXSystem2 {
+}
+
+#[interface("dadc2895-34b0-4ef5-a83e-45114d629b80")]
+pub unsafe trait IXSystem4: IXSystem3 {
+}
+
+#[interface("1861cf2e-e18b-4834-a9f5-b4a4e6efb4cf")]
+pub unsafe trait IXSystem5: IXSystem4 {
+}
