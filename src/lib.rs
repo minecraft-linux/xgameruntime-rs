@@ -20,6 +20,7 @@ pub mod results;
 pub mod threading;
 pub mod user;
 pub mod xasync;
+pub mod xbox_utils;
 pub mod xerror;
 pub mod xgameactivation;
 pub mod xgameinvite;
