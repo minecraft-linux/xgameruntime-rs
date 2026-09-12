@@ -49,7 +49,7 @@ impl IXSystem_Impl for XStub_Impl {
     }
 
     unsafe fn x_system_get_app_specific_device_id(&self,_app_specific_device_id_size: usize,_app_specific_device_id: *mut c_char,_app_specific_device_id_used: *mut usize) -> HRESULT {
-        todo!()
+        S_OK
     }
 
     unsafe fn x_system_handle_track(&self,_callback: XSystemHandleCallback,_context: *mut c_void) -> HRESULT {
