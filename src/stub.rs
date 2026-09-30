@@ -1,4 +1,4 @@
-use std::{ffi::{CStr, CString, c_char, c_void}, io::{Read, Write}, os::windows::fs::MetadataExt, path::Path, ptr::{dangling, null_mut}};
+use std::{ffi::{CStr, CString, c_char, c_void}, io::{self, Read, Write}, os::windows::fs::MetadataExt, path::Path, ptr::{null, null_mut}, str::{FromStr}};
 
 use windows::{libloaderapi::GetModuleFileNameW, minwindef::MAX_PATH};
 use windows_core::{BOOL, HRESULT, implement};
@@ -95,6 +95,36 @@ impl XGameSaveProvider {
     }
 }
 
+fn visit_dirs(dir: &Path, cb: &dyn Fn(&Path, &XGameSaveContainerInfo)) -> io::Result<()> {
+    if dir.is_dir() {
+        let mut container_info = XGameSaveContainerInfo {
+            blob_count: 0,
+            display_name: null(),
+            last_modified_time: 0,
+            name: null(),
+            needs_sync: false,
+            total_size: 0,
+        };
+
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                visit_dirs(&path, cb)?;
+            } else {
+                let md = entry.metadata().unwrap();
+                container_info.blob_count += 1;
+                container_info.total_size += md.len();
+                // md.modified().unwrap()
+            }
+        }
+        if container_info.blob_count > 0 {
+            cb(dir, &container_info);
+        }
+    }
+    Ok(())
+}
+
 impl IXGameSave_Impl for XStub_Impl {
     unsafe fn x_game_save_initialize_provider(&self,_requesting_user: XUserHandle,_configuration_id: *const c_char,_sync_on_demand: BOOL, provider: *mut XGameSaveProviderHandle) -> HRESULT {
         // todo!()
@@ -162,13 +192,53 @@ impl IXGameSave_Impl for XStub_Impl {
         S_OK
     }
 
-    unsafe fn x_game_save_enumerate_container_info(&self,_provider: XGameSaveProviderHandle,_context: *mut c_void,_callback: Option<XGameSaveContainerInfoCallback>) -> HRESULT {
+    unsafe fn x_game_save_enumerate_container_info(&self, provider: XGameSaveProviderHandle, context: *mut c_void, callback: Option<XGameSaveContainerInfoCallback>) -> HRESULT {
         println!("x_game_save_enumerate_container_info");
+        let provider_ = unsafe {
+            &*(provider as *mut XGameSaveProvider)
+        };
+        let root = Path::new(&provider_.root);
+        println!("root {}", provider_.root);
+        visit_dirs(root, &|e: &Path, data| {
+            let container_name = e.strip_prefix(root).unwrap();
+            let cn = CString::from_str(container_name.to_str().unwrap()).unwrap();
+            println!("entry {} {}", provider_.root, container_name.to_str().unwrap());
+            callback.map(|f| f(&XGameSaveContainerInfo{
+                blob_count: data.blob_count,
+                total_size: data.total_size,
+                last_modified_time: data.last_modified_time,
+                display_name: cn.as_ptr(),
+                name: cn.as_ptr(),
+                needs_sync: data.needs_sync,
+            }, context));
+        }).unwrap();
+        println!("ok");
         S_OK
     }
 
-    unsafe fn x_game_save_enumerate_container_info_by_name(&self,_provider: XGameSaveProviderHandle,_container_name_prefix: *const c_char,_context: *mut c_void,_callback: Option<XGameSaveContainerInfoCallback>) -> HRESULT {
-        todo!()
+    unsafe fn x_game_save_enumerate_container_info_by_name(&self, provider: XGameSaveProviderHandle, container_name_prefix: *const c_char, context: *mut c_void, callback: Option<XGameSaveContainerInfoCallback>) -> HRESULT {
+        println!("x_game_save_enumerate_container_info_by_name");
+        let provider_ = unsafe {
+            &*(provider as *mut XGameSaveProvider)
+        };
+        let container_name_prefix = CStr::from_ptr(container_name_prefix).to_str().unwrap();
+        let root = Path::new(&provider_.root);
+        visit_dirs(root, &|e: &Path, data| {
+            let container_name = e.strip_prefix(root).unwrap();
+            let cn = container_name.to_str().unwrap();
+            if cn.starts_with(container_name_prefix) {
+                let cn = CString::from_str(cn).unwrap();
+                callback.map(|f| f(&XGameSaveContainerInfo{
+                    blob_count: data.blob_count,
+                    total_size: data.total_size,
+                    last_modified_time: data.last_modified_time,
+                    display_name: cn.as_ptr(),
+                    name: cn.as_ptr(),
+                    needs_sync: data.needs_sync,
+                }, context));
+            }
+        }).unwrap();
+        S_OK
     }
 
     unsafe fn x_game_save_create_container(&self, provider: XGameSaveProviderHandle, container_name: *const c_char, container_context: *mut XGameSaveContainerHandle) -> HRESULT {
