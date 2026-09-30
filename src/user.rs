@@ -804,8 +804,13 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_find_user_by_id(&self, user_id: u64, handle: *mut XUserHandle) -> HRESULT {
         println!("x_user_find_user_by_id {}", user_id);
-        // *handle = (*self.handle.as_ptr()).clone().unwrap().into_raw();
-        E_FAIL
+        let h = self.handle.as_ptr();
+        if h.is_null() || handle.is_null(){
+            return E_FAIL;
+        }
+        *handle = (*h).clone().unwrap().into_raw();
+        println!("x_user_find_user_by_id ok {}", user_id);
+        S_OK
     }
 
     unsafe fn x_user_get_is_guest(&self, _user: XUserHandle, is_guest: *mut u8) -> HRESULT {
