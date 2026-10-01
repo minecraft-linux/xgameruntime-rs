@@ -9,7 +9,7 @@ use crate::{
     xasync::XAsyncBlock,
 };
 
-const PRICE_MAX_SIZE : usize = 16;
+const PRICE_MAX_SIZE: usize = 16;
 
 #[repr(C)]
 pub struct XStorePrice {
@@ -715,11 +715,7 @@ pub unsafe trait IXStore: IUnknown {
 }
 
 #[interface("60B09F4E-1B85-45B1-826C-169118E230E1")]
-pub unsafe trait IXStore2 : IXStore2_1 {
-    
-}
+pub unsafe trait IXStore2: IXStore2_1 {}
 
 #[interface("de3dbdd4-0b37-4bdb-a10e-acf3a354d06a")]
-pub unsafe trait IXStore2_1 : IXStore {
-    
-}
+pub unsafe trait IXStore2_1: IXStore {}

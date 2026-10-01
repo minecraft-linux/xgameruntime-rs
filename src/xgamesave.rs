@@ -270,10 +270,7 @@ pub unsafe trait IXGameSave: IUnknown {
 }
 
 #[interface("ab4ae4fb-6508-4950-a032-45fd4bf8c43b")]
-pub unsafe trait IXGameSave2: IXGameSave {
-}
-
+pub unsafe trait IXGameSave2: IXGameSave {}
 
 #[interface("704C3F58-E629-4CC2-B197-30511B996EE2")]
-pub unsafe trait IXGameSave3: IXGameSave {
-}
+pub unsafe trait IXGameSave3: IXGameSave {}

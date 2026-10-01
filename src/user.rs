@@ -1,5 +1,3 @@
-#[cfg(feature = "xuser")]
-use crate::{authenticator::XalAuthenticator, xbox_utils::ProfileUser};
 use crate::results::E_POINTER;
 use crate::threading::XAsyncBlock;
 #[cfg(feature = "xuser")]
@@ -11,36 +9,38 @@ use crate::{
     xasync,
 };
 #[cfg(feature = "xuser")]
+use crate::{authenticator::XalAuthenticator, xbox_utils::ProfileUser};
+#[cfg(feature = "xuser")]
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "xuser")]
-use tokio_util::bytes::Bytes;
-use windows::libloaderapi::GetModuleFileNameW;
-use windows::minwindef::MAX_PATH;
-use xodus::models::licensing::LicenseUserIdentity;
-#[cfg(feature = "xuser")]
-use xodus::models::soap::BodyContent;
 use std::cell::Cell;
 use std::io::Read;
 use std::path::Path;
-use std::ptr::{self, null_mut};
 #[cfg(feature = "xuser")]
 use std::ptr::slice_from_raw_parts_mut;
+use std::ptr::{self, null_mut};
 #[cfg(feature = "xuser")]
 use std::sync::Arc;
 use std::{
     ffi::{CStr, c_char},
     os::raw::c_void,
 };
+#[cfg(feature = "xuser")]
+use tokio_util::bytes::Bytes;
+use windows::libloaderapi::GetModuleFileNameW;
+use windows::minwindef::MAX_PATH;
 use windows_core::{BOOL, HRESULT, IUnknown, Interface, implement, interface};
 #[cfg(feature = "xuser")]
 use xal_new::{self as xal, SignaturePolicyCache};
 #[cfg(feature = "xuser")]
 use xal_new::{DeviceType, XalAppParameters, XalClientParameters};
+use xodus::models::licensing::LicenseUserIdentity;
 #[cfg(feature = "xuser")]
 use xodus::models::live::ExchangeUserTokenOutcome;
 #[cfg(feature = "xuser")]
 use xodus::models::secrets::Token;
+#[cfg(feature = "xuser")]
+use xodus::models::soap::BodyContent;
 #[cfg(feature = "xuser")]
 use xodus::{secrets, tokens::TokenManager};
 
@@ -249,11 +249,8 @@ pub unsafe trait IXUser: IUnknown {
         user_id: u64,
         handle: *mut XUserHandle,
     ) -> HRESULT;
-    pub unsafe fn x_user_get_is_guest(
-        self: &Self,
-        user: XUserHandle,
-        is_guest: *mut u8,
-    ) -> HRESULT;
+    pub unsafe fn x_user_get_is_guest(self: &Self, user: XUserHandle, is_guest: *mut u8)
+    -> HRESULT;
     pub unsafe fn x_user_get_state(
         self: &Self,
         user: XUserHandle,
@@ -432,7 +429,14 @@ pub unsafe trait IXUser: IUnknown {
 
 #[interface("cef4fac0-7676-4a94-a119-4c43f9eb5b74")]
 pub unsafe trait IXUser2: IUnknown {
-    unsafe fn x_user_get_gamertag(self: &Self, _user: XUserHandle, _gamertag_component: XUserGamertagComponent, _gamertag_size: usize, _gamertag: *mut c_char, _gamertag_used: *mut usize) -> HRESULT;
+    unsafe fn x_user_get_gamertag(
+        self: &Self,
+        _user: XUserHandle,
+        _gamertag_component: XUserGamertagComponent,
+        _gamertag_size: usize,
+        _gamertag: *mut c_char,
+        _gamertag_used: *mut usize,
+    ) -> HRESULT;
 }
 
 #[interface("26f3c674-a2fe-44fa-b6c4-a323bc94ff53")]
@@ -448,28 +452,72 @@ pub unsafe trait IXUser5: IXUser {}
 pub unsafe trait IXUser6: IXUser {}
 
 // XUserDefaultAudioEndpointUtf16ChangedCallback
-pub type XUserDefaultAudioEndpointUtf16ChangedCallback = unsafe extern "system" fn(_context: *mut c_void, _user: XUserLocalId, _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind, _endpoint_id_utf16: *const u16) -> ();
+pub type XUserDefaultAudioEndpointUtf16ChangedCallback = unsafe extern "system" fn(
+    _context: *mut c_void,
+    _user: XUserLocalId,
+    _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind,
+    _endpoint_id_utf16: *const u16,
+) -> ();
 
 // Class _GUID_7d824997_10dc_45ab_86b7_2737767c0bf1
 // IID _GUID_7d824997_10dc_45ab_86b7_2737767c0bf1
 #[interface("0cc6a956-e7e1-4fdf-9341-9d5da649ebc8")]
-pub unsafe trait IXUserDevice : IUnknown {
-// XUserFindForDevice
-unsafe fn x_user_find_for_device(self: &Self, _device_id: *const c_void, _handle: *mut XUserHandle) -> HRESULT;
-// XUserRegisterForDeviceAssociationChanged
-unsafe fn x_user_register_for_device_association_changed(self: &Self, _queue: XTaskQueueHandle, _context: *mut c_void, _callback: Option<XUserDeviceAssociationChangedCallback>, _token: *mut XTaskQueueRegistrationToken) -> HRESULT;
-// XUserUnregisterForDeviceAssociationChanged
-unsafe fn x_user_unregister_for_device_association_changed(self: &Self, _token: XTaskQueueRegistrationToken, _wait: BOOL) -> BOOL;
-// XUserGetDefaultAudioEndpointUtf16
-unsafe fn x_user_get_default_audio_endpoint_utf16(self: &Self, _user: XUserLocalId, _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind, _endpoint_id_utf16_count: usize, _endpoint_id_utf16: *mut u16, _endpoint_id_utf16_used: *mut usize) -> HRESULT;
-// XUserRegisterForDefaultAudioEndpointUtf16Changed
-unsafe fn x_user_register_for_default_audio_endpoint_utf16_changed(self: &Self, _queue: XTaskQueueHandle, _context: *mut c_void, _callback: Option<XUserDefaultAudioEndpointUtf16ChangedCallback>, _token: *mut XTaskQueueRegistrationToken) -> HRESULT;
-// XUserUnregisterForDefaultAudioEndpointUtf16Changed
-unsafe fn x_user_unregister_for_default_audio_endpoint_utf16_changed(self: &Self, _token: XTaskQueueRegistrationToken, _wait: BOOL) -> BOOL;
-// XUserFindControllerForUserWithUiAsync
-unsafe fn x_user_find_controller_for_user_with_ui_async(self: &Self, _user: XUserHandle, _async_: *mut XAsyncBlock) -> HRESULT;
-// XUserFindControllerForUserWithUiResult
-unsafe fn x_user_find_controller_for_user_with_ui_result(self: &Self, _async_: *mut XAsyncBlock, _device_id: *mut c_void) -> HRESULT;
+pub unsafe trait IXUserDevice: IUnknown {
+    // XUserFindForDevice
+    unsafe fn x_user_find_for_device(
+        self: &Self,
+        _device_id: *const c_void,
+        _handle: *mut XUserHandle,
+    ) -> HRESULT;
+    // XUserRegisterForDeviceAssociationChanged
+    unsafe fn x_user_register_for_device_association_changed(
+        self: &Self,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: Option<XUserDeviceAssociationChangedCallback>,
+        _token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT;
+    // XUserUnregisterForDeviceAssociationChanged
+    unsafe fn x_user_unregister_for_device_association_changed(
+        self: &Self,
+        _token: XTaskQueueRegistrationToken,
+        _wait: BOOL,
+    ) -> BOOL;
+    // XUserGetDefaultAudioEndpointUtf16
+    unsafe fn x_user_get_default_audio_endpoint_utf16(
+        self: &Self,
+        _user: XUserLocalId,
+        _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind,
+        _endpoint_id_utf16_count: usize,
+        _endpoint_id_utf16: *mut u16,
+        _endpoint_id_utf16_used: *mut usize,
+    ) -> HRESULT;
+    // XUserRegisterForDefaultAudioEndpointUtf16Changed
+    unsafe fn x_user_register_for_default_audio_endpoint_utf16_changed(
+        self: &Self,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: Option<XUserDefaultAudioEndpointUtf16ChangedCallback>,
+        _token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT;
+    // XUserUnregisterForDefaultAudioEndpointUtf16Changed
+    unsafe fn x_user_unregister_for_default_audio_endpoint_utf16_changed(
+        self: &Self,
+        _token: XTaskQueueRegistrationToken,
+        _wait: BOOL,
+    ) -> BOOL;
+    // XUserFindControllerForUserWithUiAsync
+    unsafe fn x_user_find_controller_for_user_with_ui_async(
+        self: &Self,
+        _user: XUserHandle,
+        _async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XUserFindControllerForUserWithUiResult
+    unsafe fn x_user_find_controller_for_user_with_ui_result(
+        self: &Self,
+        _async_: *mut XAsyncBlock,
+        _device_id: *mut c_void,
+    ) -> HRESULT;
 }
 
 #[implement(IXUser, IXUser2, IXUser3, IXUser4, IXUser5, IXUser6, IXUserDevice)]
@@ -553,9 +601,18 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
 }
 
 impl IXUser2_Impl for XUser_Impl {
-    unsafe fn x_user_get_gamertag(&self,_user: XUserHandle,_gamertag_component: XUserGamertagComponent,_gamertag_size: usize,gamertag: *mut c_char,gamertag_used: *mut usize) -> HRESULT {
+    unsafe fn x_user_get_gamertag(
+        &self,
+        _user: XUserHandle,
+        _gamertag_component: XUserGamertagComponent,
+        _gamertag_size: usize,
+        gamertag: *mut c_char,
+        gamertag_used: *mut usize,
+    ) -> HRESULT {
         println!("x_user_get_gamertag");
-        unsafe { std::ptr::copy_nonoverlapping(c"ChristopherHX".as_ptr(), gamertag as *mut i8, 14) };
+        unsafe {
+            std::ptr::copy_nonoverlapping(c"ChristopherHX".as_ptr(), gamertag as *mut i8, 14)
+        };
         if !gamertag_used.is_null() {
             unsafe { *gamertag_used = 13 };
         }
@@ -758,7 +815,11 @@ impl IXUser_Impl for XUser_Impl {
         println!("x_user_add_result {}", err);
         if err.is_ok() {
             self.handle.replace(unsafe {
-                Some(IXUserHandle::from_raw_borrowed(&*new_user).cloned().unwrap())
+                Some(
+                    IXUserHandle::from_raw_borrowed(&*new_user)
+                        .cloned()
+                        .unwrap(),
+                )
             });
         }
         err
@@ -805,7 +866,7 @@ impl IXUser_Impl for XUser_Impl {
     unsafe fn x_user_find_user_by_id(&self, user_id: u64, handle: *mut XUserHandle) -> HRESULT {
         println!("x_user_find_user_by_id {}", user_id);
         let h = self.handle.as_ptr();
-        if h.is_null() || handle.is_null(){
+        if h.is_null() || handle.is_null() {
             return E_FAIL;
         }
         *handle = (*h).clone().unwrap().into_raw();
@@ -850,7 +911,8 @@ impl IXUser_Impl for XUser_Impl {
                 xasync::run_dyn(async_, {
                     async move {
                         println!("x_user_get_gamer_picture_async async");
-                        let profile = get_gamerpicture(handle, user, xuid.unwrap(), picture_size).await;
+                        let profile =
+                            get_gamerpicture(handle, user, xuid.unwrap(), picture_size).await;
                         println!("x_user_get_gamer_picture_async got pic");
                         let req_size = profile.len();
                         Ok::<_, HRESULT>((
@@ -1288,35 +1350,74 @@ impl IXUser_Impl for XUser_Impl {
 }
 
 impl IXUserDevice_Impl for XUser_Impl {
-    unsafe fn x_user_find_for_device(&self,_device_id: *const c_void,_handle: *mut XUserHandle) -> HRESULT {
+    unsafe fn x_user_find_for_device(
+        &self,
+        _device_id: *const c_void,
+        _handle: *mut XUserHandle,
+    ) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_user_register_for_device_association_changed(&self,_queue: XTaskQueueHandle,_context: *mut c_void,_callback: Option<XUserDeviceAssociationChangedCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {
+    unsafe fn x_user_register_for_device_association_changed(
+        &self,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: Option<XUserDeviceAssociationChangedCallback>,
+        _token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_user_unregister_for_device_association_changed(&self,_token: XTaskQueueRegistrationToken,_wait: BOOL) -> BOOL {
+    unsafe fn x_user_unregister_for_device_association_changed(
+        &self,
+        _token: XTaskQueueRegistrationToken,
+        _wait: BOOL,
+    ) -> BOOL {
         todo!()
     }
 
-    unsafe fn x_user_get_default_audio_endpoint_utf16(&self,_user: XUserLocalId,_default_audio_endpoint_kind: XUserDefaultAudioEndpointKind,_endpoint_id_utf16_count: usize,_endpoint_id_utf16: *mut u16,_endpoint_id_utf16_used: *mut usize) -> HRESULT {
+    unsafe fn x_user_get_default_audio_endpoint_utf16(
+        &self,
+        _user: XUserLocalId,
+        _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind,
+        _endpoint_id_utf16_count: usize,
+        _endpoint_id_utf16: *mut u16,
+        _endpoint_id_utf16_used: *mut usize,
+    ) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_user_register_for_default_audio_endpoint_utf16_changed(&self,_queue: XTaskQueueHandle,_context: *mut c_void,_callback: Option<XUserDefaultAudioEndpointUtf16ChangedCallback> ,_token: *mut XTaskQueueRegistrationToken) -> HRESULT {
+    unsafe fn x_user_register_for_default_audio_endpoint_utf16_changed(
+        &self,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: Option<XUserDefaultAudioEndpointUtf16ChangedCallback>,
+        _token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_user_unregister_for_default_audio_endpoint_utf16_changed(&self,_token: XTaskQueueRegistrationToken,_wait: BOOL) -> BOOL {
+    unsafe fn x_user_unregister_for_default_audio_endpoint_utf16_changed(
+        &self,
+        _token: XTaskQueueRegistrationToken,
+        _wait: BOOL,
+    ) -> BOOL {
         todo!()
     }
 
-    unsafe fn x_user_find_controller_for_user_with_ui_async(&self,_user: XUserHandle,_async_: *mut XAsyncBlock) -> HRESULT {
+    unsafe fn x_user_find_controller_for_user_with_ui_async(
+        &self,
+        _user: XUserHandle,
+        _async_: *mut XAsyncBlock,
+    ) -> HRESULT {
         todo!()
     }
 
-    unsafe fn x_user_find_controller_for_user_with_ui_result(&self,_async_: *mut XAsyncBlock,_device_id: *mut c_void) -> HRESULT {
+    unsafe fn x_user_find_controller_for_user_with_ui_result(
+        &self,
+        _async_: *mut XAsyncBlock,
+        _device_id: *mut c_void,
+    ) -> HRESULT {
         todo!()
     }
 }
@@ -1467,7 +1568,10 @@ async fn get_xsts_token(
                     _ => {
                         let url = url::Url::parse(&url).unwrap();
                         let host = url.host_str().unwrap();
-                        if host.ends_with(".atoma.cloud") || host.ends_with(".fatshark.services") || host.ends_with(".fatsharkgames.se") {
+                        if host.ends_with(".atoma.cloud")
+                            || host.ends_with(".fatshark.services")
+                            || host.ends_with(".fatsharkgames.se")
+                        {
                             "rp://bsp-auth.fatsharkgames.se/".to_owned()
                         } else {
                             panic!("No relying party found for url: {}", url);
@@ -1514,22 +1618,26 @@ async fn get_gamerpicture(
                 .build()
                 .unwrap();
             let xuid = xuid.to_string();
-            let prof = xbox_utils::fetch_user_profiles(&client, &user_token, &[&xuid]).await.unwrap();
+            let prof = xbox_utils::fetch_user_profiles(&client, &user_token, &[&xuid])
+                .await
+                .unwrap();
             let prof = prof.into_iter().map(|(_, v)| v).next().unwrap();
 
-            let pic = prof.picture.unwrap() + match size {
-                XUserGamerPictureSize::Small => "&w=64&h=64",
-                XUserGamerPictureSize::Medium => "&w=208&h=208",
-                XUserGamerPictureSize::Large => "&w=424&h=424",
-                XUserGamerPictureSize::ExtraLarge => "&w=1080&h=1080",
-            };
+            let pic = prof.picture.unwrap()
+                + match size {
+                    XUserGamerPictureSize::Small => "&w=64&h=64",
+                    XUserGamerPictureSize::Medium => "&w=208&h=208",
+                    XUserGamerPictureSize::Large => "&w=424&h=424",
+                    XUserGamerPictureSize::ExtraLarge => "&w=1080&h=1080",
+                };
 
-            let req= client.get(&pic).send().await.unwrap();
+            let req = client.get(&pic).send().await.unwrap();
             let data = req.bytes().await.unwrap();
-            Ok::<_,HRESULT>(data)
+            Ok::<_, HRESULT>(data)
         })
         .await
-        .unwrap().unwrap();
+        .unwrap()
+        .unwrap();
     token
 }
 
@@ -1539,10 +1647,7 @@ pub async fn do_license_token(
     manager: &TokenManager,
     products: Vec<String>,
     custom_developer_string: String,
-) -> Result<
-    String,
-    Box<dyn std::error::Error>,
-> {
+) -> Result<String, Box<dyn std::error::Error>> {
     let Token::Legacy(token) = manager.get_user_sts_token()? else {
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::AddrNotAvailable,
@@ -1592,28 +1697,35 @@ pub async fn do_license_token(
         ExchangeUserTokenOutcome::Fault(_) => {
             todo!()
         }
-        ExchangeUserTokenOutcome::Issued(
-            BodyContent::RequestSecurityTokenResponseCollection(mut collection),
-        ) => {
+        ExchangeUserTokenOutcome::Issued(BodyContent::RequestSecurityTokenResponseCollection(
+            mut collection,
+        )) => {
             let token = collection.security_tokens.remove(0);
             token.into()
         }
-        ExchangeUserTokenOutcome::Issued(BodyContent::RequestSecurityTokenResponse(
-            token,
-        )) => (*token).into(),
+        ExchangeUserTokenOutcome::Issued(BodyContent::RequestSecurityTokenResponse(token)) => {
+            (*token).into()
+        }
         _ => unreachable!("Only responses are handled"),
     };
     let Token::Compact(user_token) = user_token else {
         todo!();
     };
 
-    let token = get_license_token(client, ms_device_token, user_token, user.puid, products, custom_developer_string).await?;
+    let token = get_license_token(
+        client,
+        ms_device_token,
+        user_token,
+        user.puid,
+        products,
+        custom_developer_string,
+    )
+    .await?;
 
     Ok(token)
 }
 
 // {"parentProductId":"9PGW18NPBZV5","enforceSellableBy":true,"relatedProductIds":"[\"9NZ12RV7B7R3\",\"9P0WDBKKS7MK\",\"9MV1BF8J0TTX\",\"9P427LFN9KCD\",\"9NBLGGH2JHXJ\",\"9MV69L4JSD31\",\"9P1XF6ZQGV3R\",\"9P5JQ1XPRGN6\",\"9N98Z825TNFW\",\"9P4BFQNXLMDR\",\"9NGG3CWJMC7V\",\"9PBP71DDVCT9\",\"9PB1LJZFN9XK\",\"9P2VR3K66TJX\",\"9P4HCS6S5C2K\",\"9N5KX36SQJ9Q\",\"9P8MK4NC0LJB\",\"9P5KH0238TPW\",\"9P45BPZCP004\",\"9PKCNQ57B2JG\",\"9N6184JJ7NSG\"]","customDeveloperString":"c0c83208-ea4f-4c64-b4f4-9667120cf9f2","beneficiaries":[{"identityValue":"t=<token>","localTicketReference":"<reference>","identityType":"Msa"}]}
-
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1643,9 +1755,12 @@ pub async fn get_license_token(
         .post("https://licensing.mp.microsoft.com/v8.0/licenseToken")
         .header("from", "XboxLicenseManager")
         .header("Authorization", device_ms_token)
-        .header("user-agent", "XboxLm-PC/Microsoft.GamingServices_32.107.4002.0_x64__8wekyb3d8bbwe")
+        .header(
+            "user-agent",
+            "XboxLm-PC/Microsoft.GamingServices_32.107.4002.0_x64__8wekyb3d8bbwe",
+        )
         .json(&LicenseTokenRequest {
-            parent_product_id: load_game_config().unwrap().store_id,//
+            parent_product_id: load_game_config().unwrap().store_id, //
             enforce_sellable_by: true,
             related_product_ids: products,
             custom_developer_string: custom_developer_string,
@@ -1661,7 +1776,7 @@ pub async fn get_license_token(
     // println!("status {}", response.status());
     // let resp = response.text().await.unwrap();
     // println!("{}", resp);
-    let token_resp : LicenseTokenResponse = response.json().await?;
+    let token_resp: LicenseTokenResponse = response.json().await?;
 
     Ok(token_resp.license_token)
 }
@@ -1695,7 +1810,6 @@ async fn test() {
 
         // let def_policy = SignaturePolicyCache::new(r);
 
-
         // let (_, resp, _) = do_sisu(&client, &tokens, "0000000040159362", 896928775, def_policy)
         //     .await
         //     .expect("ok");
@@ -1704,12 +1818,17 @@ async fn test() {
         // println!("user {}", resp.user_token.token);
         // println!("webpage {}", resp.web_page);
 
-
-        let token = do_license_token(&client, &tokens, vec!["9NZ12RV7B7R3".to_owned(), "9P0WDBKKS7MK".to_owned()], "0A5E1450-0D5F-40E3-A8BC-543707684BF4".to_owned()).await.unwrap();
+        let token = do_license_token(
+            &client,
+            &tokens,
+            vec!["9NZ12RV7B7R3".to_owned(), "9P0WDBKKS7MK".to_owned()],
+            "0A5E1450-0D5F-40E3-A8BC-543707684BF4".to_owned(),
+        )
+        .await
+        .unwrap();
         println!("{}", token);
         // do_sisu(&client, &tokens, ).await.unwrap();
     }
-
 }
 
 pub async fn load_game_config_async() -> Option<Game> {
@@ -1720,7 +1839,7 @@ pub async fn load_game_config_async() -> Option<Game> {
         let path = String::from_utf16_lossy(&path[..len as usize]);
         let mut path = Path::new(&path);
 
-        let Some(parent) = path.parent()else {
+        let Some(parent) = path.parent() else {
             break;
         };
 
@@ -1747,7 +1866,7 @@ pub fn load_game_config() -> Option<Game> {
     loop {
         println!("{}", path.to_string_lossy());
 
-        let Some(parent) = path.parent()else {
+        let Some(parent) = path.parent() else {
             break;
         };
 

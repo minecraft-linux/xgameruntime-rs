@@ -34,10 +34,15 @@ use crate::xnetworking::{
 };
 use crate::xpackage::{IXPackage, XPackageMountHandle};
 use crate::xpersistedlocalstorage::{
-    IXPersistentLocalStorage_Impl, IXPersistentLocalStorage2, IXPersistentLocalStorage2_Impl, XPersistentLocalStorageSpaceInfo,
+    IXPersistentLocalStorage_Impl, IXPersistentLocalStorage2, IXPersistentLocalStorage2_Impl,
+    XPersistentLocalStorageSpaceInfo,
 };
 use crate::xstore::{
-    self, IXStore, IXStore_Impl, IXStore2, IXStore2_1_Impl, IXStore2_Impl, XStoreAddonLicense, XStoreCanAcquireLicenseResult, XStoreConsumableResult, XStoreContextHandle, XStoreGameLicense, XStoreGameLicenseChangedCallback, XStoreLicenseHandle, XStorePackageLicenseLostCallback, XStorePackageUpdate, XStorePrice, XStoreProduct, XStoreProductKind, XStoreProductQueryCallback, XStoreProductQueryHandle, XStoreRateAndReviewResult,
+    self, IXStore, IXStore_Impl, IXStore2, IXStore2_1_Impl, IXStore2_Impl, XStoreAddonLicense,
+    XStoreCanAcquireLicenseResult, XStoreConsumableResult, XStoreContextHandle, XStoreGameLicense,
+    XStoreGameLicenseChangedCallback, XStoreLicenseHandle, XStorePackageLicenseLostCallback,
+    XStorePackageUpdate, XStorePrice, XStoreProduct, XStoreProductKind, XStoreProductQueryCallback,
+    XStoreProductQueryHandle, XStoreRateAndReviewResult,
 };
 use crate::xsystem::IXSystem;
 use crate::{E_FAIL, E_NOTIMPL, results::*, threading, xasync};
@@ -283,9 +288,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_query_entitled_products_async");
-        unsafe { xasync::run(async_, async {
-            Ok(0 as XStoreProductQueryHandle)
-        }) }
+        unsafe { xasync::run(async_, async { Ok(0 as XStoreProductQueryHandle) }) }
     }
 
     unsafe fn x_store_query_entitled_products_result(
@@ -294,7 +297,10 @@ impl IXStore_Impl for XStoreObject_Impl {
         product_query_handle: *mut XStoreProductQueryHandle,
     ) -> HRESULT {
         println!("x_store_query_entitled_products_result");
-        unsafe { xasync::get_result(async_, null_mut(), product_query_handle).map_or_else(|a| a, |_|S_OK) }
+        unsafe {
+            xasync::get_result(async_, null_mut(), product_query_handle)
+                .map_or_else(|a| a, |_| S_OK)
+        }
     }
 
     unsafe fn x_store_query_product_for_current_game_async(
@@ -443,9 +449,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_acquire_license_for_package_async");
-        unsafe { xasync::run(async_, async {
-            Ok(1 as XStoreLicenseHandle)
-        }) }
+        unsafe { xasync::run(async_, async { Ok(1 as XStoreLicenseHandle) }) }
     }
 
     unsafe fn x_store_acquire_license_for_package_result(
@@ -454,7 +458,8 @@ impl IXStore_Impl for XStoreObject_Impl {
         store_license_handle: *mut XStoreLicenseHandle,
     ) -> HRESULT {
         println!("x_store_acquire_license_for_package_result");
-        unsafe { xasync::get_result(async_, null_mut(), store_license_handle) }.map_or_else(|h|h, |_|S_OK)
+        unsafe { xasync::get_result(async_, null_mut(), store_license_handle) }
+            .map_or_else(|h| h, |_| S_OK)
     }
 
     unsafe fn x_store_is_license_valid(&self, _store_license_handle: XStoreLicenseHandle) -> BOOL {
@@ -640,46 +645,58 @@ impl IXStore_Impl for XStoreObject_Impl {
         let mut products = Vec::with_capacity(product_ids_count);
         unsafe {
             for i in 0..product_ids_count {
-                products.push(CStr::from_ptr(*product_ids.add(i)).to_str().unwrap().to_owned());
+                products.push(
+                    CStr::from_ptr(*product_ids.add(i))
+                        .to_str()
+                        .unwrap()
+                        .to_owned(),
+                );
             }
-            let dev_str = CStr::from_ptr(custom_developer_string).to_str().unwrap().to_owned();
-            xasync::run_dyn(async_, async move{
-                let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-                let token = runtime.spawn(async {
-                    let client = reqwest::Client::builder()
-                        .use_rustls_tls()
-                        .http1_only()
-                        .connection_verbose(true)
-                        .pool_max_idle_per_host(0)
-                        .connect_timeout(std::time::Duration::from_secs(5))
-                        .timeout(std::time::Duration::from_secs(10))
-                        .build()
-                        .unwrap(); //
-                    std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
-                    println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
-                    secrets::init_secrets().expect("Unable to initialize credentials");
-                    let tokens: TokenManager = TokenManager::with_keychain_and_memory();
+            let dev_str = CStr::from_ptr(custom_developer_string)
+                .to_str()
+                .unwrap()
+                .to_owned();
+            xasync::run_dyn(async_, async move {
+                let runtime = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let token = runtime
+                    .spawn(async {
+                        let client = reqwest::Client::builder()
+                            .use_rustls_tls()
+                            .http1_only()
+                            .connection_verbose(true)
+                            .pool_max_idle_per_host(0)
+                            .connect_timeout(std::time::Duration::from_secs(5))
+                            .timeout(std::time::Duration::from_secs(10))
+                            .build()
+                            .unwrap(); //
+                        std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
+                        println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
+                        secrets::init_secrets().expect("Unable to initialize credentials");
+                        let tokens: TokenManager = TokenManager::with_keychain_and_memory();
 
-                    let token = do_license_token(&client, &tokens, products, dev_str).await.unwrap();
-                    println!("{}", token);
+                        let token = do_license_token(&client, &tokens, products, dev_str)
+                            .await
+                            .unwrap();
+                        println!("{}", token);
 
-                    token
-                }).await.unwrap();
+                        token
+                    })
+                    .await
+                    .unwrap();
 
                 let req_size = token.len() + 1;
                 Ok::<_, HRESULT>((
                     move |b: *mut c_void, s: usize| {
-                        std::ptr::copy_nonoverlapping(
-                            token.as_ptr(),
-                            b as *mut u8,
-                            token.len(),
-                        );
+                        std::ptr::copy_nonoverlapping(token.as_ptr(), b as *mut u8, token.len());
                         unsafe { *((b as *mut u8).add(token.len())) = 0 };
                         return s;
                     },
                     req_size,
                 ))
-            } )
+            })
         }
     }
 
@@ -711,15 +728,17 @@ impl IXStore_Impl for XStoreObject_Impl {
         println!("x_store_query_license_token_result");
         // E_NOTIMPL
         match unsafe {
-            xasync::get_result_dyn(async_, null_mut(), size, result as * mut c_void, null_mut())
+            xasync::get_result_dyn(async_, null_mut(), size, result as *mut c_void, null_mut())
         } {
             Err(hr) => return hr,
             _ => {
-                println!("x_store_query_license_token_result: {}", CStr::from_ptr(result).to_string_lossy());
+                println!(
+                    "x_store_query_license_token_result: {}",
+                    CStr::from_ptr(result).to_string_lossy()
+                );
                 S_OK
-            },
+            }
         }
-
     }
 
     unsafe fn __reserved_slot_46(&self) {
@@ -742,15 +761,18 @@ impl IXStore_Impl for XStoreObject_Impl {
         extended_json_data: *const c_char,
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        println!("x_store_show_purchase_u_i_async {} {}, {}", debug_cstr(store_id), debug_cstr(name), debug_cstr(extended_json_data));
-        unsafe { xasync::run(async_, async {
-            Ok(())
-        }) }
+        println!(
+            "x_store_show_purchase_u_i_async {} {}, {}",
+            debug_cstr(store_id),
+            debug_cstr(name),
+            debug_cstr(extended_json_data)
+        );
+        unsafe { xasync::run(async_, async { Ok(()) }) }
     }
 
     unsafe fn x_store_show_purchase_u_i_result(&self, async_: *mut XAsyncBlock) -> HRESULT {
         println!("x_store_show_purchase_u_i_result");
-        unsafe { xasync::get_status(async_, false).map_or_else(|h| h, |_|S_OK) }
+        unsafe { xasync::get_status(async_, false).map_or_else(|h| h, |_| S_OK) }
     }
 
     unsafe fn x_store_show_rate_and_review_u_i_async(
@@ -792,29 +814,31 @@ impl IXStore_Impl for XStoreObject_Impl {
     unsafe fn x_store_query_game_and_dlc_package_updates_async(
         &self,
         _store_context_handle: XStoreContextHandle,
-        _async_: *mut XAsyncBlock,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_query_game_and_dlc_package_updates_async");
-        E_NOTIMPL
+        
+        unsafe { xasync::run(async_, async { Ok(()) }) }
     }
 
     unsafe fn x_store_query_game_and_dlc_package_updates_result_count(
         &self,
         _async_: *mut XAsyncBlock,
-        _count: *mut u32,
+        count: *mut u32,
     ) -> HRESULT {
         println!("x_store_query_game_and_dlc_package_updates_result_count");
-        E_NOTIMPL
+        *count = 0;
+        S_OK
     }
 
     unsafe fn x_store_query_game_and_dlc_package_updates_result(
         &self,
-        _async_: *mut XAsyncBlock,
+        async_: *mut XAsyncBlock,
         _count: u32,
         _package_updates: *mut XStorePackageUpdate,
     ) -> HRESULT {
         println!("x_store_query_game_and_dlc_package_updates_result");
-        E_NOTIMPL
+        unsafe { xasync::get_status(async_, false).map_or_else(|h| h, |_| S_OK) }
     }
 
     unsafe fn x_store_download_package_updates_async(
@@ -860,15 +884,17 @@ impl IXStore_Impl for XStoreObject_Impl {
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_download_and_install_packages_async");
-        unsafe { xasync::run_dyn(async_, async {
-            let req_size = 0;
+        unsafe {
+            xasync::run_dyn(async_, async {
+                let req_size = 0;
                 Ok::<_, HRESULT>((
                     move |b: *mut c_void, s: usize| {
                         return s;
                     },
                     req_size,
                 ))
-        }) }
+            })
+        }
     }
 
     unsafe fn x_store_download_and_install_packages_result_count(
@@ -877,10 +903,15 @@ impl IXStore_Impl for XStoreObject_Impl {
         count: *mut u32,
     ) -> HRESULT {
         println!("x_store_download_and_install_packages_result_count");
-        unsafe { xasync::get_result_size(async_).map_or_else(|h|h, |s| {
-            *count = s as u32;
-            S_OK
-        }) }
+        unsafe {
+            xasync::get_result_size(async_).map_or_else(
+                |h| h,
+                |s| {
+                    *count = s as u32;
+                    S_OK
+                },
+            )
+        }
     }
 
     unsafe fn x_store_download_and_install_packages_result(
@@ -1323,9 +1354,11 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         &self,
         async_block: *mut XAsyncBlock,
     ) -> HRESULT {
-        unsafe { xasync::run_sync(async_block, || {
-            return Ok(1600u16);
-        }) }
+        unsafe {
+            xasync::run_sync(async_block, || {
+                return Ok(1600u16);
+            })
+        }
     }
 
     unsafe fn x_networking_query_preferred_local_udp_multiplayer_port_async_result(
@@ -1333,7 +1366,15 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         async_block: *mut XAsyncBlock,
         preferred_local_udp_multiplayer_port: *mut u16,
     ) -> HRESULT {
-        unsafe { xasync::get_result(async_block, null_mut(), preferred_local_udp_multiplayer_port)}.map(|_|S_OK).unwrap_or_else(|e|e)
+        unsafe {
+            xasync::get_result(
+                async_block,
+                null_mut(),
+                preferred_local_udp_multiplayer_port,
+            )
+        }
+        .map(|_| S_OK)
+        .unwrap_or_else(|e| e)
     }
 
     unsafe fn x_networking_register_preferred_local_udp_multiplayer_port_changed(
@@ -1484,13 +1525,7 @@ fn xasync_singleton() -> &'static IXAsync {
 
 fn xstub_singleton() -> &'static IXPackage {
     &XSTUB_SINGLETON
-        .get_or_init(|| {
-            GlobalInterface(
-                XStub {
-                }
-                .into(),
-            )
-        })
+        .get_or_init(|| GlobalInterface(XStub {}.into()))
         .0
 }
 

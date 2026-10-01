@@ -51,5 +51,4 @@ pub unsafe trait IXPersistentLocalStorage: IUnknown {
 }
 
 #[interface("D29411DF-0794-4553-8B27-95FC02D0F75D")]
-pub unsafe trait IXPersistentLocalStorage2: IXPersistentLocalStorage { }
-
+pub unsafe trait IXPersistentLocalStorage2: IXPersistentLocalStorage {}
