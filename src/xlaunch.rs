@@ -24,3 +24,9 @@ pub unsafe trait IXLaunch: IUnknown {
         _reserved: u32,
     ) -> HRESULT;
 }
+
+#[interface("2549F142-6419-4A06-97B5-931AAB7C2F34")]
+pub unsafe trait IXLaunch2: IXLaunch {}
+
+#[interface("50849859-0AD8-4F81-80E4-5BC78626F852")]
+pub unsafe trait IXLaunch3: IXLaunch2 {}
