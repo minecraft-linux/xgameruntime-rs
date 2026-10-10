@@ -1,14 +1,19 @@
-use std::ffi::{CStr, CString, c_char, c_void};
+#[cfg(not(feature = "xuser"))]
+use std::ffi::CStr;
+use std::ffi::{CString, c_char, c_void};
 use std::ptr::null_mut;
 use std::result::Result;
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 
 use windows::minwindef::LPARAM;
 use windows::windef::HWND;
 use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 
+#[cfg(not(feature = "xuser"))]
 use crate::user::{IXUser3, XUserPlatformRemoteConnectEventHandler};
-use windows_core::{GUID, HRESULT, Interface};
+#[cfg(not(feature = "xuser"))]
+use windows_core::Interface;
+use windows_core::{GUID, HRESULT};
 use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
 use windows_sys::minwindef::HMODULE;
 
@@ -16,9 +21,11 @@ use windows_sys::minwindef::HMODULE;
 mod authenticator;
 mod com;
 pub mod results;
+pub mod stub;
 pub mod threading;
 pub mod user;
 pub mod xasync;
+pub mod xbox_utils;
 pub mod xerror;
 pub mod xgameactivation;
 pub mod xgameinvite;
@@ -119,6 +126,7 @@ unsafe extern "system" fn find_window(hwnd: HWND, lp: LPARAM) -> windows_core::B
     return false.into();
 }
 
+#[cfg(not(feature = "xuser"))]
 unsafe extern "system" fn show(
     _context: *const c_void,
     _user_identifierr: u32,
@@ -156,6 +164,7 @@ unsafe extern "system" fn show(
     }
 }
 
+#[cfg(not(feature = "xuser"))]
 unsafe extern "system" fn hide() {}
 
 unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
@@ -195,16 +204,35 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
             }
         };
 
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .unwrap();
-
     Ok(DelegatedApi {
         module,
         initialize_api_impl_ex2,
         query_api_impl,
         uninitialize_api_impl,
     })
+}
+
+static START: Once = Once::new();
+
+fn show_error<S: windows_core::Param<windows_core::PCWSTR>>(title: S, message: &str) {
+    unsafe {
+        let mut search: HWND = HWND(null_mut());
+        _ = EnumWindows(
+            Some(find_window),
+            LPARAM((&mut search as *mut HWND) as isize),
+        );
+
+        MessageBoxW(
+            if search.0.is_null() {
+                None
+            } else {
+                Some(search)
+            },
+            windows_strings::PCWSTR::from_raw(windows::core::HSTRING::from(message).as_ptr()),
+            title,
+            MB_OK,
+        )
+    };
 }
 
 fn initialize_delegate(
@@ -218,13 +246,22 @@ fn initialize_delegate(
         state.ref_count += 1;
         return S_OK;
     }
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
+    START.call_once(|| {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .unwrap();
+        env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
+    });
     println!("Loading delegated API...");
 
     let api = match unsafe { load_delegated_api() } {
         Ok(api) => api,
         Err(error) => {
             println!("Failed to load delegated API: {:#X}", error.0);
+            show_error(
+                windows::core::h!("Failed to load delegated API"),
+                &format!("Failed to load delegated API: {:#X}", error.0),
+            );
             return error;
         }
     };
@@ -236,6 +273,11 @@ fn initialize_delegate(
     };
     if hr != S_OK {
         println!("Failed to initialize delegated API: {:#X}", hr.0);
+        show_error(
+            windows::core::h!("Failed to initialize delegated API"),
+            &format!("Failed to initialize delegated API: {:#X}", hr.0),
+        );
+
         unsafe {
             FreeLibrary(api.module);
         }
@@ -244,28 +286,31 @@ fn initialize_delegate(
 
     println!("Delegated API initialized successfully.");
 
-    let mut out: *mut c_void = std::ptr::null_mut();
+    #[cfg(not(feature = "xuser"))]
+    {
+        let mut out: *mut c_void = std::ptr::null_mut();
 
-    let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
+        let xuserguid = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
 
-    let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUser3::IID, &mut out) };
+        let hr = unsafe { (api.query_api_impl)(&xuserguid, &IXUser3::IID, &mut out) };
 
-    assert_eq!(hr, HRESULT(0));
-    assert!(!out.is_null());
-
-    if let Some(platform) = unsafe { IXUser3::from_raw_borrowed(&out) } {
-        let mut callback = XUserPlatformRemoteConnectEventHandler {
-            show: Some(show),
-            close: Some(hide),
-            context: std::ptr::null_mut(),
-        };
-        let hr = unsafe {
-            platform.x_user_platform_remote_connect_set_event_handlers(
-                std::ptr::null_mut(),
-                &mut callback,
-            )
-        };
         assert_eq!(hr, HRESULT(0));
+        assert!(!out.is_null());
+
+        if let Some(platform) = unsafe { IXUser3::from_raw_borrowed(&out) } {
+            let mut callback = XUserPlatformRemoteConnectEventHandler {
+                show: Some(show),
+                close: Some(hide),
+                context: std::ptr::null_mut(),
+            };
+            let hr = unsafe {
+                platform.x_user_platform_remote_connect_set_event_handlers(
+                    std::ptr::null_mut(),
+                    &mut callback,
+                )
+            };
+            assert_eq!(hr, HRESULT(0));
+        }
     }
 
     state.ref_count = 1;
@@ -295,7 +340,7 @@ fn uninitialize_delegate() -> HRESULT {
         return E_NOTIMPL;
     }
 
-    state.ref_count -= 1;
+    // state.ref_count -= 1;
     if state.ref_count > 0 {
         return S_OK;
     }
