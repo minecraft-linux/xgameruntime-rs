@@ -20,7 +20,11 @@ jobs:
           - target: x86_64-windows-msvc
             os: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+      - name: Install protoc (Windows)
+        run: |
+          choco install protoc -y
+          echo "C:\ProgramData\chocolatey\lib\protoc\tools" >> $env:GITHUB_PATH
       - name: Run check
         run: cargo check --workspace
       - name: Run build
@@ -29,5 +33,13 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: xgameruntime
-          path: target/release/*.dll
+          path: target/release/xgameruntime.dll
+          if-no-files-found: error
+      - name: Run build
+        run: cargo build -r --features xuser
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: xgameruntime-xodus-static
+          path: target/release/xgameruntime.dll
           if-no-files-found: error
