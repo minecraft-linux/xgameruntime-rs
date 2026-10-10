@@ -1,3 +1,5 @@
+#[cfg(feature = "xuser")]
+use crate::authenticator::XalAuthenticator;
 use crate::results::E_POINTER;
 use crate::threading::XAsyncBlock;
 #[cfg(feature = "xuser")]
@@ -9,16 +11,14 @@ use crate::{
     xasync,
 };
 #[cfg(feature = "xuser")]
-use crate::{authenticator::XalAuthenticator, xbox_utils::ProfileUser};
-#[cfg(feature = "xuser")]
-use reqwest::{Client, Method};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::io::Read;
 use std::path::Path;
+use std::ptr::null_mut;
 #[cfg(feature = "xuser")]
 use std::ptr::slice_from_raw_parts_mut;
-use std::ptr::{self, null_mut};
 #[cfg(feature = "xuser")]
 use std::sync::Arc;
 use std::{
@@ -52,6 +52,7 @@ pub enum XUserAddOptions {
     AddDefaultUserAllowingUI = 0x04,
 }
 #[repr(u32)]
+#[derive(Clone, Copy)]
 pub enum XUserAgeGroup {
     Unknown = 0,
     Child = 1,
@@ -80,6 +81,7 @@ pub enum XUserGamerPictureSize {
     ExtraLarge = 3,
 }
 #[repr(u32)]
+#[derive(PartialEq, Eq, Hash)]
 pub enum XUserGamertagComponent {
     Classic = 0,
     Modern = 1,
@@ -207,9 +209,9 @@ pub struct XUserPlatformRemoteConnectEventHandler {
 
 pub type XUserHandle = *mut c_void;
 pub type XUserSignOutDeferralHandle = *mut c_void;
-pub type XUserChangeEventCallback = *mut c_void;
-pub type XUserDeviceAssociationChangedCallback = *mut c_void;
-pub type XUserPlatformSpopPromptEventHandlers = *mut c_void;
+pub type XUserChangeEventCallback = unsafe extern "system" fn();
+pub type XUserDeviceAssociationChangedCallback = unsafe extern "system" fn();
+pub type XUserPlatformSpopPromptEventHandlers = unsafe extern "system" fn();
 
 pub type XUserPlatformOperation = u64;
 
@@ -530,6 +532,15 @@ pub struct XUser {
 #[interface("01acd177-91f9-4763-a38e-ccbb55ce32e0")]
 pub unsafe trait IXUserHandle: IUnknown {
     unsafe fn get_xuid(&self) -> u64;
+    unsafe fn has_privilege(&self, prv: u64) -> bool;
+    unsafe fn get_gamertag(
+        &self,
+        gamertag_component: XUserGamertagComponent,
+        gamertag_size: usize,
+        gamertag: *mut c_char,
+        gamertag_used: *mut usize,
+    ) -> HRESULT;
+    unsafe fn get_age_group(&self) -> XUserAgeGroup;
     unsafe fn get_local_id(&self) -> XUserLocalId;
     unsafe fn get_auth(&self) -> *const Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>;
     unsafe fn get_runtime(&self) -> *const tokio::runtime::Handle;
@@ -559,6 +570,9 @@ struct XUserHandleObject {
     local_id: XUserLocalId,
     auth: Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>,
     runtime: tokio::runtime::Handle,
+    agg: XUserAgeGroup,
+    prv: Vec<u64>,
+    gamertags: std::collections::HashMap<XUserGamertagComponent, String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -588,9 +602,6 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
         }
     }
 
-    // unsafe fn get_object(&self,) -> *mut XUserHandleObject {
-    //     &mut self.this as *mut XUserHandleObject
-    // }
     unsafe fn get_auth(&self) -> *const Arc<tokio::sync::Mutex<XuserHandleObjectAuth>> {
         &self.auth
     }
@@ -598,25 +609,52 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
     unsafe fn get_runtime(&self) -> *const tokio::runtime::Handle {
         &self.runtime
     }
+
+    unsafe fn has_privilege(&self, prv: u64) -> bool {
+        self.prv.contains(&prv)
+    }
+
+    unsafe fn get_gamertag(
+        &self,
+        gamertag_component: XUserGamertagComponent,
+        gamertag_size: usize,
+        gamertag: *mut c_char,
+        gamertag_used: *mut usize,
+    ) -> HRESULT {
+        let Some(gtg) = self.gamertags.get(&gamertag_component) else {
+            return E_FAIL;
+        };
+        let len = std::cmp::min(gtg.len(), gamertag_size - 1);
+        unsafe {
+            std::ptr::copy_nonoverlapping(gtg.as_ptr(), gamertag as *mut u8, len);
+            *gamertag.add(len) = 0;
+        };
+        if !gamertag_used.is_null() {
+            unsafe { *gamertag_used = len };
+        }
+        S_OK
+    }
+
+    unsafe fn get_age_group(&self) -> XUserAgeGroup {
+        self.agg
+    }
 }
 
 impl IXUser2_Impl for XUser_Impl {
     unsafe fn x_user_get_gamertag(
         &self,
-        _user: XUserHandle,
-        _gamertag_component: XUserGamertagComponent,
-        _gamertag_size: usize,
+        handle: XUserHandle,
+        gamertag_component: XUserGamertagComponent,
+        gamertag_size: usize,
         gamertag: *mut c_char,
         gamertag_used: *mut usize,
     ) -> HRESULT {
         println!("x_user_get_gamertag");
         unsafe {
-            std::ptr::copy_nonoverlapping(c"ChristopherHX".as_ptr(), gamertag as *mut i8, 14)
-        };
-        if !gamertag_used.is_null() {
-            unsafe { *gamertag_used = 13 };
+            IXUserHandle::from_raw_borrowed(&handle)
+                .map(|f| f.get_gamertag(gamertag_component, gamertag_size, gamertag, gamertag_used))
+                .unwrap_or(E_FAIL)
         }
-        S_OK
     }
 }
 
@@ -679,7 +717,7 @@ impl IXUser_Impl for XUser_Impl {
                     {
                         let user = handle
                             .spawn(async move {
-                                use std::path::Path;
+                                use std::{collections::HashMap, path::Path};
 
                                 use windows::{libloaderapi::GetModuleFileNameW, minwindef::MAX_PATH};
 
@@ -736,8 +774,6 @@ impl IXUser_Impl for XUser_Impl {
                                 }
                                 let config = config.unwrap();
 
-                                // do_license_token(&client, &tokens).await.unwrap();
-
                                 let (c, resp, device) =
                                     do_sisu(&client, &tokens, config.msa_app_id.as_ref().map_or_else(|| "", |x|x), i64::from_str_radix(&config.title_id, 16).unwrap(), def_policy.clone())
                                         .await
@@ -764,15 +800,42 @@ impl IXUser_Impl for XUser_Impl {
 
                                 let policy = SignaturePolicyCache::new(r);
 
-                                let xid = resp
+                                let xui = resp
                                     .authorization_token
                                     .display_claims
                                     .as_ref()
-                                    .map(|d| d.xui[0]["xid"].clone())
+                                    .map(|d| &d.xui[0])
                                     .unwrap();
+
+                                let xid = &xui["xid"];
+                                let agg = match xui["agg"].as_str() {
+                                    "Adult" => XUserAgeGroup::Adult,
+                                    "Teen" => XUserAgeGroup::Teen,
+                                    "Child" => XUserAgeGroup::Child,
+                                    _=> XUserAgeGroup::Unknown
+                                };
+                                let prv : Vec<u64> = (&xui["prv"]).split(" ").map(str::parse::<u64>).filter(|r|r.is_ok()).map(Result::unwrap).collect();
+
+                                let user_token = resp.authorization_token.authorization_header_value();
+                                let prof = xbox_utils::fetch_user_profiles(&client, &user_token, &[xid])
+                                    .await
+                                    .unwrap();
+                                let prof = prof.into_iter().map(|(_, v)| v).next().unwrap();
+                                let gamertags : HashMap<XUserGamertagComponent, String> = prof.settings.iter().filter_map(|(k,v)| {
+                                    match k.as_str() {
+                                        "Gamertag" => Some((XUserGamertagComponent::Classic, v.to_owned())),
+                                        "ModernGamertag" => Some((XUserGamertagComponent::Modern, v.to_owned())),
+                                        "ModernGamertagSuffix" => Some((XUserGamertagComponent::ModernSuffix, v.to_owned())),
+                                        "UniqueModernGamertag" => Some((XUserGamertagComponent::UniqueModern, v.to_owned())),
+                                        _ => None,
+                                    }
+                                }).collect();
 
                                 let handle = XUserHandleObject {
                                     xuid: xid.parse::<u64>().unwrap(),
+                                    agg: agg,
+                                    gamertags: gamertags,
+                                    prv: prv,
                                     local_id: XUserLocalId { value: 987654321 },
                                     auth: Arc::new(tokio::sync::Mutex::new(XuserHandleObjectAuth {
                                         authenticator: c,
@@ -843,8 +906,8 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_find_user_by_local_id(
         &self,
-        user_local_id: XUserLocalId,
-        handle: *mut XUserHandle,
+        _user_local_id: XUserLocalId,
+        _handle: *mut XUserHandle,
     ) -> HRESULT {
         E_FAIL
     }
@@ -869,7 +932,7 @@ impl IXUser_Impl for XUser_Impl {
         if h.is_null() || handle.is_null() {
             return E_FAIL;
         }
-        *handle = (*h).clone().unwrap().into_raw();
+        unsafe { *handle = (*h).clone().unwrap().into_raw() };
         println!("x_user_find_user_by_id ok {}", user_id);
         S_OK
     }
@@ -904,7 +967,7 @@ impl IXUser_Impl for XUser_Impl {
         #[cfg(feature = "xuser")]
         {
             let user = unsafe { IXUserHandle::from_raw_borrowed(&user) };
-            let xuid = user.map(|f| f.get_xuid());
+            let xuid = user.map(|f| unsafe { f.get_xuid() });
             let handle = user.map(|f| unsafe { (*f.get_runtime()).clone() }).unwrap();
             let user = unsafe { (*user.unwrap().get_auth()).clone() };
             unsafe {
@@ -967,34 +1030,48 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_get_age_group(
         &self,
-        _user: XUserHandle,
+        handle: XUserHandle,
         age_group: *mut XUserAgeGroup,
     ) -> HRESULT {
         println!("x_user_get_age_group");
         unsafe {
-            *age_group = XUserAgeGroup::Adult;
-        };
-        S_OK
+            IXUserHandle::from_raw_borrowed(&handle)
+                .map(|f| {
+                    if !age_group.is_null() {
+                        *age_group = f.get_age_group();
+                    }
+                    S_OK
+                })
+                .unwrap_or(E_FAIL)
+        }
     }
 
     unsafe fn x_user_check_privilege(
         &self,
-        _user: XUserHandle,
+        handle: XUserHandle,
         _options: XUserPrivilegeOptions,
         privilege: XUserPrivilege,
         has_privilege: *mut u8,
         reason: *mut XUserPrivilegeDenyReason,
     ) -> HRESULT {
-        println!("x_user_check_privilege {}", privilege as u64);
+        let prv = privilege as u64;
+        println!("x_user_check_privilege {}", prv);
         unsafe {
-            *has_privilege = 1;
-        };
-        if !reason.is_null() {
-            unsafe {
-                *reason = XUserPrivilegeDenyReason::None;
-            };
+            IXUserHandle::from_raw_borrowed(&handle)
+                .map(|f| {
+                    let hprv = f.has_privilege(prv);
+                    *has_privilege = if hprv { 1 } else { 0 };
+                    if !reason.is_null() {
+                        *reason = if hprv {
+                            XUserPrivilegeDenyReason::None
+                        } else {
+                            XUserPrivilegeDenyReason::Unknown
+                        };
+                    }
+                    S_OK
+                })
+                .unwrap_or(E_FAIL)
         }
-        S_OK
     }
 
     unsafe fn x_user_resolve_privilege_with_ui_async(
@@ -1010,8 +1087,6 @@ impl IXUser_Impl for XUser_Impl {
     unsafe fn x_user_resolve_privilege_with_ui_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
         todo!()
     }
-
-    // struct FakeToken
 
     unsafe fn x_user_get_token_and_signature_async(
         &self,
@@ -1724,8 +1799,6 @@ pub async fn do_license_token(
 
     Ok(token)
 }
-
-// {"parentProductId":"9PGW18NPBZV5","enforceSellableBy":true,"relatedProductIds":"[\"9NZ12RV7B7R3\",\"9P0WDBKKS7MK\",\"9MV1BF8J0TTX\",\"9P427LFN9KCD\",\"9NBLGGH2JHXJ\",\"9MV69L4JSD31\",\"9P1XF6ZQGV3R\",\"9P5JQ1XPRGN6\",\"9N98Z825TNFW\",\"9P4BFQNXLMDR\",\"9NGG3CWJMC7V\",\"9PBP71DDVCT9\",\"9PB1LJZFN9XK\",\"9P2VR3K66TJX\",\"9P4HCS6S5C2K\",\"9N5KX36SQJ9Q\",\"9P8MK4NC0LJB\",\"9P5KH0238TPW\",\"9P45BPZCP004\",\"9PKCNQ57B2JG\",\"9N6184JJ7NSG\"]","customDeveloperString":"c0c83208-ea4f-4c64-b4f4-9667120cf9f2","beneficiaries":[{"identityValue":"t=<token>","localTicketReference":"<reference>","identityType":"Msa"}]}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

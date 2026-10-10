@@ -1,8 +1,7 @@
-use std::{collections::HashMap, ops::Sub};
+use std::collections::HashMap;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -201,10 +200,10 @@ struct AchievementReward {
     value: String,
     #[serde(rename = "type")]
     type_: String,
-    value_type: String,
-    media_asset: Option<AchievementMediaAsset>,
-    name: Option<String>,
-    description: Option<String>,
+    _value_type: String,
+    _media_asset: Option<AchievementMediaAsset>,
+    _name: Option<String>,
+    _description: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -212,21 +211,21 @@ struct AchievementReward {
 struct AchievementMediaAsset {
     url: String,
     #[serde(rename = "type")]
-    type_: String,
+    _type_: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Progression {
-    requirements: Vec<ProgressionRequirement>,
+    _requirements: Vec<ProgressionRequirement>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressionRequirement {
-    id: String,
-    current: Option<String>,
-    target: String,
+    _id: String,
+    _current: Option<String>,
+    _target: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,7 +234,7 @@ pub struct AchievementEntry {
     id: String,
     name: String,
     progress_state: String,
-    progression: Progression,
+    _progression: Progression,
     media_assets: Vec<AchievementMediaAsset>,
     description: String,
     rewards: Vec<AchievementReward>,
@@ -244,7 +243,7 @@ pub struct AchievementEntry {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PagingInfo {
-    continuation_token: Option<String>,
+    _continuation_token: Option<String>,
     total_records: i64,
 }
 

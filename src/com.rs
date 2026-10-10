@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::cell::Cell;
-use std::env::{home_dir, temp_dir};
 use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
 use std::path::Path;
@@ -18,7 +17,8 @@ const CLSID_XPERSISTENT_LOCAL_STORAGE: GUID =
     GUID::from_u128(0xf4faf4d4_2d04_4fce_b3e0_474a713a3e84);
 
 const CLSID_XUSER: GUID = GUID::from_u128(0x01acd177_91f9_4763_a38e_ccbb55ce32e0);
-const CLSID_XUserDEVICE: GUID = GUID::from_u128(0x7d824997_10dc_45ab_86b7_2737767c0bf1);
+#[cfg(feature = "xuserdevice")]
+const CLSID_XUSER_DEVICE: GUID = GUID::from_u128(0x7d824997_10dc_45ab_86b7_2737767c0bf1);
 const CLSID_XPACKAGE: GUID = GUID::from_u128(0xaf406016_e850_4aa8_a88d_2f3dcb9dac7e);
 const CLSID_XGAMESAVE: GUID = GUID::from_u128(0x704c3f58_e629_4cc2_b197_30511b996fe2);
 
@@ -56,8 +56,8 @@ pub unsafe trait IXFeature: IUnknown {
 pub struct XFeature;
 
 impl IXFeature_Impl for XFeature_Impl {
-    unsafe fn xgame_runtime_is_feature_available(&self, feature: u32) -> bool {
-        return true || feature != 10;
+    unsafe fn xgame_runtime_is_feature_available(&self, _feature: u32) -> bool {
+        return true; //feature != 10;
     }
 }
 
@@ -405,7 +405,7 @@ impl IXStore_Impl for XStoreObject_Impl {
             videos_count: 0,
             videos: null_mut(),
         };
-        callback.unwrap()(&product, context);
+        _ =unsafe { callback.unwrap()(&product, context) };
 
         S_OK
     }
@@ -691,7 +691,7 @@ impl IXStore_Impl for XStoreObject_Impl {
                 Ok::<_, HRESULT>((
                     move |b: *mut c_void, s: usize| {
                         std::ptr::copy_nonoverlapping(token.as_ptr(), b as *mut u8, token.len());
-                        unsafe { *((b as *mut u8).add(token.len())) = 0 };
+                        *((b as *mut u8).add(token.len())) = 0;
                         return s;
                     },
                     req_size,
@@ -734,7 +734,7 @@ impl IXStore_Impl for XStoreObject_Impl {
             _ => {
                 println!(
                     "x_store_query_license_token_result: {}",
-                    CStr::from_ptr(result).to_string_lossy()
+                    unsafe {CStr::from_ptr(result)}.to_string_lossy()
                 );
                 S_OK
             }
@@ -817,7 +817,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_query_game_and_dlc_package_updates_async");
-        
+
         unsafe { xasync::run(async_, async { Ok(()) }) }
     }
 
@@ -827,7 +827,7 @@ impl IXStore_Impl for XStoreObject_Impl {
         count: *mut u32,
     ) -> HRESULT {
         println!("x_store_query_game_and_dlc_package_updates_result_count");
-        *count = 0;
+        unsafe { *count = 0 };
         S_OK
     }
 
@@ -879,8 +879,8 @@ impl IXStore_Impl for XStoreObject_Impl {
     unsafe fn x_store_download_and_install_packages_async(
         &self,
         _store_context_handle: XStoreContextHandle,
-        store_ids: *const *mut c_char,
-        store_ids_count: usize,
+        _store_ids: *const *mut c_char,
+        _store_ids_count: usize,
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_download_and_install_packages_async");
@@ -888,7 +888,7 @@ impl IXStore_Impl for XStoreObject_Impl {
             xasync::run_dyn(async_, async {
                 let req_size = 0;
                 Ok::<_, HRESULT>((
-                    move |b: *mut c_void, s: usize| {
+                    move |_b: *mut c_void, s: usize| {
                         return s;
                     },
                     req_size,
@@ -917,8 +917,8 @@ impl IXStore_Impl for XStoreObject_Impl {
     unsafe fn x_store_download_and_install_packages_result(
         &self,
         _async_: *mut XAsyncBlock,
-        count: u32,
-        package_identifiers: *mut *mut c_char,
+        _count: u32,
+        _package_identifiers: *mut *mut c_char,
     ) -> HRESULT {
         println!("x_store_download_and_install_packages_result");
         S_OK
@@ -1336,9 +1336,14 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
 
     unsafe fn x_networking_verify_server_certificate(
         &self,
-        _request_handle: *mut c_void,
-        _security_information: *const XNetworkingSecurityInformation,
+        request_handle: *mut c_void,
+        security_information: *const XNetworkingSecurityInformation,
     ) -> HRESULT {
+        println!(
+            "x_networking_verify_server_certificate {} flags {:x}",
+            request_handle.addr(),
+            unsafe {&*security_information}.enabled_http_security_protocol_flags
+        );
         S_OK
     }
 
@@ -1346,7 +1351,7 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         &self,
         preferred_local_udp_multiplayer_port: *mut u16,
     ) -> HRESULT {
-        *preferred_local_udp_multiplayer_port = 1600u16;
+        unsafe { *preferred_local_udp_multiplayer_port = 1600u16 };
         S_OK
     }
 
@@ -1472,7 +1477,7 @@ fn xpersistent_local_storage_singleton() -> &'static IXPersistentLocalStorage2 {
 
             GlobalInterface(
                 XPersistentLocalStorage {
-                    tmp_path: path.unwrap().to_str().unwrap().to_owned()/*home_dir().unwrap().join("path").to_string_lossy().to_string()*/,
+                    tmp_path: path.unwrap().to_str().unwrap().to_owned(),
                 }
                 .into(),
             )
@@ -1561,22 +1566,14 @@ pub fn query_api_impl(
     }
 
     let class_id = unsafe { *runtime_class_id };
-    // println!("query_api_impl: {:?}", class_id);
     let res = match class_id {
         IXFeature::IID => {
-            // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
             query(xfeature_singleton(), interface_id, out)
         }
         CLSID_XSTORE => {
-            // println!("query_api_impl: {:#32x} {:#32x}", class_id.to_u128(), unsafe { *interface_id }.to_u128());
             query(xstore_singleton(), interface_id, out)
         }
         CLSID_XNETWORKING => {
-            // println!(
-            //     "query_api_impl: {:#32x} {:#32x}",
-            //     class_id.to_u128(),
-            //     unsafe { *interface_id }.to_u128()
-            // );
             query(xnetworking_singleton(), interface_id, out)
         }
         CLSID_XPERSISTENT_LOCAL_STORAGE => {
@@ -1584,8 +1581,8 @@ pub fn query_api_impl(
         }
         #[cfg(feature = "xuser")]
         CLSID_XUSER => query(xuser_singleton(), interface_id, out),
-        // #[cfg(feature = "xuser")]
-        // CLSID_XUSERDEVICE => query(xuser_singleton(), interface_id, out),
+        #[cfg(feature = "xuserdevice")]
+        CLSID_XUSER_DEVICE => query(xuser_singleton(), interface_id, out),
         #[cfg(feature = "xasync")]
         xasync::CLSID_XASYNC => query(xasync_singleton(), interface_id, out),
         CLSID_XGAMESAVE => query(xstub_singleton(), interface_id, out),
@@ -1593,6 +1590,10 @@ pub fn query_api_impl(
         IXSystem::IID => query(xstub_singleton(), interface_id, out),
         IXLaunch::IID => query(xstub_singleton(), interface_id, out),
         _ => {
+            println!(
+                "crate::delegated_query_api_impl: {:?} aka {:?}",
+                class_id, interface_id
+            );
             let resp = crate::delegated_query_api_impl(runtime_class_id, interface_id, out);
             if resp.is_err() {
                 return match class_id {

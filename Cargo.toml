@@ -34,6 +34,7 @@ uuid = "1.25.0"
 serde_json = "1.0.151"
 quick-xml = { version = "0.42.0", features = ["serialize", "overlapped-lists"] }
 serde = { version = "1.0.229", features = [ "derive" ] }
+url = "2.5.8"
 
 [dependencies.xodus]
 git = "https://github.com/xodus-gaming/xodus"
@@ -92,6 +93,7 @@ features = [
     "std",
     "Storage_Streams",
     "UI",
+    "processenv",
     "Web_Syndication",
     "bits",
     "combaseapi",
@@ -100,6 +102,7 @@ features = [
     "libloaderapi",
     "memorybuffer",
     "minwinbase",
+    "Graphics_DirectX",
     "minwindef",
     "objbase",
     "objidlbase",
@@ -140,3 +143,5 @@ panic = "abort"
 [features]
 xasync = [ "xuser" ]
 xuser = [ "dep:xodus" ]
+xuserdevice = [ "xuser" ]
+default = [ ]
