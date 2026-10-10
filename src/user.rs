@@ -12,7 +12,9 @@ use crate::{
 };
 #[cfg(feature = "xuser")]
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+#[cfg(feature = "xuser")]
+use serde::Serialize;
 use std::cell::Cell;
 use std::io::Read;
 use std::path::Path;
