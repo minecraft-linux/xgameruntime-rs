@@ -34,6 +34,7 @@ use windows_core::{BOOL, HRESULT, IUnknown, Interface, implement, interface};
 use xal_new::{self as xal, SignaturePolicyCache};
 #[cfg(feature = "xuser")]
 use xal_new::{DeviceType, XalAppParameters, XalClientParameters};
+#[cfg(feature = "xuser")]
 use xodus::models::licensing::LicenseUserIdentity;
 #[cfg(feature = "xuser")]
 use xodus::models::live::ExchangeUserTokenOutcome;
@@ -552,6 +553,8 @@ pub unsafe trait IXUserHandle: IUnknown {
     unsafe fn get_xuid(&self) -> u64;
     unsafe fn get_local_id(&self) -> XUserLocalId;
     unsafe fn get_runtime(&self) -> *const tokio::runtime::Handle;
+    unsafe fn has_privilege(&self, prv: u64) -> bool;
+    unsafe fn get_age_group(&self) -> XUserAgeGroup;
 }
 
 #[cfg(feature = "xuser")]
@@ -650,10 +653,22 @@ impl IXUser2_Impl for XUser_Impl {
         gamertag_used: *mut usize,
     ) -> HRESULT {
         println!("x_user_get_gamertag");
+        #[cfg(feature = "xuser")]
         unsafe {
             IXUserHandle::from_raw_borrowed(&handle)
                 .map(|f| f.get_gamertag(gamertag_component, gamertag_size, gamertag, gamertag_used))
                 .unwrap_or(E_FAIL)
+        }
+        #[cfg(not(feature = "xuser"))]
+        unsafe {
+            _ = handle;
+            _ = gamertag_component;
+            _ = gamertag_size;
+            *gamertag = 0;
+            if !gamertag_used.is_null() {
+                *gamertag_used = 1;
+            }
+            S_OK
         }
     }
 }
@@ -997,6 +1012,7 @@ impl IXUser_Impl for XUser_Impl {
         {
             let _ = async_;
             let _ = user;
+            _ = picture_size;
             crate::E_NOTIMPL
         }
     }
@@ -1800,6 +1816,7 @@ pub async fn do_license_token(
     Ok(token)
 }
 
+#[cfg(feature = "xuser")]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LicenseTokenRequest {
@@ -1816,6 +1833,7 @@ pub struct LicenseTokenResponse {
     pub license_token: String,
 }
 
+#[cfg(feature = "xuser")]
 pub async fn get_license_token(
     client: &reqwest::Client,
     device_ms_token: String,
@@ -1852,56 +1870,6 @@ pub async fn get_license_token(
     let token_resp: LicenseTokenResponse = response.json().await?;
 
     Ok(token_resp.license_token)
-}
-
-#[tokio::test]
-async fn test() {
-    unsafe {
-        let client = reqwest::Client::builder()
-            .use_rustls_tls()
-            .http1_only()
-            .connection_verbose(true)
-            .pool_max_idle_per_host(0)
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .unwrap(); //
-        std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
-        println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
-        secrets::init_secrets().expect("Unable to initialize credentials");
-        let tokens: TokenManager = TokenManager::with_keychain_and_memory();
-
-        // let r = client
-        //     .get("https://title.mgt.xboxlive.com/titles/default/endpoints?type=1")
-        //     .send()
-        //     .await
-        //     .unwrap()
-        //     .json::<xal_new::response::TitleEndpointsResponse>()
-        //     .await
-        //     .unwrap();
-        // println!("{:?}", r);
-
-        // let def_policy = SignaturePolicyCache::new(r);
-
-        // let (_, resp, _) = do_sisu(&client, &tokens, "0000000040159362", 896928775, def_policy)
-        //     .await
-        //     .expect("ok");
-
-        // println!("title {}", resp.title_token.token);
-        // println!("user {}", resp.user_token.token);
-        // println!("webpage {}", resp.web_page);
-
-        let token = do_license_token(
-            &client,
-            &tokens,
-            vec!["9NZ12RV7B7R3".to_owned(), "9P0WDBKKS7MK".to_owned()],
-            "0A5E1450-0D5F-40E3-A8BC-543707684BF4".to_owned(),
-        )
-        .await
-        .unwrap();
-        println!("{}", token);
-        // do_sisu(&client, &tokens, ).await.unwrap();
-    }
 }
 
 pub async fn load_game_config_async() -> Option<Game> {

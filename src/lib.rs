@@ -11,6 +11,8 @@ use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 
 #[cfg(not(feature = "xuser"))]
 use crate::user::{IXUser3, XUserPlatformRemoteConnectEventHandler};
+#[cfg(not(feature = "xuser"))]
+use windows_core::Interface;
 use windows_core::{GUID, HRESULT};
 use windows_sys::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA};
 use windows_sys::minwindef::HMODULE;

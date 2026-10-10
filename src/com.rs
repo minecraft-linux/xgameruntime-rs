@@ -8,7 +8,9 @@ use std::sync::{Mutex, OnceLock};
 use windows::libloaderapi::GetModuleFileNameW;
 use windows::minwindef::MAX_PATH;
 use windows_core::{BOOL, GUID, HRESULT, IUnknown, Interface, PCWSTR, implement, interface};
+#[cfg(feature = "xuser")]
 use xodus::secrets;
+#[cfg(feature = "xuser")]
 use xodus::tokens::TokenManager;
 
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
@@ -24,7 +26,9 @@ const CLSID_XGAMESAVE: GUID = GUID::from_u128(0x704c3f58_e629_4cc2_b197_30511b99
 
 use crate::stub::XStub;
 use crate::threading::{IXAsync, XAsyncBlock, XTaskQueueHandle, XTaskQueueRegistrationToken};
-use crate::user::{IXUser, XUser, XUserHandle, do_license_token};
+#[cfg(feature = "xuser")]
+use crate::user::do_license_token;
+use crate::user::{IXUser, XUser, XUserHandle};
 use crate::xasync::get_result;
 use crate::xlaunch::IXLaunch;
 use crate::xnetworking::{
@@ -641,7 +645,6 @@ impl IXStore_Impl for XStoreObject_Impl {
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
         println!("x_store_query_license_token_async");
-        // E_NOTIMPL
         let mut products = Vec::with_capacity(product_ids_count);
         unsafe {
             for i in 0..product_ids_count {
@@ -663,26 +666,34 @@ impl IXStore_Impl for XStoreObject_Impl {
                     .unwrap();
                 let token = runtime
                     .spawn(async {
-                        let client = reqwest::Client::builder()
-                            .use_rustls_tls()
-                            .http1_only()
-                            .connection_verbose(true)
-                            .pool_max_idle_per_host(0)
-                            .connect_timeout(std::time::Duration::from_secs(5))
-                            .timeout(std::time::Duration::from_secs(10))
-                            .build()
-                            .unwrap(); //
-                        std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
-                        println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
-                        secrets::init_secrets().expect("Unable to initialize credentials");
-                        let tokens: TokenManager = TokenManager::with_keychain_and_memory();
+                        #[cfg(feature = "xuser")]
+                        {
+                            let client = reqwest::Client::builder()
+                                .use_rustls_tls()
+                                .http1_only()
+                                .connection_verbose(true)
+                                .pool_max_idle_per_host(0)
+                                .connect_timeout(std::time::Duration::from_secs(5))
+                                .timeout(std::time::Duration::from_secs(10))
+                                .build()
+                                .unwrap(); //
+                            std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
+                            println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
+                            secrets::init_secrets().expect("Unable to initialize credentials");
+                            let tokens: TokenManager = TokenManager::with_keychain_and_memory();
 
-                        let token = do_license_token(&client, &tokens, products, dev_str)
-                            .await
-                            .unwrap();
-                        println!("{}", token);
+                            let token = do_license_token(&client, &tokens, products, dev_str)
+                                .await
+                                .unwrap();
+                            println!("{}", token);
 
-                        token
+                            token
+                        }
+                        #[cfg(not(feature = "xuser"))]
+                        {
+                            _ = dev_str;
+                            ""
+                        }
                     })
                     .await
                     .unwrap();
