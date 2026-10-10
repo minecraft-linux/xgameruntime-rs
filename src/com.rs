@@ -1595,10 +1595,15 @@ pub fn query_api_impl(
         IXSystem::IID => query(xstub_singleton(), interface_id, out),
         IXLaunch::IID => query(xstub_singleton(), interface_id, out),
         _ => {
-            println!(
-                "crate::delegated_query_api_impl: {:?} aka {:?}",
-                class_id, interface_id
-            );
+            match class_id {
+                // Suppress threading
+                xasync::CLSID_XASYNC => {}
+                _ => println!(
+                    "crate::delegated_query_api_impl: {:?} aka {:?}",
+                    class_id,
+                    unsafe { *interface_id }
+                ),
+            }
             let resp = crate::delegated_query_api_impl(runtime_class_id, interface_id, out);
             if resp.is_err() {
                 return match class_id {
