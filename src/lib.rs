@@ -20,6 +20,7 @@ use windows_sys::minwindef::HMODULE;
 #[cfg(feature = "xuser")]
 mod authenticator;
 mod com;
+pub mod d3d12;
 pub mod results;
 pub mod stub;
 pub mod threading;
