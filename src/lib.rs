@@ -212,7 +212,7 @@ unsafe fn load_delegated_api() -> Result<DelegatedApi, HRESULT> {
 
 static START: Once = Once::new();
 
-fn show_error<S : windows_core::Param<windows_core::PCWSTR>>(title: S, message: &str) {
+fn show_error<S: windows_core::Param<windows_core::PCWSTR>>(title: S, message: &str) {
     unsafe {
         let mut search: HWND = HWND(null_mut());
         _ = EnumWindows(
@@ -226,10 +226,7 @@ fn show_error<S : windows_core::Param<windows_core::PCWSTR>>(title: S, message: 
             } else {
                 Some(search)
             },
-            windows_strings::PCWSTR::from_raw(
-                windows::core::HSTRING::from(message)
-                .as_ptr(),
-            ),
+            windows_strings::PCWSTR::from_raw(windows::core::HSTRING::from(message).as_ptr()),
             title,
             MB_OK,
         )
@@ -259,9 +256,10 @@ fn initialize_delegate(
         Ok(api) => api,
         Err(error) => {
             println!("Failed to load delegated API: {:#X}", error.0);
-            show_error(windows::core::h!("Failed to load delegated API"),&format!(
-                "Failed to load delegated API: {:#X}", error.0
-            ));
+            show_error(
+                windows::core::h!("Failed to load delegated API"),
+                &format!("Failed to load delegated API: {:#X}", error.0),
+            );
             return error;
         }
     };
@@ -273,9 +271,10 @@ fn initialize_delegate(
     };
     if hr != S_OK {
         println!("Failed to initialize delegated API: {:#X}", hr.0);
-        show_error(windows::core::h!("Failed to initialize delegated API"),&format!(
-            "Failed to initialize delegated API: {:#X}", hr.0
-        ));
+        show_error(
+            windows::core::h!("Failed to initialize delegated API"),
+            &format!("Failed to initialize delegated API: {:#X}", hr.0),
+        );
 
         unsafe {
             FreeLibrary(api.module);

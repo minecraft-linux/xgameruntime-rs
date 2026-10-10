@@ -405,7 +405,7 @@ impl IXStore_Impl for XStoreObject_Impl {
             videos_count: 0,
             videos: null_mut(),
         };
-        _ =unsafe { callback.unwrap()(&product, context) };
+        _ = unsafe { callback.unwrap()(&product, context) };
 
         S_OK
     }
@@ -734,7 +734,7 @@ impl IXStore_Impl for XStoreObject_Impl {
             _ => {
                 println!(
                     "x_store_query_license_token_result: {}",
-                    unsafe {CStr::from_ptr(result)}.to_string_lossy()
+                    unsafe { CStr::from_ptr(result) }.to_string_lossy()
                 );
                 S_OK
             }
@@ -1342,7 +1342,7 @@ impl IXNetworking_Impl for XNetworkingObject_Impl {
         println!(
             "x_networking_verify_server_certificate {} flags {:x}",
             request_handle.addr(),
-            unsafe {&*security_information}.enabled_http_security_protocol_flags
+            unsafe { &*security_information }.enabled_http_security_protocol_flags
         );
         S_OK
     }
@@ -1567,15 +1567,9 @@ pub fn query_api_impl(
 
     let class_id = unsafe { *runtime_class_id };
     let res = match class_id {
-        IXFeature::IID => {
-            query(xfeature_singleton(), interface_id, out)
-        }
-        CLSID_XSTORE => {
-            query(xstore_singleton(), interface_id, out)
-        }
-        CLSID_XNETWORKING => {
-            query(xnetworking_singleton(), interface_id, out)
-        }
+        IXFeature::IID => query(xfeature_singleton(), interface_id, out),
+        CLSID_XSTORE => query(xstore_singleton(), interface_id, out),
+        CLSID_XNETWORKING => query(xnetworking_singleton(), interface_id, out),
         CLSID_XPERSISTENT_LOCAL_STORAGE => {
             query(xpersistent_local_storage_singleton(), interface_id, out)
         }

@@ -202,7 +202,9 @@ impl IXGameSave_Impl for XStub_Impl {
         _sync_on_demand: BOOL,
         provider: *mut XGameSaveProviderHandle,
     ) -> HRESULT {
-        unsafe { *provider = Box::into_raw(Box::new(XGameSaveProvider::new())) as XGameSaveProviderHandle };
+        unsafe {
+            *provider = Box::into_raw(Box::new(XGameSaveProvider::new())) as XGameSaveProviderHandle
+        };
         S_OK
     }
 
@@ -269,7 +271,7 @@ impl IXGameSave_Impl for XStub_Impl {
     ) -> HRESULT {
         println!(
             "x_game_save_delete_container {}",
-            unsafe {CStr::from_ptr(container_name)}.to_string_lossy()
+            unsafe { CStr::from_ptr(container_name) }.to_string_lossy()
         );
         S_OK
     }
@@ -282,7 +284,7 @@ impl IXGameSave_Impl for XStub_Impl {
     ) -> HRESULT {
         println!(
             "x_game_save_delete_container {}",
-            unsafe {CStr::from_ptr(container_name)}.to_string_lossy()
+            unsafe { CStr::from_ptr(container_name) }.to_string_lossy()
         );
         unsafe { xasync::run(async_, async { Ok(()) }) }
     }
@@ -332,8 +334,8 @@ impl IXGameSave_Impl for XStub_Impl {
                 provider_.root,
                 container_name.to_str().unwrap()
             );
-            callback.map(|f| {
-                unsafe {f(
+            callback.map(|f| unsafe {
+                f(
                     &XGameSaveContainerInfo {
                         blob_count: data.blob_count,
                         total_size: data.total_size,
@@ -343,7 +345,7 @@ impl IXGameSave_Impl for XStub_Impl {
                         needs_sync: data.needs_sync,
                     },
                     context,
-                )}
+                )
             });
         })
         .unwrap();
@@ -360,15 +362,16 @@ impl IXGameSave_Impl for XStub_Impl {
     ) -> HRESULT {
         println!("x_game_save_enumerate_container_info_by_name");
         let provider_ = unsafe { &*(provider as *mut XGameSaveProvider) };
-        let container_name_prefix = unsafe { CStr::from_ptr(container_name_prefix).to_str().unwrap() };
+        let container_name_prefix =
+            unsafe { CStr::from_ptr(container_name_prefix).to_str().unwrap() };
         let root = Path::new(&provider_.root);
         visit_dirs(root, &|e: &Path, data| {
             let container_name = e.strip_prefix(root).unwrap();
             let cn = container_name.to_str().unwrap();
             if cn.starts_with(container_name_prefix) {
                 let cn = CString::from_str(cn).unwrap();
-                callback.map(|f| {
-                    unsafe {f(
+                callback.map(|f| unsafe {
+                    f(
                         &XGameSaveContainerInfo {
                             blob_count: data.blob_count,
                             total_size: data.total_size,
@@ -378,7 +381,7 @@ impl IXGameSave_Impl for XStub_Impl {
                             needs_sync: data.needs_sync,
                         },
                         context,
-                    )}
+                    )
                 });
             }
         })
@@ -440,7 +443,7 @@ impl IXGameSave_Impl for XStub_Impl {
                 size: f.metadata().unwrap().file_size() as u32,
             };
             println!("Entry {} {}", f.file_name().to_string_lossy(), info.size);
-            if unsafe { callback.unwrap()(&info, context) } == false{
+            if unsafe { callback.unwrap()(&info, context) } == false {
                 break;
             }
         }
@@ -500,20 +503,19 @@ impl IXGameSave_Impl for XStub_Impl {
             // advance data payload
             info.info.name = data as *mut i8;
             // copy c string
-            unsafe { std::slice::from_raw_parts_mut(data, bname.len())
-                .iter_mut()
-                .zip(bname)
-                .for_each(|(a, b)| *a = *b) };
+            unsafe {
+                std::slice::from_raw_parts_mut(data, bname.len())
+                    .iter_mut()
+                    .zip(bname)
+                    .for_each(|(a, b)| *a = *b)
+            };
             data = unsafe { data.add(bname.len()) };
 
             let mut f = std::fs::File::open(file.join(name.to_string_lossy().to_string())).unwrap();
             info.info.size = f.metadata().unwrap().len() as u32;
 
-            f.read_exact(unsafe { std::slice::from_raw_parts_mut(
-                data,
-                info.info.size as usize,
-            ) })
-            .unwrap();
+            f.read_exact(unsafe { std::slice::from_raw_parts_mut(data, info.info.size as usize) })
+                .unwrap();
             info.data = data;
 
             data = unsafe { data.add(info.info.size as usize) };
@@ -641,9 +643,11 @@ impl IXGameSave_Impl for XStub_Impl {
         let container = unsafe { &*(raw) };
         let update = Box::new(XGameSaveUpdate {
             container: raw,
-            container_display_name: unsafe { CStr::from_ptr(container_display_name)
-                .to_string_lossy()
-                .to_string() },
+            container_display_name: unsafe {
+                CStr::from_ptr(container_display_name)
+                    .to_string_lossy()
+                    .to_string()
+            },
         });
         println!(
             "x_game_save_create_update {} {}",
@@ -668,9 +672,7 @@ impl IXGameSave_Impl for XStub_Impl {
         println!(
             "x_game_save_submit_blob_write {} {} byte_count {byte_count}",
             update_context.container_display_name,
-            unsafe {
-                CStr::from_ptr(blob_name)
-            } .to_string_lossy()
+            unsafe { CStr::from_ptr(blob_name) }.to_string_lossy()
         );
         let container = unsafe { &*update_context.container };
         let provider = unsafe { &*container.provider };
@@ -695,7 +697,7 @@ impl IXGameSave_Impl for XStub_Impl {
         println!(
             "x_game_save_submit_blob_delete {} {}",
             update_context.container_display_name,
-            unsafe {CStr::from_ptr(blob_name)}.to_string_lossy()
+            unsafe { CStr::from_ptr(blob_name) }.to_string_lossy()
         );
         S_OK
     }
@@ -836,8 +838,10 @@ impl IXPackage_Impl for XStub_Impl {
         buffer: *mut c_char,
     ) -> HRESULT {
         println!("x_package_get_current_process_package_identifier");
-        unsafe { std::slice::from_raw_parts_mut(buffer as *mut u8, 6)
-            .copy_from_slice(c"local".to_bytes_with_nul()) };
+        unsafe {
+            std::slice::from_raw_parts_mut(buffer as *mut u8, 6)
+                .copy_from_slice(c"local".to_bytes_with_nul())
+        };
         S_OK
     }
 
@@ -860,7 +864,7 @@ impl IXPackage_Impl for XStub_Impl {
     ) -> HRESULT {
         println!(
             "x_package_create_installation_monitor: {}",
-            unsafe {CStr::from_ptr(package_identifier)}.to_string_lossy()
+            unsafe { CStr::from_ptr(package_identifier) }.to_string_lossy()
         );
         unsafe { *installation_monitor = 1 };
         S_OK
@@ -879,13 +883,15 @@ impl IXPackage_Impl for XStub_Impl {
         progress: *mut XPackageInstallationProgress,
     ) -> () {
         println!("x_package_get_installation_progress");
-        unsafe { *progress = XPackageInstallationProgress {
-            total_bytes: 1000,
-            installed_bytes: 1000,
-            launch_bytes: 1000,
-            launchable: true,
-            completed: true,
-        } };
+        unsafe {
+            *progress = XPackageInstallationProgress {
+                total_bytes: 1000,
+                installed_bytes: 1000,
+                launch_bytes: 1000,
+                launchable: true,
+                completed: true,
+            }
+        };
     }
 
     unsafe fn x_package_update_installation_monitor(
@@ -920,8 +926,10 @@ impl IXPackage_Impl for XStub_Impl {
 
     unsafe fn x_package_get_user_locale(&self, locale_size: usize, locale: *mut c_char) -> HRESULT {
         assert!(locale_size >= 3);
-        unsafe { std::slice::from_raw_parts_mut(locale as *mut u8, 3)
-            .copy_from_slice(c"DE".to_bytes_with_nul()) };
+        unsafe {
+            std::slice::from_raw_parts_mut(locale as *mut u8, 3)
+                .copy_from_slice(c"DE".to_bytes_with_nul())
+        };
         S_OK
     }
 
@@ -934,7 +942,9 @@ impl IXPackage_Impl for XStub_Impl {
     ) -> HRESULT {
         println!(
             "x_package_find_chunk_availability {}",
-            if selector_count == 1 && unsafe { &*selectors }.type_ == XPackageChunkSelectorType::Chunk {
+            if selector_count == 1
+                && unsafe { &*selectors }.type_ == XPackageChunkSelectorType::Chunk
+            {
                 unsafe { (&*selectors).data.chunk_id }.to_string()
             } else {
                 unsafe { CStr::from_ptr((&*selectors).data.tag) }
@@ -942,7 +952,9 @@ impl IXPackage_Impl for XStub_Impl {
                     .to_string()
             }
         );
-        unsafe { *availability = XPackageChunkAvailability::Ready; }
+        unsafe {
+            *availability = XPackageChunkAvailability::Ready;
+        }
         S_OK
     }
 
