@@ -2,6 +2,8 @@
 use crate::authenticator::XalAuthenticator;
 use crate::results::E_POINTER;
 use crate::threading::XAsyncBlock;
+#[cfg(feature = "xuser")]
+use crate::xbox_utils;
 use crate::{
     E_FAIL,
     results::S_OK,
@@ -11,6 +13,11 @@ use crate::{
 #[cfg(feature = "xuser")]
 use reqwest::Client;
 use serde::Deserialize;
+#[cfg(feature = "xuser")]
+use serde::Serialize;
+use std::cell::Cell;
+use std::io::Read;
+use std::path::Path;
 use std::ptr::null_mut;
 #[cfg(feature = "xuser")]
 use std::ptr::slice_from_raw_parts_mut;
@@ -20,15 +27,23 @@ use std::{
     ffi::{CStr, c_char},
     os::raw::c_void,
 };
-use windows_core::{HRESULT, IUnknown, Interface, implement, interface};
+#[cfg(feature = "xuser")]
+use tokio_util::bytes::Bytes;
+use windows::libloaderapi::GetModuleFileNameW;
+use windows::minwindef::MAX_PATH;
+use windows_core::{BOOL, HRESULT, IUnknown, Interface, implement, interface};
 #[cfg(feature = "xuser")]
 use xal_new::{self as xal, SignaturePolicyCache};
 #[cfg(feature = "xuser")]
 use xal_new::{DeviceType, XalAppParameters, XalClientParameters};
 #[cfg(feature = "xuser")]
+use xodus::models::licensing::LicenseUserIdentity;
+#[cfg(feature = "xuser")]
 use xodus::models::live::ExchangeUserTokenOutcome;
 #[cfg(feature = "xuser")]
 use xodus::models::secrets::Token;
+#[cfg(feature = "xuser")]
+use xodus::models::soap::BodyContent;
 #[cfg(feature = "xuser")]
 use xodus::{secrets, tokens::TokenManager};
 
@@ -40,6 +55,7 @@ pub enum XUserAddOptions {
     AddDefaultUserAllowingUI = 0x04,
 }
 #[repr(u32)]
+#[derive(Clone, Copy)]
 pub enum XUserAgeGroup {
     Unknown = 0,
     Child = 1,
@@ -68,6 +84,7 @@ pub enum XUserGamerPictureSize {
     ExtraLarge = 3,
 }
 #[repr(u32)]
+#[derive(PartialEq, Eq, Hash)]
 pub enum XUserGamertagComponent {
     Classic = 0,
     Modern = 1,
@@ -195,9 +212,9 @@ pub struct XUserPlatformRemoteConnectEventHandler {
 
 pub type XUserHandle = *mut c_void;
 pub type XUserSignOutDeferralHandle = *mut c_void;
-pub type XUserChangeEventCallback = *mut c_void;
-pub type XUserDeviceAssociationChangedCallback = *mut c_void;
-pub type XUserPlatformSpopPromptEventHandlers = *mut c_void;
+pub type XUserChangeEventCallback = unsafe extern "system" fn();
+pub type XUserDeviceAssociationChangedCallback = unsafe extern "system" fn();
+pub type XUserPlatformSpopPromptEventHandlers = unsafe extern "system" fn();
 
 pub type XUserPlatformOperation = u64;
 
@@ -237,11 +254,8 @@ pub unsafe trait IXUser: IUnknown {
         user_id: u64,
         handle: *mut XUserHandle,
     ) -> HRESULT;
-    pub unsafe fn x_user_get_is_guest(
-        self: &Self,
-        user: XUserHandle,
-        is_guest: *mut bool,
-    ) -> HRESULT;
+    pub unsafe fn x_user_get_is_guest(self: &Self, user: XUserHandle, is_guest: *mut u8)
+    -> HRESULT;
     pub unsafe fn x_user_get_state(
         self: &Self,
         user: XUserHandle,
@@ -276,7 +290,7 @@ pub unsafe trait IXUser: IUnknown {
         user: XUserHandle,
         options: XUserPrivilegeOptions,
         privilege: XUserPrivilege,
-        has_privilege: *mut bool,
+        has_privilege: *mut u8,
         reason: *mut XUserPrivilegeDenyReason,
     ) -> HRESULT;
     pub unsafe fn x_user_resolve_privilege_with_ui_async(
@@ -420,21 +434,116 @@ pub unsafe trait IXUser: IUnknown {
 
 #[interface("cef4fac0-7676-4a94-a119-4c43f9eb5b74")]
 pub unsafe trait IXUser2: IUnknown {
-    pub unsafe fn get_gamertag(&self) -> *const c_char;
+    unsafe fn x_user_get_gamertag(
+        self: &Self,
+        _user: XUserHandle,
+        _gamertag_component: XUserGamertagComponent,
+        _gamertag_size: usize,
+        _gamertag: *mut c_char,
+        _gamertag_used: *mut usize,
+    ) -> HRESULT;
 }
 
 #[interface("26f3c674-a2fe-44fa-b6c4-a323bc94ff53")]
 pub unsafe trait IXUser3: IXUser {}
 
-#[implement(IXUser, IXUser2, IXUser3)]
+#[interface("079415e3-6727-437f-8e9d-8f8f9b2439f7")]
+pub unsafe trait IXUser4: IXUser {}
+
+#[interface("eb9bf948-18dc-4d82-bbcc-40e0a809c4c0")]
+pub unsafe trait IXUser5: IXUser {}
+
+#[interface("1bf2f8c5-d507-4e52-bb05-f726d0e71161")]
+pub unsafe trait IXUser6: IXUser {}
+
+// XUserDefaultAudioEndpointUtf16ChangedCallback
+pub type XUserDefaultAudioEndpointUtf16ChangedCallback = unsafe extern "system" fn(
+    _context: *mut c_void,
+    _user: XUserLocalId,
+    _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind,
+    _endpoint_id_utf16: *const u16,
+) -> ();
+
+// Class _GUID_7d824997_10dc_45ab_86b7_2737767c0bf1
+// IID _GUID_7d824997_10dc_45ab_86b7_2737767c0bf1
+#[interface("0cc6a956-e7e1-4fdf-9341-9d5da649ebc8")]
+pub unsafe trait IXUserDevice: IUnknown {
+    // XUserFindForDevice
+    unsafe fn x_user_find_for_device(
+        self: &Self,
+        _device_id: *const c_void,
+        _handle: *mut XUserHandle,
+    ) -> HRESULT;
+    // XUserRegisterForDeviceAssociationChanged
+    unsafe fn x_user_register_for_device_association_changed(
+        self: &Self,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: Option<XUserDeviceAssociationChangedCallback>,
+        _token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT;
+    // XUserUnregisterForDeviceAssociationChanged
+    unsafe fn x_user_unregister_for_device_association_changed(
+        self: &Self,
+        _token: XTaskQueueRegistrationToken,
+        _wait: BOOL,
+    ) -> BOOL;
+    // XUserGetDefaultAudioEndpointUtf16
+    unsafe fn x_user_get_default_audio_endpoint_utf16(
+        self: &Self,
+        _user: XUserLocalId,
+        _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind,
+        _endpoint_id_utf16_count: usize,
+        _endpoint_id_utf16: *mut u16,
+        _endpoint_id_utf16_used: *mut usize,
+    ) -> HRESULT;
+    // XUserRegisterForDefaultAudioEndpointUtf16Changed
+    unsafe fn x_user_register_for_default_audio_endpoint_utf16_changed(
+        self: &Self,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: Option<XUserDefaultAudioEndpointUtf16ChangedCallback>,
+        _token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT;
+    // XUserUnregisterForDefaultAudioEndpointUtf16Changed
+    unsafe fn x_user_unregister_for_default_audio_endpoint_utf16_changed(
+        self: &Self,
+        _token: XTaskQueueRegistrationToken,
+        _wait: BOOL,
+    ) -> BOOL;
+    // XUserFindControllerForUserWithUiAsync
+    unsafe fn x_user_find_controller_for_user_with_ui_async(
+        self: &Self,
+        _user: XUserHandle,
+        _async_: *mut XAsyncBlock,
+    ) -> HRESULT;
+    // XUserFindControllerForUserWithUiResult
+    unsafe fn x_user_find_controller_for_user_with_ui_result(
+        self: &Self,
+        _async_: *mut XAsyncBlock,
+        _device_id: *mut c_void,
+    ) -> HRESULT;
+}
+
+#[implement(IXUser, IXUser2, IXUser3, IXUser4, IXUser5, IXUser6, IXUserDevice)]
 pub struct XUser {
     pub runtime: tokio::runtime::Runtime,
+    pub handle: Cell<Option<IXUserHandle>>,
 }
 
 #[cfg(feature = "xuser")]
 #[interface("01acd177-91f9-4763-a38e-ccbb55ce32e0")]
-unsafe trait IXUserHandle: IUnknown {
+pub unsafe trait IXUserHandle: IUnknown {
     unsafe fn get_xuid(&self) -> u64;
+    unsafe fn has_privilege(&self, prv: u64) -> bool;
+    unsafe fn get_gamertag(
+        &self,
+        gamertag_component: XUserGamertagComponent,
+        gamertag_size: usize,
+        gamertag: *mut c_char,
+        gamertag_used: *mut usize,
+    ) -> HRESULT;
+    unsafe fn get_age_group(&self) -> XUserAgeGroup;
     unsafe fn get_local_id(&self) -> XUserLocalId;
     unsafe fn get_auth(&self) -> *const Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>;
     unsafe fn get_runtime(&self) -> *const tokio::runtime::Handle;
@@ -442,10 +551,12 @@ unsafe trait IXUserHandle: IUnknown {
 
 #[cfg(not(feature = "xuser"))]
 #[interface("01acd177-91f9-4763-a38e-ccbb55ce32e0")]
-unsafe trait IXUserHandle: IUnknown {
+pub unsafe trait IXUserHandle: IUnknown {
     unsafe fn get_xuid(&self) -> u64;
     unsafe fn get_local_id(&self) -> XUserLocalId;
     unsafe fn get_runtime(&self) -> *const tokio::runtime::Handle;
+    unsafe fn has_privilege(&self, prv: u64) -> bool;
+    unsafe fn get_age_group(&self) -> XUserAgeGroup;
 }
 
 #[cfg(feature = "xuser")]
@@ -464,14 +575,25 @@ struct XUserHandleObject {
     local_id: XUserLocalId,
     auth: Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>,
     runtime: tokio::runtime::Handle,
+    agg: XUserAgeGroup,
+    prv: Vec<u64>,
+    gamertags: std::collections::HashMap<XUserGamertagComponent, String>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct Game {
+    #[serde(rename = "StoreId")]
+    pub store_id: String,
     #[serde(rename = "TitleId")]
     pub title_id: String,
     #[serde(rename = "MSAAppId")]
-    pub msa_app_id: String,
+    pub msa_app_id: Option<String>,
+}
+
+impl Game {
+    pub fn get_title_id(&self) -> i64 {
+        i64::from_str_radix(&self.title_id, 16).unwrap()
+    }
 }
 
 #[cfg(feature = "xuser")]
@@ -485,9 +607,6 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
         }
     }
 
-    // unsafe fn get_object(&self,) -> *mut XUserHandleObject {
-    //     &mut self.this as *mut XUserHandleObject
-    // }
     unsafe fn get_auth(&self) -> *const Arc<tokio::sync::Mutex<XuserHandleObjectAuth>> {
         &self.auth
     }
@@ -495,15 +614,71 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
     unsafe fn get_runtime(&self) -> *const tokio::runtime::Handle {
         &self.runtime
     }
+
+    unsafe fn has_privilege(&self, prv: u64) -> bool {
+        self.prv.contains(&prv)
+    }
+
+    unsafe fn get_gamertag(
+        &self,
+        gamertag_component: XUserGamertagComponent,
+        gamertag_size: usize,
+        gamertag: *mut c_char,
+        gamertag_used: *mut usize,
+    ) -> HRESULT {
+        let Some(gtg) = self.gamertags.get(&gamertag_component) else {
+            return E_FAIL;
+        };
+        let len = std::cmp::min(gtg.len(), gamertag_size - 1);
+        unsafe {
+            std::ptr::copy_nonoverlapping(gtg.as_ptr(), gamertag as *mut u8, len);
+            *gamertag.add(len) = 0;
+        };
+        if !gamertag_used.is_null() {
+            unsafe { *gamertag_used = len };
+        }
+        S_OK
+    }
+
+    unsafe fn get_age_group(&self) -> XUserAgeGroup {
+        self.agg
+    }
 }
 
 impl IXUser2_Impl for XUser_Impl {
-    unsafe fn get_gamertag(&self) -> *const c_char {
-        c"FakeGamertag".as_ptr() as *const c_char
+    unsafe fn x_user_get_gamertag(
+        &self,
+        handle: XUserHandle,
+        gamertag_component: XUserGamertagComponent,
+        gamertag_size: usize,
+        gamertag: *mut c_char,
+        gamertag_used: *mut usize,
+    ) -> HRESULT {
+        println!("x_user_get_gamertag");
+        #[cfg(feature = "xuser")]
+        unsafe {
+            IXUserHandle::from_raw_borrowed(&handle)
+                .map(|f| f.get_gamertag(gamertag_component, gamertag_size, gamertag, gamertag_used))
+                .unwrap_or(E_FAIL)
+        }
+        #[cfg(not(feature = "xuser"))]
+        unsafe {
+            _ = handle;
+            _ = gamertag_component;
+            _ = gamertag_size;
+            *gamertag = 0;
+            if !gamertag_used.is_null() {
+                *gamertag_used = 1;
+            }
+            S_OK
+        }
     }
 }
 
 impl IXUser3_Impl for XUser_Impl {}
+impl IXUser4_Impl for XUser_Impl {}
+impl IXUser5_Impl for XUser_Impl {}
+impl IXUser6_Impl for XUser_Impl {}
 
 impl IXUser_Impl for XUser_Impl {
     unsafe fn x_user_duplicate_handle(
@@ -544,6 +719,9 @@ impl IXUser_Impl for XUser_Impl {
         _options: XUserAddOptions,
         async_: *mut XAsyncBlock,
     ) -> HRESULT {
+        // xasync::run(async_, async {
+        //     Err::<(),_>(E_FAIL)
+        // })
         println!("x_user_add_async called");
         #[cfg(feature = "xuser")]
         let handle = self.runtime.handle().clone();
@@ -556,7 +734,7 @@ impl IXUser_Impl for XUser_Impl {
                     {
                         let user = handle
                             .spawn(async move {
-                                use std::path::Path;
+                                use std::{collections::HashMap, path::Path};
 
                                 use windows::{libloaderapi::GetModuleFileNameW, minwindef::MAX_PATH};
 
@@ -585,7 +763,7 @@ impl IXUser_Impl for XUser_Impl {
                                 std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
                                 println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
                                 secrets::init_secrets().expect("Unable to initialize credentials");
-                                let tokens = TokenManager::with_keychain_and_memory();
+                                let tokens: TokenManager = TokenManager::with_keychain_and_memory();
 
                                 let mut path = [0u16; MAX_PATH as usize];
                                 let len = GetModuleFileNameW(None, &mut path);
@@ -614,7 +792,7 @@ impl IXUser_Impl for XUser_Impl {
                                 let config = config.unwrap();
 
                                 let (c, resp, device) =
-                                    do_sisu(&client, &tokens, &config.msa_app_id, i64::from_str_radix(&config.title_id, 16).unwrap(), def_policy.clone())
+                                    do_sisu(&client, &tokens, config.msa_app_id.as_ref().map_or_else(|| "", |x|x), i64::from_str_radix(&config.title_id, 16).unwrap(), def_policy.clone())
                                         .await
                                         .unwrap();
 
@@ -639,15 +817,42 @@ impl IXUser_Impl for XUser_Impl {
 
                                 let policy = SignaturePolicyCache::new(r);
 
-                                let xid = resp
+                                let xui = resp
                                     .authorization_token
                                     .display_claims
                                     .as_ref()
-                                    .map(|d| d.xui[0]["xid"].clone())
+                                    .map(|d| &d.xui[0])
                                     .unwrap();
+
+                                let xid = &xui["xid"];
+                                let agg = match xui["agg"].as_str() {
+                                    "Adult" => XUserAgeGroup::Adult,
+                                    "Teen" => XUserAgeGroup::Teen,
+                                    "Child" => XUserAgeGroup::Child,
+                                    _=> XUserAgeGroup::Unknown
+                                };
+                                let prv : Vec<u64> = (&xui["prv"]).split(" ").map(str::parse::<u64>).filter(|r|r.is_ok()).map(Result::unwrap).collect();
+
+                                let user_token = resp.authorization_token.authorization_header_value();
+                                let prof = xbox_utils::fetch_user_profiles(&client, &user_token, &[xid])
+                                    .await
+                                    .unwrap();
+                                let prof = prof.into_iter().map(|(_, v)| v).next().unwrap();
+                                let gamertags : HashMap<XUserGamertagComponent, String> = prof.settings.iter().filter_map(|(k,v)| {
+                                    match k.as_str() {
+                                        "Gamertag" => Some((XUserGamertagComponent::Classic, v.to_owned())),
+                                        "ModernGamertag" => Some((XUserGamertagComponent::Modern, v.to_owned())),
+                                        "ModernGamertagSuffix" => Some((XUserGamertagComponent::ModernSuffix, v.to_owned())),
+                                        "UniqueModernGamertag" => Some((XUserGamertagComponent::UniqueModern, v.to_owned())),
+                                        _ => None,
+                                    }
+                                }).collect();
 
                                 let handle = XUserHandleObject {
                                     xuid: xid.parse::<u64>().unwrap(),
+                                    agg: agg,
+                                    gamertags: gamertags,
+                                    prv: prv,
                                     local_id: XUserLocalId { value: 987654321 },
                                     auth: Arc::new(tokio::sync::Mutex::new(XuserHandleObjectAuth {
                                         authenticator: c,
@@ -684,9 +889,20 @@ impl IXUser_Impl for XUser_Impl {
         new_user: *mut XUserHandle,
     ) -> HRESULT {
         println!("x_user_add_result called");
-        unsafe { xasync::get_result(async_, null_mut(), new_user) }
+        let err = unsafe { xasync::get_result(async_, null_mut(), new_user) }
             .map(|_| S_OK)
-            .unwrap_or_else(|e| e)
+            .unwrap_or_else(|e| e);
+        println!("x_user_add_result {}", err);
+        if err.is_ok() {
+            self.handle.replace(unsafe {
+                Some(
+                    IXUserHandle::from_raw_borrowed(&*new_user)
+                        .cloned()
+                        .unwrap(),
+                )
+            });
+        }
+        err
     }
 
     unsafe fn x_user_get_local_id(
@@ -694,6 +910,7 @@ impl IXUser_Impl for XUser_Impl {
         user: XUserHandle,
         user_local_id: *mut XUserLocalId,
     ) -> HRESULT {
+        println!("x_user_get_local_id");
         unsafe {
             IXUserHandle::from_raw_borrowed(&user)
                 .map(|f| {
@@ -713,28 +930,40 @@ impl IXUser_Impl for XUser_Impl {
     }
 
     unsafe fn x_user_get_id(&self, user: XUserHandle, user_id: *mut u64) -> HRESULT {
-        unsafe {
+        println!("x_user_get_id");
+        let err = unsafe {
             IXUserHandle::from_raw_borrowed(&user)
                 .map(|f| {
                     *user_id = f.get_xuid();
                     S_OK
                 })
                 .unwrap_or(E_FAIL)
+        };
+        println!("x_user_get_id {err}");
+        err
+    }
+
+    unsafe fn x_user_find_user_by_id(&self, user_id: u64, handle: *mut XUserHandle) -> HRESULT {
+        println!("x_user_find_user_by_id {}", user_id);
+        let h = self.handle.as_ptr();
+        if h.is_null() || handle.is_null() {
+            return E_FAIL;
         }
+        unsafe { *handle = (*h).clone().unwrap().into_raw() };
+        println!("x_user_find_user_by_id ok {}", user_id);
+        S_OK
     }
 
-    unsafe fn x_user_find_user_by_id(&self, _user_id: u64, _handle: *mut XUserHandle) -> HRESULT {
-        E_FAIL
-    }
-
-    unsafe fn x_user_get_is_guest(&self, _user: XUserHandle, is_guest: *mut bool) -> HRESULT {
+    unsafe fn x_user_get_is_guest(&self, _user: XUserHandle, is_guest: *mut u8) -> HRESULT {
+        println!("x_user_get_is_guest");
         unsafe {
-            *is_guest = false;
+            *is_guest = 0u8;
         };
         S_OK
     }
 
     unsafe fn x_user_get_state(&self, _user: XUserHandle, state: *mut XUserState) -> HRESULT {
+        println!("x_user_get_state");
         unsafe {
             *state = XUserState::SignedIn;
         };
@@ -747,57 +976,120 @@ impl IXUser_Impl for XUser_Impl {
 
     unsafe fn x_user_get_gamer_picture_async(
         &self,
-        _user: XUserHandle,
-        _picture_size: XUserGamerPictureSize,
-        _async_: *mut XAsyncBlock,
+        user: XUserHandle,
+        picture_size: XUserGamerPictureSize,
+        async_: *mut XAsyncBlock,
     ) -> HRESULT {
-        todo!()
+        println!("x_user_get_gamer_picture_async called");
+        #[cfg(feature = "xuser")]
+        {
+            let user = unsafe { IXUserHandle::from_raw_borrowed(&user) };
+            let xuid = user.map(|f| unsafe { f.get_xuid() });
+            let handle = user.map(|f| unsafe { (*f.get_runtime()).clone() }).unwrap();
+            let user = unsafe { (*user.unwrap().get_auth()).clone() };
+            unsafe {
+                xasync::run_dyn(async_, {
+                    async move {
+                        println!("x_user_get_gamer_picture_async async");
+                        let profile =
+                            get_gamerpicture(handle, user, xuid.unwrap(), picture_size).await;
+                        println!("x_user_get_gamer_picture_async got pic");
+                        let req_size = profile.len();
+                        Ok::<_, HRESULT>((
+                            move |b: *mut c_void, s: usize| {
+                                std::ptr::copy_nonoverlapping(
+                                    profile.as_ptr(),
+                                    b as *mut u8,
+                                    profile.len(),
+                                );
+                                return s;
+                            },
+                            req_size,
+                        ))
+                    }
+                })
+            }
+        }
+        #[cfg(not(feature = "xuser"))]
+        {
+            let _ = async_;
+            let _ = user;
+            _ = picture_size;
+            crate::E_NOTIMPL
+        }
     }
 
     unsafe fn x_user_get_gamer_picture_result_size(
         &self,
-        _async_: *mut XAsyncBlock,
-        _buffer_size: *mut usize,
+        async_: *mut XAsyncBlock,
+        buffer_size: *mut usize,
     ) -> HRESULT {
-        todo!()
+        println!("x_user_get_gamer_picture_result_size");
+        let size = unsafe { xasync::get_result_size(async_).unwrap() };
+        unsafe { *buffer_size = size };
+        S_OK
     }
 
     unsafe fn x_user_get_gamer_picture_result(
         &self,
-        _async_: *mut XAsyncBlock,
-        _buffer_size: usize,
-        _buffer: *mut c_void,
-        _buffer_used: *mut usize,
+        async_: *mut XAsyncBlock,
+        buffer_size: usize,
+        buffer: *mut c_void,
+        buffer_used: *mut usize,
     ) -> HRESULT {
-        todo!()
+        println!("x_user_get_gamer_picture_result");
+        match unsafe {
+            xasync::get_result_dyn(async_, null_mut(), buffer_size, buffer, buffer_used)
+        } {
+            Err(hr) => hr,
+            _ => S_OK,
+        }
     }
 
     unsafe fn x_user_get_age_group(
         &self,
-        _user: XUserHandle,
+        handle: XUserHandle,
         age_group: *mut XUserAgeGroup,
     ) -> HRESULT {
+        println!("x_user_get_age_group");
         unsafe {
-            *age_group = XUserAgeGroup::Adult;
-        };
-        S_OK
+            IXUserHandle::from_raw_borrowed(&handle)
+                .map(|f| {
+                    if !age_group.is_null() {
+                        *age_group = f.get_age_group();
+                    }
+                    S_OK
+                })
+                .unwrap_or(E_FAIL)
+        }
     }
 
     unsafe fn x_user_check_privilege(
         &self,
-        _user: XUserHandle,
+        handle: XUserHandle,
         _options: XUserPrivilegeOptions,
-        _privilege: XUserPrivilege,
-        has_privilege: *mut bool,
+        privilege: XUserPrivilege,
+        has_privilege: *mut u8,
         reason: *mut XUserPrivilegeDenyReason,
     ) -> HRESULT {
+        let prv = privilege as u64;
+        println!("x_user_check_privilege {}", prv);
         unsafe {
-            *has_privilege = true;
-        };
-        unsafe {
-            *reason = XUserPrivilegeDenyReason::None;
-        };
-        S_OK
+            IXUserHandle::from_raw_borrowed(&handle)
+                .map(|f| {
+                    let hprv = f.has_privilege(prv);
+                    *has_privilege = if hprv { 1 } else { 0 };
+                    if !reason.is_null() {
+                        *reason = if hprv {
+                            XUserPrivilegeDenyReason::None
+                        } else {
+                            XUserPrivilegeDenyReason::Unknown
+                        };
+                    }
+                    S_OK
+                })
+                .unwrap_or(E_FAIL)
+        }
     }
 
     unsafe fn x_user_resolve_privilege_with_ui_async(
@@ -813,8 +1105,6 @@ impl IXUser_Impl for XUser_Impl {
     unsafe fn x_user_resolve_privilege_with_ui_result(&self, _async_: *mut XAsyncBlock) -> HRESULT {
         todo!()
     }
-
-    // struct FakeToken
 
     unsafe fn x_user_get_token_and_signature_async(
         &self,
@@ -879,6 +1169,7 @@ impl IXUser_Impl for XUser_Impl {
         async_: *mut XAsyncBlock,
         buffer_size: *mut usize,
     ) -> HRESULT {
+        println!("x_user_get_token_and_signature_result_size");
         if buffer_size.is_null() {
             return E_POINTER;
         }
@@ -899,6 +1190,7 @@ impl IXUser_Impl for XUser_Impl {
         ptr_to_buffer: *mut *mut XUserGetTokenAndSignatureData,
         buffer_used: *mut usize,
     ) -> HRESULT {
+        println!("x_user_get_token_and_signature_result a");
         match unsafe {
             xasync::get_result_dyn(async_, null_mut(), buffer_size, buffer, buffer_used)
         } {
@@ -947,7 +1239,7 @@ impl IXUser_Impl for XUser_Impl {
                         let token_count = token.encode_utf16().count();
                         let token_start = size_of::<XUserGetTokenAndSignatureUtf16Data>();
 
-                        let req_size = token_start + token_count + 1;
+                        let req_size = token_start + (token_count + 1) * 2;
                         Ok::<_, HRESULT>((
                             move |b: *mut c_void, s: usize| {
                                 let data = &mut *b.cast::<XUserGetTokenAndSignatureUtf16Data>();
@@ -1065,7 +1357,8 @@ impl IXUser_Impl for XUser_Impl {
         _token: XTaskQueueRegistrationToken,
         _wait: bool,
     ) -> HRESULT {
-        todo!()
+        // todo!()
+        S_OK
     }
 
     unsafe fn x_user_get_sign_out_deferral(
@@ -1144,6 +1437,79 @@ impl IXUser_Impl for XUser_Impl {
         &self,
         _operation: XUserPlatformOperation,
         _result: XUserPlatformSpopOperationResult,
+    ) -> HRESULT {
+        todo!()
+    }
+}
+
+impl IXUserDevice_Impl for XUser_Impl {
+    unsafe fn x_user_find_for_device(
+        &self,
+        _device_id: *const c_void,
+        _handle: *mut XUserHandle,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_register_for_device_association_changed(
+        &self,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: Option<XUserDeviceAssociationChangedCallback>,
+        _token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_unregister_for_device_association_changed(
+        &self,
+        _token: XTaskQueueRegistrationToken,
+        _wait: BOOL,
+    ) -> BOOL {
+        todo!()
+    }
+
+    unsafe fn x_user_get_default_audio_endpoint_utf16(
+        &self,
+        _user: XUserLocalId,
+        _default_audio_endpoint_kind: XUserDefaultAudioEndpointKind,
+        _endpoint_id_utf16_count: usize,
+        _endpoint_id_utf16: *mut u16,
+        _endpoint_id_utf16_used: *mut usize,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_register_for_default_audio_endpoint_utf16_changed(
+        &self,
+        _queue: XTaskQueueHandle,
+        _context: *mut c_void,
+        _callback: Option<XUserDefaultAudioEndpointUtf16ChangedCallback>,
+        _token: *mut XTaskQueueRegistrationToken,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_unregister_for_default_audio_endpoint_utf16_changed(
+        &self,
+        _token: XTaskQueueRegistrationToken,
+        _wait: BOOL,
+    ) -> BOOL {
+        todo!()
+    }
+
+    unsafe fn x_user_find_controller_for_user_with_ui_async(
+        &self,
+        _user: XUserHandle,
+        _async_: *mut XAsyncBlock,
+    ) -> HRESULT {
+        todo!()
+    }
+
+    unsafe fn x_user_find_controller_for_user_with_ui_result(
+        &self,
+        _async_: *mut XAsyncBlock,
+        _device_id: *mut c_void,
     ) -> HRESULT {
         todo!()
     }
@@ -1293,7 +1659,16 @@ async fn get_xsts_token(
                 _ => match rb {
                     Ok(Some(rp)) => rp,
                     _ => {
-                        panic!("No relying party found for url: {}", url);
+                        let url = url::Url::parse(&url).unwrap();
+                        let host = url.host_str().unwrap();
+                        if host.ends_with(".atoma.cloud")
+                            || host.ends_with(".fatshark.services")
+                            || host.ends_with(".fatsharkgames.se")
+                        {
+                            "rp://bsp-auth.fatsharkgames.se/".to_owned()
+                        } else {
+                            panic!("No relying party found for url: {}", url);
+                        }
                     }
                 },
             };
@@ -1313,4 +1688,240 @@ async fn get_xsts_token(
         .await
         .unwrap();
     token
+}
+
+#[cfg(feature = "xuser")]
+async fn get_gamerpicture(
+    handle: tokio::runtime::Handle,
+    user: Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>,
+    xuid: u64,
+    size: XUserGamerPictureSize,
+) -> Bytes {
+    let token = handle
+        .spawn(async move {
+            let user = user.lock().await;
+            let user_token = user.auth.authorization_token.authorization_header_value();
+            let client = reqwest::Client::builder()
+                .use_rustls_tls()
+                .http1_only()
+                .connection_verbose(true)
+                .pool_max_idle_per_host(0)
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap();
+            let xuid = xuid.to_string();
+            let prof = xbox_utils::fetch_user_profiles(&client, &user_token, &[&xuid])
+                .await
+                .unwrap();
+            let prof = prof.into_iter().map(|(_, v)| v).next().unwrap();
+
+            let pic = prof.picture.unwrap()
+                + match size {
+                    XUserGamerPictureSize::Small => "&w=64&h=64",
+                    XUserGamerPictureSize::Medium => "&w=208&h=208",
+                    XUserGamerPictureSize::Large => "&w=424&h=424",
+                    XUserGamerPictureSize::ExtraLarge => "&w=1080&h=1080",
+                };
+
+            let req = client.get(&pic).send().await.unwrap();
+            let data = req.bytes().await.unwrap();
+            Ok::<_, HRESULT>(data)
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    token
+}
+
+#[cfg(feature = "xuser")]
+pub async fn do_license_token(
+    client: &Client,
+    manager: &TokenManager,
+    products: Vec<String>,
+    custom_developer_string: String,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let Token::Legacy(token) = manager.get_user_sts_token()? else {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::AddrNotAvailable,
+            "error",
+        )));
+    };
+    let Token::Legacy(device_token) = manager.get_device_sts_token()? else {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "error",
+        )));
+    };
+    let device_token_resp: xodus::models::soap::RequestSecurityTokenResponse =
+        xodus::api::live::exchange_device_token(
+            client,
+            device_token.clone(),
+            "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+            "www.microsoft.com".to_owned(),
+            Some(xodus::models::soap::PolicyReference::mbi_ssl()),
+        )
+        .await?;
+
+    let Token::Compact(ms_device_token) = device_token_resp.into() else {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::ArgumentListTooLong,
+            "error",
+        )));
+    };
+    let user = manager.get_user().unwrap();
+
+    let user_token = xodus::api::live::exchange_user_token(
+        client,
+        token,
+        user.username,
+        device_token,
+        None,
+        Some("Silent".to_string()),
+        "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
+        &[(
+            "www.microsoft.com".to_owned(),
+            Some(xodus::models::soap::PolicyReference::mbi_ssl()),
+        )],
+    )
+    .await?;
+
+    let user_token: Token = match user_token {
+        ExchangeUserTokenOutcome::Fault(_) => {
+            todo!()
+        }
+        ExchangeUserTokenOutcome::Issued(BodyContent::RequestSecurityTokenResponseCollection(
+            mut collection,
+        )) => {
+            let token = collection.security_tokens.remove(0);
+            token.into()
+        }
+        ExchangeUserTokenOutcome::Issued(BodyContent::RequestSecurityTokenResponse(token)) => {
+            (*token).into()
+        }
+        _ => unreachable!("Only responses are handled"),
+    };
+    let Token::Compact(user_token) = user_token else {
+        todo!();
+    };
+
+    let token = get_license_token(
+        client,
+        ms_device_token,
+        user_token,
+        user.puid,
+        products,
+        custom_developer_string,
+    )
+    .await?;
+
+    Ok(token)
+}
+
+#[cfg(feature = "xuser")]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseTokenRequest {
+    pub parent_product_id: String,
+    pub enforce_sellable_by: bool,
+    pub related_product_ids: Vec<String>,
+    pub custom_developer_string: String,
+    pub beneficiaries: Vec<LicenseUserIdentity>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseTokenResponse {
+    pub license_token: String,
+}
+
+#[cfg(feature = "xuser")]
+pub async fn get_license_token(
+    client: &reqwest::Client,
+    device_ms_token: String,
+    user_ms_token: String,
+    ticket_reference: String,
+    products: Vec<String>,
+    custom_developer_string: String,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let response = client
+        .post("https://licensing.mp.microsoft.com/v8.0/licenseToken")
+        .header("from", "XboxLicenseManager")
+        .header("Authorization", device_ms_token)
+        .header(
+            "user-agent",
+            "XboxLm-PC/Microsoft.GamingServices_32.107.4002.0_x64__8wekyb3d8bbwe",
+        )
+        .json(&LicenseTokenRequest {
+            parent_product_id: load_game_config().unwrap().store_id, //
+            enforce_sellable_by: true,
+            related_product_ids: products,
+            custom_developer_string: custom_developer_string,
+            beneficiaries: vec![LicenseUserIdentity {
+                identity_type: "Msa".to_string(),
+                identity_value: user_ms_token,
+                local_ticket_reference: ticket_reference,
+            }],
+        })
+        .send()
+        .await?;
+
+    // println!("status {}", response.status());
+    // let resp = response.text().await.unwrap();
+    // println!("{}", resp);
+    let token_resp: LicenseTokenResponse = response.json().await?;
+
+    Ok(token_resp.license_token)
+}
+
+pub async fn load_game_config_async() -> Option<Game> {
+    let mut config: Option<Game> = None;
+    loop {
+        let mut path = [0u16; MAX_PATH as usize];
+        let len = unsafe { GetModuleFileNameW(None, &mut path) };
+        let path = String::from_utf16_lossy(&path[..len as usize]);
+        let mut path = Path::new(&path);
+
+        let Some(parent) = path.parent() else {
+            break;
+        };
+
+        if let Ok(mut fs) = tokio::fs::File::open(path.join("MicrosoftGame.config")).await {
+            use tokio::io::AsyncReadExt;
+            let mut bytes = String::new();
+            fs.read_to_string(&mut bytes).await.unwrap();
+
+            config = Some(quick_xml::de::from_str(&bytes).unwrap());
+            break;
+        }
+
+        path = parent;
+    }
+    config
+}
+
+pub fn load_game_config() -> Option<Game> {
+    let mut path = [0u16; MAX_PATH as usize];
+    let len = unsafe { GetModuleFileNameW(None, &mut path) };
+    let path = String::from_utf16_lossy(&path[..len as usize]);
+    let mut path = Path::new(&path);
+    let mut config: Option<Game> = None;
+    loop {
+        println!("{}", path.to_string_lossy());
+
+        let Some(parent) = path.parent() else {
+            break;
+        };
+
+        if let Ok(mut fs) = std::fs::File::open(path.join("MicrosoftGame.config")) {
+            let mut bytes = String::new();
+            fs.read_to_string(&mut bytes).unwrap();
+
+            config = Some(quick_xml::de::from_str(&bytes).unwrap());
+            break;
+        }
+
+        path = parent;
+    }
+    config
 }
