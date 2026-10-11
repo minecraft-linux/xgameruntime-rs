@@ -1,10 +1,5 @@
 use std::{
-    cell::Cell,
-    ffi::{c_char, c_void},
-    hint::spin_loop,
-    io, mem,
-    ptr::null_mut,
-    sync::{
+    cell::Cell, ffi::{c_char, c_void}, hint::spin_loop, io, mem::{self, ManuallyDrop}, ops::Deref, ptr::null_mut, sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering},
     },
@@ -86,20 +81,6 @@ pub struct XAsyncBlock {
     pub internal: [u8; size_of::<*mut c_void>() * 4],
 }
 
-#[interface("ECD1C26B-E34D-4E41-987E-C4C349C667CF")]
-unsafe trait IXAsyncState: IUnknown {
-    unsafe fn get_local_block(&self) -> *mut XAsyncBlock;
-    unsafe fn get_user_block(&self) -> *mut XAsyncBlock;
-    unsafe fn get_provider_data(&self) -> *mut XAsyncProviderData;
-    unsafe fn get_result_size(&self) -> usize;
-    unsafe fn set_result_size(&self, required_buffer_size: usize);
-    unsafe fn get_provider(&self) -> XAsyncProvider;
-    unsafe fn notify_all(&self);
-    unsafe fn wait(&self);
-    unsafe fn get_queue(&self) -> ITaskQueue;
-}
-
-#[implement(IXAsyncState)]
 struct XAsyncState {
     local_block: XAsyncBlock,
     user_block: *mut XAsyncBlock,
@@ -130,7 +111,7 @@ impl Drop for XAsyncState {
     }
 }
 
-impl IXAsyncState_Impl for XAsyncState_Impl {
+impl XAsyncState {
     unsafe fn get_local_block(&self) -> *mut XAsyncBlock {
         &self.local_block as *const _ as *mut XAsyncBlock
     }
@@ -342,7 +323,7 @@ pub unsafe trait IXAsync: IUnknown {
     ) -> HRESULT;
     // Private stuff of the gdk runtime, using thread locals etc.
     // No clue
-    pub unsafe fn ___2(self: &Self);
+    pub unsafe fn x_task_queue_is_empty(self: &Self, queue: XTaskQueueHandle, port: XTaskQueuePort) -> BOOL;
     pub unsafe fn x_thread_assert_not_time_sensitive(self: &Self);
     pub unsafe fn x_thread_is_time_sensitive(self: &Self) -> BOOL;
 }
@@ -352,7 +333,7 @@ impl XAsyncBlock {
         assert!(size_of::<XAsyncInternal>() <= self.internal.len());
         unsafe { &mut *(self.internal.as_ptr() as *mut XAsyncInternal) }
     }
-    fn get_state_ex(&self, detach: bool) -> (Option<IXAsyncState>, Option<HRESULT>) {
+    fn get_state_ex(&self, detach: bool) -> (Option<Arc<XAsyncState>>, Option<HRESULT>) {
         println!(
             "XAsyncBlock::get_state_ex called with async_block: {:p}, detach: {}, thread id: {:?}",
             &self,
@@ -392,7 +373,7 @@ impl XAsyncBlock {
         }
 
         if detach {
-            let state = unsafe { IXAsyncState::from_raw(state_ptr) };
+            let state = unsafe { Arc::from_raw(state_ptr as *mut XAsyncState) };
 
             let provider_block = unsafe { &*state.get_local_block() };
             let user_block = unsafe { &*state.get_user_block() };
@@ -415,7 +396,7 @@ impl XAsyncBlock {
                 );
             }
             assert!(state_ptr_2 == state_ptr);
-            mem::drop(unsafe { IXAsyncState::from_raw(state_ptr_2) });
+            mem::drop(unsafe { Arc::from_raw(state_ptr_2 as *mut XAsyncState) });
             println!(
                 "XAsyncBlock::get_state_ex: detached state_ptr = {:p}, thread id: {:?}",
                 state_ptr,
@@ -423,17 +404,17 @@ impl XAsyncBlock {
             );
             (Some(state), result)
         } else {
-            let state = unsafe { IXAsyncState::from_raw_borrowed(&state_ptr) };
+            let state = if state_ptr == null_mut() { None } else { Some(unsafe { ManuallyDrop::new(Arc::from_raw(state_ptr as *mut XAsyncState)) })};
 
             println!(
                 "XAsyncBlock::get_state_ex: borrowed state_ptr = {:p}, thread id: {:?}",
                 state_ptr,
                 std::thread::current().id()
             );
-            (state.map(|s| s.clone()), result)
+            (state.map(|s| s.deref().clone()), result)
         }
     }
-    fn get_state(&self) -> (Option<IXAsyncState>, Option<HRESULT>) {
+    fn get_state(&self) -> (Option<Arc<XAsyncState>>, Option<HRESULT>) {
         self.get_state_ex(false)
     }
 
@@ -442,7 +423,7 @@ impl XAsyncBlock {
         static_: InterfaceRef<'_, IXAsync>,
         context: *mut c_void,
         provider: XAsyncProvider,
-    ) -> Option<IXAsyncState> {
+    ) -> Option<Arc<XAsyncState>> {
         println!(
             "XAsyncBlock::create_state: creating state for async_block {:p}, context: {:p}, provider: {:p}, thread id: {:?}",
             self,
@@ -496,7 +477,7 @@ impl XAsyncBlock {
             unsafe { ITaskQueue::from_raw_borrowed(&self.queue).unwrap().clone() }
         };
         let rawq = queue.as_raw();
-        let state: IXAsyncState = XAsyncState {
+        let state = Arc::new(XAsyncState {
             local_block: *self,
             user_block: self as *const _ as *mut XAsyncBlock,
             provider_data: XAsyncProviderData {
@@ -508,12 +489,11 @@ impl XAsyncBlock {
             provider: provider,
             waiter: Arc::new((Mutex::new(0), Condvar::new())),
             queue: queue,
-        }
-        .into();
+        });
 
         internal
             .state
-            .store(state.clone().into_raw(), Ordering::Release);
+            .store(Arc::into_raw(state.clone()) as *mut c_void, Ordering::Release);
 
         let local_block = unsafe { &mut *state.get_local_block() };
         // libhttpclient demands this do to using the queue
@@ -526,7 +506,7 @@ impl XAsyncBlock {
         );
         local_internal
             .state
-            .store(state.clone().into_raw(), Ordering::Release);
+            .store(Arc::into_raw(state.clone()) as *mut c_void, Ordering::Release);
 
         let provider_data = unsafe { &mut *state.get_provider_data() };
         provider_data.async_ = unsafe { state.get_local_block() };
@@ -583,6 +563,10 @@ unsafe trait ITaskQueue: IUnknown {
     ) -> HRESULT;
     unsafe fn dispatch(&self, port: XTaskQueuePort, timeout_in_ms: u32) -> BOOL;
     unsafe fn get_port_handle(&self, port: XTaskQueuePort) -> XTaskQueuePortHandle;
+    unsafe fn is_empty(
+        &self,
+        port: XTaskQueuePort,
+    ) -> BOOL;
     unsafe fn terminate(
         &self,
         wait: bool,
@@ -776,6 +760,9 @@ impl ITaskQueuePort_Impl for TaskQueuePort_Impl {
             callback_context,
             tracker.is_closed()
         );
+        // if tracker.is_closed() {
+        //     return E_ABORT;
+        // }
         tracker.clone().spawn_on(
             async move {
                 if let Some(cb) = callback.as_ref() {
@@ -839,6 +826,9 @@ impl ITaskQueuePort_Impl for ImmediateTaskQueuePort_Impl {
             callback_context,
             tracker.is_closed()
         );
+        // if tracker.is_closed() {
+        //     return E_ABORT;
+        // }
         callback.map(|f| unsafe { f(callback_context, tracker.is_closed()) });
         mem::drop(token);
         S_OK
@@ -972,7 +962,8 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
 struct TaskQueue {
     work: ITaskQueuePort,
     completion: ITaskQueuePort,
-    tracker: tokio_util::task::TaskTracker,
+    work_tracker: tokio_util::task::TaskTracker,
+    completion_tracker: tokio_util::task::TaskTracker,
     handle: tokio::runtime::Handle,
     close_token: CancellationToken,
     monitor_handles: Cell<AtomicVec<(XTaskQueueRegistrationToken, XTaskQueueMonitorCallback, u64)>>,
@@ -998,7 +989,8 @@ impl TaskQueue {
         Self {
             work,
             completion,
-            tracker: tokio_util::task::TaskTracker::new(),
+            work_tracker: tokio_util::task::TaskTracker::new(),
+            completion_tracker: tokio_util::task::TaskTracker::new(),
             handle,
             close_token: CancellationToken::new(),
             monitor_handles: Cell::new(AtomicVec::new()),
@@ -1046,7 +1038,13 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             callback,
             std::thread::current().id()
         );
-        let tracker = self.tracker.clone();
+        let tracker = match port {
+            XTaskQueuePort::Work => &self.work_tracker,
+            XTaskQueuePort::Completion => &self.completion_tracker,
+        }.clone();
+        if tracker.is_closed() {
+            return E_ABORT;
+        }
         let oport = self.get_port(port);
         let r = if delay_ms == 0 {
             unsafe { oport.submit_callback(&tracker, callback_context, callback) }
@@ -1054,7 +1052,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             let callback_context = callback_context as u64;
             let oport = oport.clone().into_raw() as u64;
             let cancel_token = self.close_token.clone();
-            self.tracker.spawn_on(
+            tracker.clone().spawn_on(
                 async move {
                     cancel_token
                         .run_until_cancelled(tokio::time::sleep(std::time::Duration::from_millis(
@@ -1098,6 +1096,18 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         unsafe { self.get_port(port).get_handle() }
     }
 
+    unsafe fn is_empty(
+        &self,
+        port: XTaskQueuePort,
+    ) -> BOOL {
+        let is_empty = match port {
+            XTaskQueuePort::Work => &self.work_tracker,
+            XTaskQueuePort::Completion => &self.completion_tracker,
+        }.is_empty();
+        println!("TaskQueue::is_empty {}", is_empty);
+        is_empty.into()
+    }
+
     unsafe fn terminate(
         &self,
         wait: bool,
@@ -1109,13 +1119,29 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             wait, callback_context, callback
         );
         let callback_context = callback_context as u64;
-        let tracker = self.tracker.clone();
+        let work_tracker = self.work_tracker.clone();
+        let completion_tracker = self.completion_tracker.clone();
         let tq: InterfaceRef<'_, ITaskQueue> = self.as_interface_ref();
         let tq = tq.to_owned().into_raw() as u64;
         let work = self.work.clone().into_raw() as u64;
         let completion = self.work.clone().into_raw() as u64;
+        if let Ok(lck) = self.waiter_handles.lock(){
+            for (_, _, wctx) in lck.iter() {
+                // let callback = ctx.callback.unwrap();
+                // ctx.port.submit_callback(ctx.tracker, callback_context, callback)
+                // TODO: what to do with the result
+                let _hr = unsafe {
+                    wctx.port
+                        .submit_callback(&wctx.tracker, wctx.context as *mut c_void, wctx.callback)};
+                // ctx.tracker.spawn_on(async move {
+                //     unsafe { callback(context as *mut c_void, true) };
+                // }, &self.handle);
+            }
+        }
         let future = async move {
-            tracker.wait().await;
+            work_tracker.wait().await;
+            completion_tracker.close();
+            completion_tracker.wait().await;
             let tq = unsafe { ITaskQueue::from_raw(tq as *mut c_void) };
             let work = unsafe { ITaskQueuePort::from_raw(work as *mut c_void) };
             let completion = unsafe { ITaskQueuePort::from_raw(completion as *mut c_void) };
@@ -1126,7 +1152,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             unsafe { work.detach(tq.clone()) };
             unsafe { completion.detach(tq.clone()) };
         };
-        self.tracker.close();
+        self.work_tracker.close();
         self.close_token.cancel();
         if wait {
             self.handle.block_on(future);
@@ -1177,7 +1203,10 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             wait_handle,
             callback,
             context: callback_context as u64,
-            tracker: self.tracker.clone(),
+            tracker: match port {
+            XTaskQueuePort::Work => &self.work_tracker,
+            XTaskQueuePort::Completion => &self.completion_tracker,
+        }.clone(),
         });
         let raw = Box::into_raw(wctx);
         let wctx = unsafe { Box::from_raw(raw) };
@@ -1234,7 +1263,7 @@ unsafe extern "system" fn x_async_work_callback(context: *mut c_void, cancel: bo
         cancel,
         std::thread::current().id()
     );
-    let state = unsafe { IXAsyncState::from_raw(context) };
+    let state = unsafe { Arc::from_raw(context as *mut XAsyncState) };
     let provider_data = unsafe { &*state.get_provider_data() };
     let provider = unsafe { state.get_provider() };
     let hr = unsafe {
@@ -1271,7 +1300,7 @@ unsafe extern "system" fn x_async_complete_callback(context: *mut c_void, cancel
         cancel,
         std::thread::current().id()
     );
-    let state = unsafe { IXAsyncState::from_raw(context) };
+    let state = unsafe { Arc::from_raw(context as *mut XAsyncState) };
     let blk = unsafe { &*state.get_local_block() };
     if let Some(blk) = blk.callback {
         unsafe { blk(state.get_user_block()) };
@@ -1319,6 +1348,7 @@ unsafe extern "system" fn run_sync_helper<T: Sized, F: Fn() -> Result<T, HRESULT
                 }
                 Err(hr) => async_context.result = hr,
             };
+            println!("async_context.result {}", async_context.result);
             unsafe {
                 async_context.async_.x_async_complete(
                     data.async_,
@@ -1404,7 +1434,7 @@ impl IXAsync_Impl for XAsync_Impl {
 
                     println!(
                         "x_async_get_status: wait completed, state: {:?}, hr: {:?}",
-                        blk.get_state().0,
+                        blk.get_state().0.map(|f|Arc::as_ptr(&f)),
                         blk.get_state().1
                     );
 
@@ -1412,7 +1442,7 @@ impl IXAsync_Impl for XAsync_Impl {
                 } else {
                     println!(
                         "x_async_get_status: non-wait, state: {:?}, hr: {:?}",
-                        blk.get_state().0,
+                        blk.get_state().0.map(|f|Arc::as_ptr(&f)),
                         blk.get_state().1
                     );
                     hr.unwrap_or(E_PENDING)
@@ -1493,7 +1523,8 @@ impl IXAsync_Impl for XAsync_Impl {
                 || {
                     if let Some(work) = work {
                         let hr = work(async_block);
-                        if hr.is_err() {
+                        println!("x_async_run ret {}", hr);
+                        if hr.0 != 0 {
                             return Err(hr);
                         }
                     }
@@ -1547,6 +1578,9 @@ impl IXAsync_Impl for XAsync_Impl {
             unsafe { *provider_data.async_ }.queue as u64,
         );
         let hr = unsafe { provider(XAsyncOp::Begin, provider_data) };
+        if hr.is_err() {
+            unsafe { self.x_async_complete(async_block, hr, 0) };
+        }
         println!(
             "x_async_begin called with async_block: {:?}, context: {:?}, provider: {:?}, hr: {:?}, thread id: {:?} {}",
             async_block,
@@ -1573,7 +1607,7 @@ impl IXAsync_Impl for XAsync_Impl {
             return E_FAIL;
         };
         let queue = unsafe { state.get_queue() };
-        let context = state.clone().into_raw() as *mut c_void;
+        let context = Arc::into_raw(state.clone()) as *mut c_void;
         println!("x_async_schedule: context: {:?}", context);
         let _ = unsafe {
             queue.submit_delayed_callback(
@@ -1629,7 +1663,7 @@ impl IXAsync_Impl for XAsync_Impl {
                 queue.submit_delayed_callback(
                     XTaskQueuePort::Completion,
                     0,
-                    state.clone().into_raw() as *mut c_void,
+                    Arc::into_raw(state.clone()) as *mut c_void,
                     Some(x_async_complete_callback),
                 )
             };
@@ -1666,6 +1700,10 @@ impl IXAsync_Impl for XAsync_Impl {
         };
         if hr != S_OK {
             return hr;
+        }
+        let result_size = unsafe { state.get_result_size() };
+        if !buffer_used.is_null() {
+            unsafe { *buffer_used = result_size };
         }
         let provider_data = unsafe { &mut *state.get_provider_data() };
         let provider = unsafe { state.get_provider() };
@@ -1838,9 +1876,11 @@ impl IXAsync_Impl for XAsync_Impl {
             std::thread::current().id()
         );
         let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
-        let ret = handle
+        let Some(ret) = handle
             .map(|f| unsafe { f.dispatch(port, timeout_in_ms) })
-            .unwrap();
+            else {
+                 return false.into();
+            };
         println!(
             "x_task_queue_dispatch completed with queue: {:?}, port: {:?}, timeout_in_ms: {}, ret: {:?}, thread id: {:?}",
             queue,
@@ -1888,7 +1928,7 @@ impl IXAsync_Impl for XAsync_Impl {
             std::thread::current().id()
         );
         let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
-        handle.map(|f| unsafe {
+        let res = handle.map(|f| unsafe {
             f.submit_delayed_callback(port, delay_ms, callback_context, callback)
         });
         println!(
@@ -1900,7 +1940,7 @@ impl IXAsync_Impl for XAsync_Impl {
             callback,
             std::thread::current().id()
         );
-        S_OK
+        res.unwrap_or(E_FAIL)
     }
 
     unsafe fn x_task_queue_register_waiter(
@@ -2020,9 +2060,10 @@ impl IXAsync_Impl for XAsync_Impl {
             .with(|is_time_sensitive| is_time_sensitive.get())
             .into()
     }
-
-    unsafe fn ___2(&self) {
-        todo!()
+    
+    unsafe fn x_task_queue_is_empty(&self, queue: XTaskQueueHandle, port: XTaskQueuePort) -> BOOL {
+        let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
+        handle.map(|f| unsafe { f.is_empty(port) }).unwrap_or_default().into()
     }
 }
 
