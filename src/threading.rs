@@ -1,10 +1,5 @@
 use std::{
-    cell::Cell,
-    ffi::{c_char, c_void},
-    hint::spin_loop,
-    io, mem,
-    ptr::null_mut,
-    sync::{
+    cell::Cell, ffi::{c_char, c_void}, hint::spin_loop, io, mem::{self, ManuallyDrop}, ops::Deref, ptr::null_mut, sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering},
     },
@@ -86,20 +81,6 @@ pub struct XAsyncBlock {
     pub internal: [u8; size_of::<*mut c_void>() * 4],
 }
 
-#[interface("ECD1C26B-E34D-4E41-987E-C4C349C667CF")]
-unsafe trait IXAsyncState: IUnknown {
-    unsafe fn get_local_block(&self) -> *mut XAsyncBlock;
-    unsafe fn get_user_block(&self) -> *mut XAsyncBlock;
-    unsafe fn get_provider_data(&self) -> *mut XAsyncProviderData;
-    unsafe fn get_result_size(&self) -> usize;
-    unsafe fn set_result_size(&self, required_buffer_size: usize);
-    unsafe fn get_provider(&self) -> XAsyncProvider;
-    unsafe fn notify_all(&self);
-    unsafe fn wait(&self);
-    unsafe fn get_queue(&self) -> ITaskQueue;
-}
-
-#[implement(IXAsyncState)]
 struct XAsyncState {
     local_block: XAsyncBlock,
     user_block: *mut XAsyncBlock,
@@ -130,7 +111,7 @@ impl Drop for XAsyncState {
     }
 }
 
-impl IXAsyncState_Impl for XAsyncState_Impl {
+impl XAsyncState {
     unsafe fn get_local_block(&self) -> *mut XAsyncBlock {
         &self.local_block as *const _ as *mut XAsyncBlock
     }
@@ -352,7 +333,7 @@ impl XAsyncBlock {
         assert!(size_of::<XAsyncInternal>() <= self.internal.len());
         unsafe { &mut *(self.internal.as_ptr() as *mut XAsyncInternal) }
     }
-    fn get_state_ex(&self, detach: bool) -> (Option<IXAsyncState>, Option<HRESULT>) {
+    fn get_state_ex(&self, detach: bool) -> (Option<Arc<XAsyncState>>, Option<HRESULT>) {
         println!(
             "XAsyncBlock::get_state_ex called with async_block: {:p}, detach: {}, thread id: {:?}",
             &self,
@@ -392,7 +373,7 @@ impl XAsyncBlock {
         }
 
         if detach {
-            let state = unsafe { IXAsyncState::from_raw(state_ptr) };
+            let state = unsafe { Arc::from_raw(state_ptr as *mut XAsyncState) };
 
             let provider_block = unsafe { &*state.get_local_block() };
             let user_block = unsafe { &*state.get_user_block() };
@@ -415,7 +396,7 @@ impl XAsyncBlock {
                 );
             }
             assert!(state_ptr_2 == state_ptr);
-            mem::drop(unsafe { IXAsyncState::from_raw(state_ptr_2) });
+            mem::drop(unsafe { Arc::from_raw(state_ptr_2 as *mut XAsyncState) });
             println!(
                 "XAsyncBlock::get_state_ex: detached state_ptr = {:p}, thread id: {:?}",
                 state_ptr,
@@ -423,17 +404,17 @@ impl XAsyncBlock {
             );
             (Some(state), result)
         } else {
-            let state = unsafe { IXAsyncState::from_raw_borrowed(&state_ptr) };
+            let state = if state_ptr == null_mut() { None } else { Some(unsafe { ManuallyDrop::new(Arc::from_raw(state_ptr as *mut XAsyncState)) })};
 
             println!(
                 "XAsyncBlock::get_state_ex: borrowed state_ptr = {:p}, thread id: {:?}",
                 state_ptr,
                 std::thread::current().id()
             );
-            (state.map(|s| s.clone()), result)
+            (state.map(|s| s.deref().clone()), result)
         }
     }
-    fn get_state(&self) -> (Option<IXAsyncState>, Option<HRESULT>) {
+    fn get_state(&self) -> (Option<Arc<XAsyncState>>, Option<HRESULT>) {
         self.get_state_ex(false)
     }
 
@@ -442,7 +423,7 @@ impl XAsyncBlock {
         static_: InterfaceRef<'_, IXAsync>,
         context: *mut c_void,
         provider: XAsyncProvider,
-    ) -> Option<IXAsyncState> {
+    ) -> Option<Arc<XAsyncState>> {
         println!(
             "XAsyncBlock::create_state: creating state for async_block {:p}, context: {:p}, provider: {:p}, thread id: {:?}",
             self,
@@ -496,7 +477,7 @@ impl XAsyncBlock {
             unsafe { ITaskQueue::from_raw_borrowed(&self.queue).unwrap().clone() }
         };
         let rawq = queue.as_raw();
-        let state: IXAsyncState = XAsyncState {
+        let state = Arc::new(XAsyncState {
             local_block: *self,
             user_block: self as *const _ as *mut XAsyncBlock,
             provider_data: XAsyncProviderData {
@@ -508,12 +489,11 @@ impl XAsyncBlock {
             provider: provider,
             waiter: Arc::new((Mutex::new(0), Condvar::new())),
             queue: queue,
-        }
-        .into();
+        });
 
         internal
             .state
-            .store(state.clone().into_raw(), Ordering::Release);
+            .store(Arc::into_raw(state.clone()) as *mut c_void, Ordering::Release);
 
         let local_block = unsafe { &mut *state.get_local_block() };
         // libhttpclient demands this do to using the queue
@@ -526,7 +506,7 @@ impl XAsyncBlock {
         );
         local_internal
             .state
-            .store(state.clone().into_raw(), Ordering::Release);
+            .store(Arc::into_raw(state.clone()) as *mut c_void, Ordering::Release);
 
         let provider_data = unsafe { &mut *state.get_provider_data() };
         provider_data.async_ = unsafe { state.get_local_block() };
@@ -1234,7 +1214,7 @@ unsafe extern "system" fn x_async_work_callback(context: *mut c_void, cancel: bo
         cancel,
         std::thread::current().id()
     );
-    let state = unsafe { IXAsyncState::from_raw(context) };
+    let state = unsafe { Arc::from_raw(context as *mut XAsyncState) };
     let provider_data = unsafe { &*state.get_provider_data() };
     let provider = unsafe { state.get_provider() };
     let hr = unsafe {
@@ -1271,7 +1251,7 @@ unsafe extern "system" fn x_async_complete_callback(context: *mut c_void, cancel
         cancel,
         std::thread::current().id()
     );
-    let state = unsafe { IXAsyncState::from_raw(context) };
+    let state = unsafe { Arc::from_raw(context as *mut XAsyncState) };
     let blk = unsafe { &*state.get_local_block() };
     if let Some(blk) = blk.callback {
         unsafe { blk(state.get_user_block()) };
@@ -1404,7 +1384,7 @@ impl IXAsync_Impl for XAsync_Impl {
 
                     println!(
                         "x_async_get_status: wait completed, state: {:?}, hr: {:?}",
-                        blk.get_state().0,
+                        blk.get_state().0.map(|f|Arc::as_ptr(&f)),
                         blk.get_state().1
                     );
 
@@ -1412,7 +1392,7 @@ impl IXAsync_Impl for XAsync_Impl {
                 } else {
                     println!(
                         "x_async_get_status: non-wait, state: {:?}, hr: {:?}",
-                        blk.get_state().0,
+                        blk.get_state().0.map(|f|Arc::as_ptr(&f)),
                         blk.get_state().1
                     );
                     hr.unwrap_or(E_PENDING)
@@ -1573,7 +1553,7 @@ impl IXAsync_Impl for XAsync_Impl {
             return E_FAIL;
         };
         let queue = unsafe { state.get_queue() };
-        let context = state.clone().into_raw() as *mut c_void;
+        let context = Arc::into_raw(state.clone()) as *mut c_void;
         println!("x_async_schedule: context: {:?}", context);
         let _ = unsafe {
             queue.submit_delayed_callback(
@@ -1629,7 +1609,7 @@ impl IXAsync_Impl for XAsync_Impl {
                 queue.submit_delayed_callback(
                     XTaskQueuePort::Completion,
                     0,
-                    state.clone().into_raw() as *mut c_void,
+                    Arc::into_raw(state.clone()) as *mut c_void,
                     Some(x_async_complete_callback),
                 )
             };
