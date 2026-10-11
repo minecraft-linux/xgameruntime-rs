@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::cell::Cell;
+use std::collections::HashMap;
 use std::ffi::{CStr, c_char, c_void};
 use std::mem::size_of;
 use std::path::Path;
@@ -1505,7 +1505,7 @@ fn xuser_singleton() -> &'static IXUser {
                         .enable_all()
                         .build()
                         .unwrap(),
-                    handle: Cell::new(None),
+                    handle: std::sync::Mutex::new(HashMap::new()),
                 }
                 .into(),
             )
