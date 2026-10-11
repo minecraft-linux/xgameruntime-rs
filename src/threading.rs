@@ -423,7 +423,7 @@ impl XAsyncBlock {
         static_: InterfaceRef<'_, IXAsync>,
         context: *mut c_void,
         provider: XAsyncProvider,
-    ) -> Option<Arc<XAsyncState>> {
+    ) -> Result<Arc<XAsyncState>, HRESULT> {
         println!(
             "XAsyncBlock::create_state: creating state for async_block {:p}, context: {:p}, provider: {:p}, thread id: {:?}",
             self,
@@ -433,8 +433,9 @@ impl XAsyncBlock {
         );
         let internal = self.get_internal_raw();
         let mut magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
-        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC {
-            return None;
+        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC && internal.state.load(Ordering::Acquire) != null_mut() {
+            // E_INVARG
+            return Err(HRESULT(0x80070057u32 as i32));
         }
         loop {
             if (magic_result >> 32) as u32 != XASYNC_INITIALIZE_MAGIC {
@@ -443,8 +444,9 @@ impl XAsyncBlock {
             magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
         }
 
-        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC {
-            return None;
+        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC && internal.state.load(Ordering::Acquire) != null_mut() {
+            // E_INVARG
+            return Err(HRESULT(0x80070057u32 as i32));
         }
 
         if internal
@@ -458,7 +460,8 @@ impl XAsyncBlock {
             .is_err()
         {
             println!("failed?");
-            return None;
+            // E_INVARG
+            return Err(HRESULT(0x80070057u32 as i32));
         }
 
         println!(
@@ -471,7 +474,10 @@ impl XAsyncBlock {
         let queue = if self.queue.is_null() {
             let mut queue: XTaskQueueHandle = std::ptr::null_mut();
             let _ = unsafe { static_.x_task_queue_get_current_process_task_queue(&mut queue) };
-            assert_ne!(queue, null_mut());
+            if queue == null_mut() {
+                // E_NO_TASK_QUEUE
+                return Err(HRESULT(-2147024469i32));
+            }
             unsafe { ITaskQueue::from_raw(queue) }
         } else {
             unsafe { ITaskQueue::from_raw_borrowed(&self.queue).unwrap().clone() }
@@ -516,7 +522,7 @@ impl XAsyncBlock {
             Ordering::Release,
         );
 
-        Some(state)
+        Ok(state)
     }
 }
 
@@ -1548,15 +1554,18 @@ impl IXAsync_Impl for XAsync_Impl {
         let Some(provider) = provider else {
             return E_FAIL;
         };
-        let Some(state) = blk.create_state(self.as_interface_ref(), context, provider) else {
-            println!(
-                "x_async_begin: failed to create state for async_block: {:?}, context: {:?}, provider: {:?} thread id: {:?}",
-                async_block,
-                context,
-                provider,
-                std::thread::current().id(),
-            );
-            return E_FAIL;
+        let state = match blk.create_state(self.as_interface_ref(), context, provider) {
+            Ok(state) => state,
+            Err(e) => {
+                println!(
+                    "x_async_begin: failed to create state for async_block: {:?}, context: {:?}, provider: {:?} thread id: {:?}",
+                    async_block,
+                    context,
+                    provider,
+                    std::thread::current().id(),
+                );
+                return e
+            },
         };
         println!(
             "x_async_begin start with async_block: {:?}, context: {:?}, provider: {:?}, thread id: {:?} {}",
