@@ -77,6 +77,7 @@ pub enum XUserDefaultAudioEndpointKind {
     CommunicationCapture = 1,
 }
 #[repr(u32)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone)]
 pub enum XUserGamerPictureSize {
     Small = 0,
     Medium = 1,
@@ -543,6 +544,7 @@ pub unsafe trait IXUserHandle: IUnknown {
         gamertag: *mut c_char,
         gamertag_used: *mut usize,
     ) -> HRESULT;
+    unsafe fn get_gamer_picture(&self, size: XUserGamerPictureSize) -> *mut String;
     unsafe fn get_age_group(&self) -> XUserAgeGroup;
     unsafe fn get_local_id(&self) -> XUserLocalId;
     unsafe fn get_auth(&self) -> *const Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>;
@@ -578,6 +580,7 @@ struct XUserHandleObject {
     agg: XUserAgeGroup,
     prv: Vec<u64>,
     gamertags: std::collections::HashMap<XUserGamertagComponent, String>,
+    pictures: std::collections::HashMap<XUserGamerPictureSize, String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -642,6 +645,13 @@ impl IXUserHandle_Impl for XUserHandleObject_Impl {
 
     unsafe fn get_age_group(&self) -> XUserAgeGroup {
         self.agg
+    }
+
+    unsafe fn get_gamer_picture(&self, size: XUserGamerPictureSize) -> *mut String {
+        &mut self.pictures
+            .get(&size)
+            .map(|s| s.clone())
+            .unwrap_or_else(||String::new())
     }
 }
 
@@ -847,11 +857,17 @@ impl IXUser_Impl for XUser_Impl {
                                         _ => None,
                                     }
                                 }).collect();
+                                let pictures: std::collections::HashMap<XUserGamerPictureSize, String> = if let Some(picture) = prof.picture {
+                                    [(XUserGamerPictureSize::Small, 64),(XUserGamerPictureSize::Medium, 208),(XUserGamerPictureSize::Large, 424),(XUserGamerPictureSize::ExtraLarge, 1080)].iter().map(|(k, v)| (*k, format!("{picture}&w={v}&h={v}"))).collect()
+                                } else {
+                                    HashMap::new()
+                                };
 
                                 let handle = XUserHandleObject {
                                     xuid: xid.parse::<u64>().unwrap(),
                                     agg: agg,
                                     gamertags: gamertags,
+                                    pictures: pictures,
                                     prv: prv,
                                     local_id: XUserLocalId { value: 987654321 },
                                     auth: Arc::new(tokio::sync::Mutex::new(XuserHandleObjectAuth {
@@ -984,15 +1000,15 @@ impl IXUser_Impl for XUser_Impl {
         #[cfg(feature = "xuser")]
         {
             let user = unsafe { IXUserHandle::from_raw_borrowed(&user) };
-            let xuid = user.map(|f| unsafe { f.get_xuid() });
             let handle = user.map(|f| unsafe { (*f.get_runtime()).clone() }).unwrap();
-            let user = unsafe { (*user.unwrap().get_auth()).clone() };
+            let pic = user.map(|f| unsafe { (&*f.get_gamer_picture(picture_size)).clone() });
             unsafe {
                 xasync::run_dyn(async_, {
                     async move {
                         println!("x_user_get_gamer_picture_async async");
                         let profile =
-                            get_gamerpicture(handle, user, xuid.unwrap(), picture_size).await;
+                            get_gamerpicture(handle, pic.map_or_else(|| Err(E_FAIL), |a| Ok(a))?)
+                                .await?;
                         println!("x_user_get_gamer_picture_async got pic");
                         let req_size = profile.len();
                         Ok::<_, HRESULT>((
@@ -1691,16 +1707,9 @@ async fn get_xsts_token(
 }
 
 #[cfg(feature = "xuser")]
-async fn get_gamerpicture(
-    handle: tokio::runtime::Handle,
-    user: Arc<tokio::sync::Mutex<XuserHandleObjectAuth>>,
-    xuid: u64,
-    size: XUserGamerPictureSize,
-) -> Bytes {
+async fn get_gamerpicture(handle: tokio::runtime::Handle, pic: String) -> Result<Bytes, HRESULT> {
     let token = handle
         .spawn(async move {
-            let user = user.lock().await;
-            let user_token = user.auth.authorization_token.authorization_header_value();
             let client = reqwest::Client::builder()
                 .use_rustls_tls()
                 .http1_only()
@@ -1709,29 +1718,15 @@ async fn get_gamerpicture(
                 .connect_timeout(std::time::Duration::from_secs(5))
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
-                .unwrap();
-            let xuid = xuid.to_string();
-            let prof = xbox_utils::fetch_user_profiles(&client, &user_token, &[&xuid])
-                .await
-                .unwrap();
-            let prof = prof.into_iter().map(|(_, v)| v).next().unwrap();
+                .map_err(|_| E_FAIL)?;
 
-            let pic = prof.picture.unwrap()
-                + match size {
-                    XUserGamerPictureSize::Small => "&w=64&h=64",
-                    XUserGamerPictureSize::Medium => "&w=208&h=208",
-                    XUserGamerPictureSize::Large => "&w=424&h=424",
-                    XUserGamerPictureSize::ExtraLarge => "&w=1080&h=1080",
-                };
-
-            let req = client.get(&pic).send().await.unwrap();
-            let data = req.bytes().await.unwrap();
+            let req = client.get(&pic).send().await.map_err(|_| E_FAIL)?;
+            let data = req.bytes().await.map_err(|_| E_FAIL)?;
             Ok::<_, HRESULT>(data)
         })
         .await
-        .unwrap()
-        .unwrap();
-    token
+        .unwrap_or_else(|_| Err(E_FAIL))?;
+    Ok(token)
 }
 
 #[cfg(feature = "xuser")]
