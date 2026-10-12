@@ -1,7 +1,7 @@
 use std::{
     cell::Cell, ffi::{c_char, c_void}, hint::spin_loop, io, mem::{self, ManuallyDrop}, ops::Deref, ptr::null_mut, sync::{
-        Arc, Condvar, Mutex, atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
-    },
+        Arc, Condvar, Mutex, atomic::{AtomicBool, AtomicI64, AtomicPtr, AtomicU32, AtomicU64, Ordering},
+    }, thread::sleep, time::Duration,
 };
 
 use tokio_util::sync::CancellationToken;
@@ -22,6 +22,12 @@ use crate::{
     results::{E_ABORT, E_PENDING, E_POINTER, S_OK},
     xasync,
 };
+
+macro_rules! println {
+    ($($arg:tt)*) => {
+        {} // Evaluates to () and does nothing
+    };
+}
 
 #[repr(u32)]
 pub enum XAsyncOp {
@@ -70,6 +76,7 @@ pub type XTaskQueueRegistrationToken = u64;
 
 const XASYNC_INT_MAGIC: u32 = 0x5853594e; // "XSYN"
 const XASYNC_RES_MAGIC: u32 = 0x5953594e; // "XSYN"
+const XASYNC_L_MAGIC: u32 = 0x3953594e; // "XSYN"
 const XASYNC_INITIALIZE_MAGIC: u32 = 0x5853394e; // "XSIN"
 
 #[repr(C)]
@@ -172,6 +179,7 @@ impl XAsyncState {
 struct XAsyncInternal {
     state: AtomicPtr<c_void>,
     magic_result: AtomicU64,
+    state_life_cycle: AtomicI64,
 }
 
 // pub unsafe fn x_task_queue_monitor_callback (self: &Self, context: *mut c_void, queue: XTaskQueueHandle, port: XTaskQueuePort);
@@ -369,6 +377,9 @@ impl XAsyncBlock {
             Some(result)
         };
 
+        let ticket = internal.state_life_cycle.fetch_add(1, Ordering::SeqCst);
+        _ = ticket;
+
         let state_ptr = if detach {
             internal.state.swap(null_mut(), Ordering::AcqRel)
         } else {
@@ -379,45 +390,54 @@ impl XAsyncBlock {
                 "XAsyncBlock::get_state_ex: state_ptr is null, thread id: {:?}",
                 std::thread::current().id()
             );
+            let old = internal.state_life_cycle.fetch_sub(1, Ordering::SeqCst);
+            assert!(old >= 1);
             return (None, result);
         }
-
+        
         if detach {
             let state = unsafe { Arc::from_raw(state_ptr as *mut XAsyncState) };
 
             let provider_block = unsafe { &*state.get_local_block() };
             let user_block = unsafe { &*state.get_user_block() };
-            let mut state_ptr_2 = provider_block
-                .get_internal_raw()
+            let other_block = if self as *const Self == user_block as *const Self {
+                provider_block.get_internal_raw()
+            } else {
+                user_block.get_internal_raw()
+            };
+            let other_ticket = other_block.state_life_cycle.fetch_add(1, Ordering::SeqCst);
+            let _ = other_ticket;
+            let cs = other_block
                 .state
-                .swap(null_mut(), Ordering::AcqRel);
-            if state_ptr_2.is_null() {
-                state_ptr_2 = user_block
-                    .get_internal_raw()
-                    .state
-                    .swap(null_mut(), Ordering::AcqRel);
+                .compare_exchange(state_ptr, null_mut(), Ordering::Release, Ordering::Acquire);
+            if cs.is_err_and(|v| v == null_mut()) {
+                let old = internal.state_life_cycle.fetch_sub(1, Ordering::SeqCst);
+                assert!(old >= 1);
+                return (None, None);
             }
-            if state_ptr_2 != state_ptr {
-                println!(
-                    "XAsyncBlock::get_state_ex: state_ptr_2 != state_ptr, {:p} != {:p}, thread id: {:?}",
-                    state_ptr_2,
-                    state_ptr,
-                    std::thread::current().id()
-                );
-            }
-            assert!(state_ptr_2 == state_ptr);
-            mem::drop(unsafe { Arc::from_raw(state_ptr_2 as *mut XAsyncState) });
             println!(
                 "XAsyncBlock::get_state_ex: detached state_ptr = {:p}, thread id: {:?}",
                 state_ptr,
                 std::thread::current().id()
             );
+            while internal.state_life_cycle.compare_exchange(1, 0, Ordering::Release, Ordering::Acquire).map_err(|c| assert!(c > 1)).is_err() {
+                sleep(Duration::from_micros(1));
+            }
+            while other_block.state_life_cycle.compare_exchange(1, 0, Ordering::Release, Ordering::Acquire).map_err(|c| assert!(c > 1)).is_err() {
+                sleep(Duration::from_micros(1));
+            }
+            mem::drop(unsafe { Arc::from_raw(state_ptr as *mut XAsyncState) });
+
             (Some(state), result)
         } else {
-            let state = if state_ptr == null_mut() { None } else { Some(unsafe { ManuallyDrop::new(Arc::from_raw(state_ptr as *mut XAsyncState)) })};
+            let state = Some(unsafe { ManuallyDrop::new(Arc::from_raw(state_ptr as *mut XAsyncState)) });
+
+            let old = internal.state_life_cycle.fetch_sub(1, Ordering::SeqCst);
+            assert!(old >= 1);
 
             println!(
-                "XAsyncBlock::get_state_ex: borrowed state_ptr = {:p}, thread id: {:?}",
+                "XAsyncBlock::get_state_ex: borrowed {} state_ptr = {:p}, thread id: {:?}",
+                state.is_some(),
                 state_ptr,
                 std::thread::current().id()
             );
