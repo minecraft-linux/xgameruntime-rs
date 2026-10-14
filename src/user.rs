@@ -45,6 +45,12 @@ use xodus::models::soap::BodyContent;
 #[cfg(feature = "xuser")]
 use xodus::{secrets, tokens::TokenManager};
 
+macro_rules! println {
+    ($($arg:tt)*) => {
+        {} // Evaluates to () and does nothing
+    };
+}
+
 #[repr(u32)]
 pub enum XUserAddOptions {
     None = 0x00,
@@ -678,7 +684,7 @@ impl IXUser_Impl for XUser_Impl {
                                 let client = reqwest::Client::builder()
                                     .use_rustls_tls()
                                     .http1_only()
-                                    .connection_verbose(true)
+                                    // .connection_verbose(true)
                                     .pool_max_idle_per_host(0)
                                     .connect_timeout(std::time::Duration::from_secs(5))
                                     .timeout(std::time::Duration::from_secs(10))
@@ -1632,7 +1638,7 @@ async fn get_gamerpicture(handle: tokio::runtime::Handle, pic: String) -> Result
             let client = reqwest::Client::builder()
                 .use_rustls_tls()
                 .http1_only()
-                .connection_verbose(true)
+                // .connection_verbose(true)
                 .pool_max_idle_per_host(0)
                 .connect_timeout(std::time::Duration::from_secs(5))
                 .timeout(std::time::Duration::from_secs(10))
