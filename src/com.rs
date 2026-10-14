@@ -13,6 +13,12 @@ use xodus::secrets;
 #[cfg(feature = "xuser")]
 use xodus::tokens::TokenManager;
 
+macro_rules! println {
+    ($($arg:tt)*) => {
+        {} // Evaluates to () and does nothing
+    };
+}
+
 const CLSID_XSTORE: GUID = GUID::from_u128(0x0dd112ac_7c24_448c_b92b_3960fb5bd30c);
 const CLSID_XNETWORKING: GUID = GUID::from_u128(0x37e56907_2f10_41e8_b72f_36edb185331a);
 const CLSID_XPERSISTENT_LOCAL_STORAGE: GUID =
@@ -671,7 +677,7 @@ impl IXStore_Impl for XStoreObject_Impl {
                             let client = reqwest::Client::builder()
                                 .use_rustls_tls()
                                 .http1_only()
-                                .connection_verbose(true)
+                                // .connection_verbose(true)
                                 .pool_max_idle_per_host(0)
                                 .connect_timeout(std::time::Duration::from_secs(5))
                                 .timeout(std::time::Duration::from_secs(10))
