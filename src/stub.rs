@@ -51,6 +51,12 @@ use windows_core::{BOOL, HRESULT, implement};
 )]
 pub struct XStub;
 
+macro_rules! println {
+    ($($arg:tt)*) => {
+        {} // Evaluates to () and does nothing
+    };
+}
+
 impl IXGameSave3_Impl for XStub_Impl {}
 
 impl IXLaunch_Impl for XStub_Impl {
