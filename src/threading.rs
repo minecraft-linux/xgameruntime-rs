@@ -1710,7 +1710,13 @@ impl IXAsync_Impl for XAsync_Impl {
             std::thread::current().id()
         );
         let blk = unsafe { &mut *async_block };
-        let (Some(state), Some(hr)) = blk.get_state_ex(true) else {
+        let raw_state = blk.get_state_ex(true);
+        let (Some(state), Some(hr)) = raw_state else {
+            if let (None, Some(hr)) = raw_state {
+                if hr != S_OK {
+                    return hr;
+                }
+            }
             if buffer_size == 0 {
                 return S_OK;
             }
