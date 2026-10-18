@@ -87,6 +87,7 @@ struct XAsyncState {
     provider: XAsyncProvider,
     waiter: Arc<(Mutex<usize>, Condvar, AtomicBool)>,
     queue: ITaskQueue,
+    scheduled: AtomicBool,
 }
 
 impl Drop for XAsyncState {
@@ -494,6 +495,7 @@ impl XAsyncBlock {
             provider: provider,
             waiter: Arc::new((Mutex::new(0), Condvar::new(), AtomicBool::new(false))),
             queue: queue,
+            scheduled: AtomicBool::new(false),
         });
 
         internal
@@ -1271,6 +1273,9 @@ unsafe extern "system" fn x_async_work_callback(context: *mut c_void, cancel: bo
     let state = unsafe { Arc::from_raw(context as *mut XAsyncState) };
     let provider_data = unsafe { &*state.get_provider_data() };
     let provider = unsafe { state.get_provider() };
+    if state.scheduled.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+        panic!("state.scheduled undefined behavior")
+    }
     let hr = unsafe {
         provider(
             if cancel {
@@ -1614,6 +1619,9 @@ impl IXAsync_Impl for XAsync_Impl {
         let (Some(state), _) = blk.get_state() else {
             return E_FAIL;
         };
+        if state.scheduled.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+            return HRESULT(0x8000FFFFu32 as i32);
+        }
         let queue = unsafe { state.get_queue() };
         let context = Arc::into_raw(state.clone()) as *mut c_void;
         println!("x_async_schedule: context: {:?}", context);
