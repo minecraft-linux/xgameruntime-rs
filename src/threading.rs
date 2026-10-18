@@ -1,7 +1,17 @@
 use std::{
-    cell::Cell, ffi::{c_char, c_void}, hint::spin_loop, io, mem::{self, ManuallyDrop}, ops::Deref, ptr::null_mut, sync::{
-        Arc, Condvar, Mutex, atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
-    }, thread::sleep, time::Duration,
+    cell::Cell,
+    ffi::{c_char, c_void},
+    hint::spin_loop,
+    io,
+    mem::{self, ManuallyDrop},
+    ops::Deref,
+    ptr::null_mut,
+    sync::{
+        Arc, Condvar, Mutex,
+        atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
+    },
+    thread::sleep,
+    time::Duration,
 };
 
 use tokio_util::sync::CancellationToken;
@@ -323,7 +333,11 @@ pub unsafe trait IXAsync: IUnknown {
     ) -> HRESULT;
     // Private stuff of the gdk runtime, using thread locals etc.
     // No clue
-    pub unsafe fn x_task_queue_is_empty(self: &Self, queue: XTaskQueueHandle, port: XTaskQueuePort) -> BOOL;
+    pub unsafe fn x_task_queue_is_empty(
+        self: &Self,
+        queue: XTaskQueueHandle,
+        port: XTaskQueuePort,
+    ) -> BOOL;
     pub unsafe fn x_thread_assert_not_time_sensitive(self: &Self);
     pub unsafe fn x_thread_is_time_sensitive(self: &Self) -> BOOL;
 }
@@ -404,7 +418,11 @@ impl XAsyncBlock {
             );
             (Some(state), result)
         } else {
-            let state = if state_ptr == null_mut() { None } else { Some(unsafe { ManuallyDrop::new(Arc::from_raw(state_ptr as *mut XAsyncState)) })};
+            let state = if state_ptr == null_mut() {
+                None
+            } else {
+                Some(unsafe { ManuallyDrop::new(Arc::from_raw(state_ptr as *mut XAsyncState)) })
+            };
 
             println!(
                 "XAsyncBlock::get_state_ex: borrowed state_ptr = {:p}, thread id: {:?}",
@@ -433,7 +451,9 @@ impl XAsyncBlock {
         );
         let internal = self.get_internal_raw();
         let mut magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
-        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC && internal.state.load(Ordering::Acquire) != null_mut() {
+        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC
+            && internal.state.load(Ordering::Acquire) != null_mut()
+        {
             // E_INVARG
             return Err(HRESULT(0x80070057u32 as i32));
         }
@@ -444,7 +464,9 @@ impl XAsyncBlock {
             magic_result = internal.magic_result.fetch_or(0, Ordering::Acquire);
         }
 
-        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC && internal.state.load(Ordering::Acquire) != null_mut() {
+        if (magic_result >> 32) as u32 == XASYNC_INT_MAGIC
+            && internal.state.load(Ordering::Acquire) != null_mut()
+        {
             // E_INVARG
             return Err(HRESULT(0x80070057u32 as i32));
         }
@@ -498,9 +520,10 @@ impl XAsyncBlock {
             scheduled: AtomicBool::new(false),
         });
 
-        internal
-            .state
-            .store(Arc::into_raw(state.clone()) as *mut c_void, Ordering::Release);
+        internal.state.store(
+            Arc::into_raw(state.clone()) as *mut c_void,
+            Ordering::Release,
+        );
 
         let local_block = unsafe { &mut *state.get_local_block() };
         // libhttpclient demands this do to using the queue
@@ -511,9 +534,10 @@ impl XAsyncBlock {
             (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64 & 0xFFFFFFFF),
             Ordering::Release,
         );
-        local_internal
-            .state
-            .store(Arc::into_raw(state.clone()) as *mut c_void, Ordering::Release);
+        local_internal.state.store(
+            Arc::into_raw(state.clone()) as *mut c_void,
+            Ordering::Release,
+        );
 
         let provider_data = unsafe { &mut *state.get_provider_data() };
         provider_data.async_ = unsafe { state.get_local_block() };
@@ -570,10 +594,7 @@ unsafe trait ITaskQueue: IUnknown {
     ) -> HRESULT;
     unsafe fn dispatch(&self, port: XTaskQueuePort, timeout_in_ms: u32) -> BOOL;
     unsafe fn get_port_handle(&self, port: XTaskQueuePort) -> XTaskQueuePortHandle;
-    unsafe fn is_empty(
-        &self,
-        port: XTaskQueuePort,
-    ) -> BOOL;
+    unsafe fn is_empty(&self, port: XTaskQueuePort) -> BOOL;
     unsafe fn terminate(
         &self,
         wait: bool,
@@ -610,7 +631,11 @@ unsafe trait ITaskQueuePort: IUnknown {
     ) -> HRESULT;
     unsafe fn attach(&self, queue: ITaskQueue, port: XTaskQueuePort);
     unsafe fn detach(&self, queue: ITaskQueue);
-    unsafe fn dispatch(&self, tracker: *const tokio_util::task::TaskTracker, timeout_in_ms: u32) -> BOOL;
+    unsafe fn dispatch(
+        &self,
+        tracker: *const tokio_util::task::TaskTracker,
+        timeout_in_ms: u32,
+    ) -> BOOL;
 }
 
 struct AtomicVec<T: Sized + Clone> {
@@ -791,7 +816,11 @@ impl ITaskQueuePort_Impl for TaskQueuePort_Impl {
         S_OK
     }
 
-    unsafe fn dispatch(&self, tracker: *const tokio_util::task::TaskTracker, timeout_in_ms: u32) -> BOOL {
+    unsafe fn dispatch(
+        &self,
+        tracker: *const tokio_util::task::TaskTracker,
+        timeout_in_ms: u32,
+    ) -> BOOL {
         println!("TaskQueuePort::dispatch called, but not implemented for thread pool ports");
         let tracker = unsafe { &*tracker }.clone();
         if tracker.is_empty() {
@@ -864,7 +893,11 @@ impl ITaskQueuePort_Impl for ImmediateTaskQueuePort_Impl {
         S_OK
     }
 
-    unsafe fn dispatch(&self, _tracker: *const tokio_util::task::TaskTracker, _timeout_in_ms: u32) -> BOOL {
+    unsafe fn dispatch(
+        &self,
+        _tracker: *const tokio_util::task::TaskTracker,
+        _timeout_in_ms: u32,
+    ) -> BOOL {
         println!(
             "ImmediateTaskQueuePort::dispatch called, but not implemented for immediate ports"
         );
@@ -942,7 +975,11 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
         S_OK
     }
 
-    unsafe fn dispatch(&self, tracker: *const tokio_util::task::TaskTracker, timeout_in_ms: u32) -> BOOL {
+    unsafe fn dispatch(
+        &self,
+        tracker: *const tokio_util::task::TaskTracker,
+        timeout_in_ms: u32,
+    ) -> BOOL {
         println!(
             "ManualTaskQueuePort::dispatch called with timeout_in_ms: {} {} {:?}, handle: {:x}",
             timeout_in_ms,
@@ -981,7 +1018,7 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
                 std::thread::current().id(),
                 unsafe { self.get_handle() } as u64,
             );
-            return rv
+            return rv;
         }
         return false.into();
     }
@@ -1082,7 +1119,8 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         let tracker = match port {
             XTaskQueuePort::Work => &self.work_tracker,
             XTaskQueuePort::Completion => &self.completion_tracker,
-        }.clone();
+        }
+        .clone();
         if tracker.is_closed() {
             return E_ABORT;
         }
@@ -1138,21 +1176,21 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         if ret.as_bool() {
             return ret;
         }
-        (port == XTaskQueuePort::Completion && !(self.work_tracker.is_empty() && self.completion_tracker.is_empty())).into()
+        (port == XTaskQueuePort::Completion
+            && !(self.work_tracker.is_empty() && self.completion_tracker.is_empty()))
+        .into()
     }
 
     unsafe fn get_port_handle(&self, port: XTaskQueuePort) -> XTaskQueuePortHandle {
         unsafe { self.get_port(port).get_handle() }
     }
 
-    unsafe fn is_empty(
-        &self,
-        port: XTaskQueuePort,
-    ) -> BOOL {
+    unsafe fn is_empty(&self, port: XTaskQueuePort) -> BOOL {
         let is_empty = match port {
             XTaskQueuePort::Work => &self.work_tracker,
             XTaskQueuePort::Completion => &self.completion_tracker,
-        }.is_empty();
+        }
+        .is_empty();
         println!("TaskQueue::is_empty {}", is_empty);
         is_empty.into()
     }
@@ -1174,14 +1212,18 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         let tq = tq.to_owned().into_raw() as u64;
         let work = self.work.clone().into_raw() as u64;
         let completion = self.work.clone().into_raw() as u64;
-        if let Ok(lck) = self.waiter_handles.lock(){
+        if let Ok(lck) = self.waiter_handles.lock() {
             for (_, _, wctx) in lck.iter() {
                 // let callback = ctx.callback.unwrap();
                 // ctx.port.submit_callback(ctx.tracker, callback_context, callback)
                 // TODO: what to do with the result
                 let _hr = unsafe {
-                    wctx.port
-                        .submit_callback(&wctx.tracker, wctx.context as *mut c_void, wctx.callback)};
+                    wctx.port.submit_callback(
+                        &wctx.tracker,
+                        wctx.context as *mut c_void,
+                        wctx.callback,
+                    )
+                };
                 // ctx.tracker.spawn_on(async move {
                 //     unsafe { callback(context as *mut c_void, true) };
                 // }, &self.handle);
@@ -1253,9 +1295,10 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             callback,
             context: callback_context as u64,
             tracker: match port {
-            XTaskQueuePort::Work => &self.work_tracker,
-            XTaskQueuePort::Completion => &self.completion_tracker,
-        }.clone(),
+                XTaskQueuePort::Work => &self.work_tracker,
+                XTaskQueuePort::Completion => &self.completion_tracker,
+            }
+            .clone(),
         });
         let raw = Box::into_raw(wctx);
         let wctx = unsafe { Box::from_raw(raw) };
@@ -1315,7 +1358,11 @@ unsafe extern "system" fn x_async_work_callback(context: *mut c_void, cancel: bo
     let state = unsafe { Arc::from_raw(context as *mut XAsyncState) };
     let provider_data = unsafe { &*state.get_provider_data() };
     let provider = unsafe { state.get_provider() };
-    if state.scheduled.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+    if state
+        .scheduled
+        .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+        .is_err()
+    {
         panic!("state.scheduled undefined behavior")
     }
     let hr = unsafe {
@@ -1486,7 +1533,7 @@ impl IXAsync_Impl for XAsync_Impl {
 
                     println!(
                         "x_async_get_status: wait completed, state: {:?}, hr: {:?}",
-                        blk.get_state().0.map(|f|Arc::as_ptr(&f)),
+                        blk.get_state().0.map(|f| Arc::as_ptr(&f)),
                         blk.get_state().1
                     );
 
@@ -1494,7 +1541,7 @@ impl IXAsync_Impl for XAsync_Impl {
                 } else {
                     println!(
                         "x_async_get_status: non-wait, state: {:?}, hr: {:?}",
-                        blk.get_state().0.map(|f|Arc::as_ptr(&f)),
+                        blk.get_state().0.map(|f| Arc::as_ptr(&f)),
                         blk.get_state().1
                     );
                     hr.unwrap_or(E_PENDING)
@@ -1610,8 +1657,8 @@ impl IXAsync_Impl for XAsync_Impl {
                     provider,
                     std::thread::current().id(),
                 );
-                return e
-            },
+                return e;
+            }
         };
         println!(
             "x_async_begin start with async_block: {:?}, context: {:?}, provider: {:?}, thread id: {:?} {}",
@@ -1661,7 +1708,11 @@ impl IXAsync_Impl for XAsync_Impl {
         let (Some(state), _) = blk.get_state() else {
             return E_FAIL;
         };
-        if state.scheduled.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+        if state
+            .scheduled
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
             return HRESULT(0x8000FFFFu32 as i32);
         }
         let queue = unsafe { state.get_queue() };
@@ -1701,10 +1752,10 @@ impl IXAsync_Impl for XAsync_Impl {
         }
         let local_block = unsafe { &*state.get_local_block() };
         let user_block = unsafe { &*state.get_user_block() };
-        if 
-            user_block
+        if user_block
             .get_internal_raw()
-            .magic_result.compare_exchange(
+            .magic_result
+            .compare_exchange(
                 (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64 & 0xFFFFFFFF),
                 (XASYNC_INT_MAGIC as u64) << 32 | (result.0 as u64 & 0xFFFFFFFF),
                 Ordering::Acquire,
@@ -1951,11 +2002,9 @@ impl IXAsync_Impl for XAsync_Impl {
             std::thread::current().id()
         );
         let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
-        let Some(ret) = handle
-            .map(|f| unsafe { f.dispatch(port, timeout_in_ms) })
-            else {
-                 return false.into();
-            };
+        let Some(ret) = handle.map(|f| unsafe { f.dispatch(port, timeout_in_ms) }) else {
+            return false.into();
+        };
         println!(
             "x_task_queue_dispatch completed with queue: {:?}, port: {:?}, timeout_in_ms: {}, ret: {:?}, thread id: {:?}",
             queue,
@@ -2104,7 +2153,9 @@ impl IXAsync_Impl for XAsync_Impl {
         if a.is_err() {
             return BOOL(0);
         }
-        unsafe { self.x_task_queue_duplicate_handle(*a.unwrap(), queue) }.is_ok().into()
+        unsafe { self.x_task_queue_duplicate_handle(*a.unwrap(), queue) }
+            .is_ok()
+            .into()
     }
 
     unsafe fn x_task_queue_set_current_process_task_queue(
@@ -2133,10 +2184,13 @@ impl IXAsync_Impl for XAsync_Impl {
             .with(|is_time_sensitive| is_time_sensitive.get())
             .into()
     }
-    
+
     unsafe fn x_task_queue_is_empty(&self, queue: XTaskQueueHandle, port: XTaskQueuePort) -> BOOL {
         let handle = unsafe { ITaskQueue::from_raw_borrowed(&queue) };
-        handle.map(|f| unsafe { f.is_empty(port) }).unwrap_or_default().into()
+        handle
+            .map(|f| unsafe { f.is_empty(port) })
+            .unwrap_or_default()
+            .into()
     }
 }
 

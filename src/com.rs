@@ -1502,10 +1502,12 @@ fn xuser_singleton() -> &'static IXUser {
         .get_or_init(|| {
             GlobalInterface(
                 XUser {
-                    runtime: Some(tokio::runtime::Builder::new_multi_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap()),
+                    runtime: Some(
+                        tokio::runtime::Builder::new_multi_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap(),
+                    ),
                     handle: std::sync::Mutex::new(HashMap::new()),
                 }
                 .into(),
