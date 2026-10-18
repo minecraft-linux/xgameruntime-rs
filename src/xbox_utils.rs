@@ -3,12 +3,6 @@ use std::collections::HashMap;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-macro_rules! println {
-    ($($arg:tt)*) => {
-        {} // Evaluates to () and does nothing
-    };
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UserProfileBatch<'t> {
@@ -194,7 +188,7 @@ pub async fn fetch_gt_tokio(
     match fetch_gt(client, token, gamer_tag).await {
         Ok(users) => Some(users),
         Err(e) => {
-            // eprintln!("Error fetching user profiles: {}", e);
+            eprintln!("Error fetching user profiles: {}", e);
             None
         }
     }
