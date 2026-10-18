@@ -526,8 +526,14 @@ pub unsafe trait IXUserDevice: IUnknown {
 
 #[implement(IXUser, IXUser2, IXUser3, IXUser4, IXUser5, IXUser6, IXUserDevice)]
 pub struct XUser {
-    pub runtime: tokio::runtime::Runtime,
+    pub runtime: Option<tokio::runtime::Runtime>,
     pub handle: std::sync::Mutex<HashMap<u64, Arc<XUserHandleObject>>>,
+}
+
+impl Drop for XUser {
+    fn drop(&mut self) {
+        self.runtime.take().unwrap().shutdown_background();
+    }
 }
 
 #[cfg(feature = "xuser")]
@@ -655,9 +661,9 @@ impl IXUser_Impl for XUser_Impl {
         // })
         println!("x_user_add_async called");
         #[cfg(feature = "xuser")]
-        let handle = self.runtime.handle().clone();
+        let handle = self.runtime.as_ref().unwrap().handle().clone();
         #[cfg(feature = "xuser")]
-        let handle2 = self.runtime.handle().clone();
+        let handle2 = self.runtime.as_ref().unwrap().handle().clone();
         unsafe {
             xasync::run(async_, {
                 async move {

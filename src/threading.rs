@@ -719,7 +719,7 @@ struct MonitorEntry {
 
 #[implement(ITaskQueuePort)]
 struct TaskQueuePort {
-    runtime: tokio::runtime::Runtime,
+    runtime: Option<tokio::runtime::Runtime>,
     monitors: Cell<AtomicVec<MonitorEntry>>,
 }
 
@@ -729,7 +729,7 @@ impl TaskQueuePort {
             .enable_all()
             .build()?;
         Ok(Self {
-            runtime,
+            runtime: Some(runtime),
             monitors: Cell::new(AtomicVec::new()),
         }
         .into())
@@ -740,10 +740,16 @@ impl TaskQueuePort {
             .enable_all()
             .build()?;
         Ok(Self {
-            runtime,
+            runtime: Some(runtime),
             monitors: Cell::new(AtomicVec::new()),
         }
         .into())
+    }
+}
+
+impl Drop for TaskQueuePort {
+    fn drop(&mut self) {
+        self.runtime.take().unwrap().shutdown_background();
     }
 }
 
@@ -773,10 +779,14 @@ impl ITaskQueuePort_Impl for TaskQueuePort_Impl {
         tracker.clone().spawn_on(
             async move {
                 if let Some(cb) = callback.as_ref() {
+                    println!(
+                        "TaskQueuePort::submit_callback exec, tracker.is_closed(): {}",
+                        tracker.is_closed()
+                    );
                     unsafe { cb(ctx as *mut c_void, tracker.is_closed()) };
                 }
             },
-            self.runtime.handle(),
+            self.runtime.as_ref().unwrap().handle(),
         );
         S_OK
     }
@@ -932,7 +942,7 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
         S_OK
     }
 
-    unsafe fn dispatch(&self, _tracker: *const tokio_util::task::TaskTracker, timeout_in_ms: u32) -> BOOL {
+    unsafe fn dispatch(&self, tracker: *const tokio_util::task::TaskTracker, timeout_in_ms: u32) -> BOOL {
         println!(
             "ManualTaskQueuePort::dispatch called with timeout_in_ms: {} {} {:?}, handle: {:x}",
             timeout_in_ms,
@@ -940,29 +950,40 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
             std::thread::current().id(),
             unsafe { self.get_handle() } as u64,
         );
-        let rv: BOOL = self.rx
-            .recv_timeout(std::time::Duration::from_millis(timeout_in_ms as u64))
-            .map(|entry| {
-                entry.callback.map(|f| unsafe {
-                    println!(
-                        "ManualTaskQueuePort::dispatch executing callback with context: {:p}, tracker.is_closed(): {}, thread id: {:?}",
-                        entry.context as *mut c_void, entry.token.task_tracker().is_closed(),
-                        std::thread::current().id(),
-                    );
-                    f(
-                        entry.context as *mut c_void,
-                        entry.token.task_tracker().is_closed(),
-                    )
-                });
-            })
-            .is_ok().into();
-        println!(
-            "ManualTaskQueuePort::dispatch returning {} thread id: {:?}, handle: {:x}",
-            rv.as_bool(),
-            std::thread::current().id(),
-            unsafe { self.get_handle() } as u64,
-        );
-        rv
+        let tracker = unsafe { &*tracker }.clone();
+        let mut max = timeout_in_ms.div_ceil(100);
+        if max == 0 {
+            max += 1;
+        }
+        for i in 0..max {
+            let rv: BOOL = self.rx
+                .recv_timeout(std::time::Duration::from_millis(if i + 1 == max { timeout_in_ms % 100 } else { 100 } as u64))
+                .map(|entry| {
+                    entry.callback.map(|f| unsafe {
+                        println!(
+                            "ManualTaskQueuePort::dispatch executing callback with context: {:p}, tracker.is_closed(): {}, thread id: {:?}",
+                            entry.context as *mut c_void, entry.token.task_tracker().is_closed(),
+                            std::thread::current().id(),
+                        );
+                        f(
+                            entry.context as *mut c_void,
+                            entry.token.task_tracker().is_closed(),
+                        )
+                    });
+                })
+                .is_ok().into();
+            if !rv.as_bool() && !tracker.is_closed() {
+                continue;
+            }
+            println!(
+                "ManualTaskQueuePort::dispatch returning {} thread id: {:?}, handle: {:x}",
+                rv.as_bool(),
+                std::thread::current().id(),
+                unsafe { self.get_handle() } as u64,
+            );
+            return rv
+        }
+        return false.into();
     }
 
     unsafe fn attach(&self, queue: ITaskQueue, port: XTaskQueuePort) {
