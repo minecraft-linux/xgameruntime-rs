@@ -1,7 +1,7 @@
 use std::{
     cell::Cell, ffi::{c_char, c_void}, hint::spin_loop, io, mem::{self, ManuallyDrop}, ops::Deref, ptr::null_mut, sync::{
         Arc, Condvar, Mutex, atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
-    },
+    }, thread::sleep, time::Duration,
 };
 
 use tokio_util::sync::CancellationToken;
@@ -610,7 +610,7 @@ unsafe trait ITaskQueuePort: IUnknown {
     ) -> HRESULT;
     unsafe fn attach(&self, queue: ITaskQueue, port: XTaskQueuePort);
     unsafe fn detach(&self, queue: ITaskQueue);
-    unsafe fn dispatch(&self, timeout_in_ms: u32) -> BOOL;
+    unsafe fn dispatch(&self, tracker: *const tokio_util::task::TaskTracker, timeout_in_ms: u32) -> BOOL;
 }
 
 struct AtomicVec<T: Sized + Clone> {
@@ -781,9 +781,22 @@ impl ITaskQueuePort_Impl for TaskQueuePort_Impl {
         S_OK
     }
 
-    unsafe fn dispatch(&self, _timeout_in_ms: u32) -> BOOL {
+    unsafe fn dispatch(&self, tracker: *const tokio_util::task::TaskTracker, timeout_in_ms: u32) -> BOOL {
         println!("TaskQueuePort::dispatch called, but not implemented for thread pool ports");
-        BOOL(0)
+        let tracker = unsafe { &*tracker }.clone();
+        if tracker.is_empty() {
+            println!("TaskQueuePort::dispatch called, tracker is empty");
+            return BOOL(0);
+        }
+        for _ in 0..timeout_in_ms {
+            sleep(Duration::from_millis(1));
+            if tracker.is_empty() {
+                println!("TaskQueuePort::dispatch called, tracker is empty");
+                return BOOL(0);
+            }
+        }
+        println!("TaskQueuePort::dispatch called, tracker has a value");
+        return BOOL(1);
     }
 
     unsafe fn attach(&self, queue: ITaskQueue, port: XTaskQueuePort) {
@@ -841,7 +854,7 @@ impl ITaskQueuePort_Impl for ImmediateTaskQueuePort_Impl {
         S_OK
     }
 
-    unsafe fn dispatch(&self, _timeout_in_ms: u32) -> BOOL {
+    unsafe fn dispatch(&self, _tracker: *const tokio_util::task::TaskTracker, _timeout_in_ms: u32) -> BOOL {
         println!(
             "ImmediateTaskQueuePort::dispatch called, but not implemented for immediate ports"
         );
@@ -919,7 +932,7 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
         S_OK
     }
 
-    unsafe fn dispatch(&self, timeout_in_ms: u32) -> BOOL {
+    unsafe fn dispatch(&self, _tracker: *const tokio_util::task::TaskTracker, timeout_in_ms: u32) -> BOOL {
         println!(
             "ManualTaskQueuePort::dispatch called with timeout_in_ms: {} {} {:?}, handle: {:x}",
             timeout_in_ms,
@@ -1096,7 +1109,15 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             "TaskQueue::dispatch called with port: {:?}, timeout_in_ms: {}",
             port, timeout_in_ms
         );
-        unsafe { self.get_port(port).dispatch(timeout_in_ms) }
+        let tracker = match port {
+            XTaskQueuePort::Work => &self.work_tracker,
+            XTaskQueuePort::Completion => &self.completion_tracker,
+        };
+        let ret = unsafe { self.get_port(port).dispatch(tracker, timeout_in_ms) };
+        if ret.as_bool() {
+            return ret;
+        }
+        (!(self.work_tracker.is_empty() && self.completion_tracker.is_empty())).into()
     }
 
     unsafe fn get_port_handle(&self, port: XTaskQueuePort) -> XTaskQueuePortHandle {
