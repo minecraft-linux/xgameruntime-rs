@@ -1,7 +1,6 @@
 use std::{
     cell::Cell, ffi::{c_char, c_void}, hint::spin_loop, io, mem::{self, ManuallyDrop}, ops::Deref, ptr::null_mut, sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering},
+        Arc, Condvar, Mutex, atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
     },
 };
 
@@ -86,14 +85,15 @@ struct XAsyncState {
     user_block: *mut XAsyncBlock,
     provider_data: XAsyncProviderData,
     provider: XAsyncProvider,
-    waiter: Arc<(Mutex<usize>, Condvar)>,
+    waiter: Arc<(Mutex<usize>, Condvar, AtomicBool)>,
     queue: ITaskQueue,
 }
 
 impl Drop for XAsyncState {
     fn drop(&mut self) {
         println!(
-            "XAsyncState::drop called for local_block: {:p}, user_block: {:p}, provider_data: async_: {:p}, buffer_size: {}, buffer: {:p}, context: {:p}, thread id: {:?}",
+            "XAsyncState::drop called for local_block {:p} : {:p}, user_block: {:p}, provider_data: async_: {:p}, buffer_size: {}, buffer: {:p}, context: {:p}, thread id: {:?}",
+            self as *const XAsyncState,
             &self.local_block,
             self.user_block,
             self.provider_data.async_,
@@ -142,18 +142,17 @@ impl XAsyncState {
     }
 
     unsafe fn notify_all(&self) {
+        self.waiter.2.store(true, Ordering::Release);
         self.waiter.1.notify_all()
     }
 
     unsafe fn wait(&self) {
         let waiter = &self.waiter;
 
-        let ublk = self.user_block;
-
         let lck = waiter.0.lock().unwrap();
         let _lck = waiter
             .1
-            .wait_while(lck, |_| unsafe { &*ublk }.get_state().1.is_none())
+            .wait_while(lck, |_| !waiter.2.load(Ordering::Acquire))
             .unwrap();
     }
 }
@@ -493,7 +492,7 @@ impl XAsyncBlock {
                 context: context,
             },
             provider: provider,
-            waiter: Arc::new((Mutex::new(0), Condvar::new())),
+            waiter: Arc::new((Mutex::new(0), Condvar::new(), AtomicBool::new(false))),
             queue: queue,
         });
 
@@ -1650,15 +1649,16 @@ impl IXAsync_Impl for XAsync_Impl {
         if result == E_PENDING {
             return;
         }
+        let local_block = unsafe { &*state.get_local_block() };
         let user_block = unsafe { &*state.get_user_block() };
-        if user_block
+        if 
+            user_block
             .get_internal_raw()
-            .magic_result
-            .compare_exchange(
+            .magic_result.compare_exchange(
                 (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64 & 0xFFFFFFFF),
                 (XASYNC_INT_MAGIC as u64) << 32 | (result.0 as u64 & 0xFFFFFFFF),
-                Ordering::Release,
-                Ordering::Relaxed,
+                Ordering::Acquire,
+                Ordering::Acquire,
             )
             .is_ok()
         {
@@ -1668,17 +1668,22 @@ impl IXAsync_Impl for XAsync_Impl {
             // TODO bug we should wait for complete to run
             unsafe { state.set_result_size(required_buffer_size) };
             let queue = unsafe { state.get_queue() };
-            let _ = unsafe {
-                queue.submit_delayed_callback(
-                    XTaskQueuePort::Completion,
-                    0,
-                    Arc::into_raw(state.clone()) as *mut c_void,
-                    Some(x_async_complete_callback),
-                )
-            };
+            if local_block.callback.is_some() {
+                let _ = unsafe {
+                    queue.submit_delayed_callback(
+                        XTaskQueuePort::Completion,
+                        0,
+                        Arc::into_raw(state.clone()) as *mut c_void,
+                        Some(x_async_complete_callback),
+                    )
+                };
+            } else {
+                // Do not queue completion if not needed
+                unsafe { state.notify_all() };
+            }
             println!(
                 "x_async_complete: submitted completion callback for async_block: {:?}, result: {:?}, required_buffer_size: {}, thread id: {:?}",
-                async_block,
+                user_block as *const XAsyncBlock,
                 result,
                 required_buffer_size,
                 std::thread::current().id()
@@ -1705,7 +1710,11 @@ impl IXAsync_Impl for XAsync_Impl {
         );
         let blk = unsafe { &mut *async_block };
         let (Some(state), Some(hr)) = blk.get_state_ex(true) else {
-            return E_FAIL;
+            if buffer_size == 0 {
+                return S_OK;
+            }
+            // E_ILLEGAL_METHOD_CALL
+            return HRESULT(0x8000000Eu32 as i32);
         };
         if hr != S_OK {
             return hr;
@@ -2038,9 +2047,7 @@ impl IXAsync_Impl for XAsync_Impl {
         if a.is_err() {
             return BOOL(0);
         }
-        // TODO
-        let _hr = unsafe { self.x_task_queue_duplicate_handle(*a.unwrap(), queue) };
-        BOOL(1)
+        unsafe { self.x_task_queue_duplicate_handle(*a.unwrap(), queue) }.is_ok().into()
     }
 
     unsafe fn x_task_queue_set_current_process_task_queue(
