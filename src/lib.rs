@@ -1,12 +1,17 @@
 #[cfg(not(feature = "xuser"))]
 use std::ffi::CStr;
 use std::ffi::{CString, c_char, c_void};
+use std::io::Write;
 use std::ptr::null_mut;
 use std::result::Result;
 use std::sync::{Mutex, Once};
 
+use windows::fileapi::{CreateFileW, OPEN_EXISTING};
 use windows::minwindef::LPARAM;
+use windows::processenv::SetStdHandle;
+use windows::winbase::STD_OUTPUT_HANDLE;
 use windows::windef::HWND;
+use windows::winnt::{FILE_SHARE_WRITE, GENERIC_WRITE};
 use windows::winuser::{EnumWindows, MB_OK, MessageBoxW};
 
 #[cfg(not(feature = "xuser"))]
@@ -38,6 +43,12 @@ pub mod xpackage;
 pub mod xpersistedlocalstorage;
 pub mod xstore;
 pub mod xsystem;
+
+macro_rules! println {
+    ($($arg:tt)*) => {
+        {} // Evaluates to () and does nothing
+    };
+}
 
 type Ulong = u32;
 type Char = i8;
@@ -235,12 +246,42 @@ fn show_error<S: windows_core::Param<windows_core::PCWSTR>>(title: S, message: &
     };
 }
 
+struct DummyLogger {
+
+}
+
+impl Write for DummyLogger {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn redirect_stdout_to_null() {
+    unsafe {
+        let h_null = CreateFileW(
+            windows_strings::h!("\\\\.\\NUL"),
+            GENERIC_WRITE,
+            FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            0,
+            None,
+        );
+        _ = SetStdHandle(STD_OUTPUT_HANDLE, h_null);
+    }
+}
+
 fn initialize_delegate(
     gdk_ver: Ulong,
     gs_ver: Ulong,
     mode: Char,
     options: *mut InitializeOptions,
 ) -> HRESULT {
+    redirect_stdout_to_null();
     let mut state = delegated_state();
     if state.ref_count > 0 {
         state.ref_count += 1;
@@ -250,7 +291,7 @@ fn initialize_delegate(
         rustls::crypto::ring::default_provider()
             .install_default()
             .unwrap();
-        env_logger::init_from_env(env_logger::Env::default().default_filter_or("trace"));
+        env_logger::builder().target(env_logger::Target::Pipe(Box::new(DummyLogger{}))).init();
     });
     println!("Loading delegated API...");
 
