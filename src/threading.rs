@@ -41,7 +41,7 @@ pub enum XTaskQueueDispatchMode {
     Immediate,
     Invalid,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u32)]
 pub enum XTaskQueuePort {
     Work,
@@ -1117,7 +1117,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         if ret.as_bool() {
             return ret;
         }
-        (!(self.work_tracker.is_empty() && self.completion_tracker.is_empty())).into()
+        (port == XTaskQueuePort::Completion && !(self.work_tracker.is_empty() && self.completion_tracker.is_empty())).into()
     }
 
     unsafe fn get_port_handle(&self, port: XTaskQueuePort) -> XTaskQueuePortHandle {
