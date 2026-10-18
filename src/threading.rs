@@ -1663,7 +1663,8 @@ impl IXAsync_Impl for XAsync_Impl {
             .is_ok()
         {
             if required_buffer_size == 0 {
-                let _ = blk.get_state_ex(true);
+                // important detach for user blocks
+                let _ = user_block.get_state_ex(true);
             }
             // TODO bug we should wait for complete to run
             unsafe { state.set_result_size(required_buffer_size) };
