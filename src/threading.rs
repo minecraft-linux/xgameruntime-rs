@@ -169,6 +169,9 @@ impl XAsyncState {
             spin_loop();
         }
         println!("Now we are no longer allowed to make changes to user_block, fully released");
+        // decrement twice as we have two strong_counts in create
+        unsafe { Arc::decrement_strong_count(self) };
+        unsafe { Arc::decrement_strong_count(self) };
         return true;
     }
 }
