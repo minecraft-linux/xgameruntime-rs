@@ -578,11 +578,13 @@ impl XAsyncBlock {
             scheduled: AtomicBool::new(false),
         });
 
+        // Allow stack garbage
+        internal.state_access.store(0, Ordering::SeqCst);
+
         internal.state.store(
             Arc::into_raw(state.clone()) as *mut c_void,
             Ordering::Release,
         );
-
         let local_block = unsafe { &mut *state.get_local_block() };
         // libhttpclient demands this do to using the queue
         local_block.queue = rawq;
@@ -592,6 +594,9 @@ impl XAsyncBlock {
             (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64 & 0xFFFFFFFF),
             Ordering::Release,
         );
+        // Allow stack garbage
+        local_internal.state_access.store(0, Ordering::SeqCst);
+
         local_internal.state.store(
             Arc::into_raw(state.clone()) as *mut c_void,
             Ordering::Release,
