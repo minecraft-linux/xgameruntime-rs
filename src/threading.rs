@@ -8,13 +8,13 @@ use std::{
     ptr::null_mut,
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicPtr, AtomicU32, AtomicU64, Ordering},
     },
     thread::sleep,
     time::Duration,
 };
 
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::task_tracker::TaskTrackerToken};
 use windows::{
     threadpoolapiset::{
         CloseThreadpoolWait, CreateThreadpoolWait, SetThreadpoolWait,
@@ -90,6 +90,20 @@ pub struct XAsyncBlock {
     pub internal: [u8; size_of::<*mut c_void>() * 4],
 }
 
+impl XAsyncBlock {
+    fn set_result(&self, result: HRESULT) -> bool {
+        self.get_internal_raw()
+            .magic_result
+            .compare_exchange(
+                (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64 & 0xFFFFFFFF),
+                (XASYNC_INT_MAGIC as u64) << 32 | (result.0 as u64 & 0xFFFFFFFF),
+                Ordering::Acquire,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+}
+
 struct XAsyncState {
     local_block: XAsyncBlock,
     user_block: *mut XAsyncBlock,
@@ -98,6 +112,65 @@ struct XAsyncState {
     waiter: Arc<(Mutex<usize>, Condvar, AtomicBool)>,
     queue: ITaskQueue,
     scheduled: AtomicBool,
+}
+
+impl XAsyncState {
+    fn detach(&self, result: Option<HRESULT>) -> bool {
+        let state = self;
+        let provider_block = unsafe { &*state.get_local_block() };
+        let provider_block_internal = provider_block.get_internal_raw();
+        let lck = provider_block_internal
+            .state_access
+            .fetch_or(i64::MIN, Ordering::SeqCst);
+        // parallel detach, very unlikely
+        if lck < 0 {
+            // spin until destructed?
+            return false;
+        }
+
+        let user_block = unsafe { &*state.get_user_block() };
+        let user_block_internal = user_block.get_internal_raw();
+        let lck = user_block_internal
+            .state_access
+            .fetch_or(i64::MIN, Ordering::SeqCst);
+        // parallel detach
+        if lck < 0 {
+            unreachable!("aquireing the state_access lock only allowed in provider => user order")
+        }
+
+        // Now have the detor locks aquired in provider => user order
+        // Clear the state pointer so no new code can read the state
+        provider_block_internal
+            .state
+            .swap(null_mut(), Ordering::AcqRel);
+        user_block_internal.state.swap(null_mut(), Ordering::AcqRel);
+
+        // Sync result, ensure the user_block is now reusable
+        result.map(|result| provider_block.set_result(result) && user_block.set_result(result));
+
+        println!("release both locks and wait until all read_state calls left the Arc inc area");
+        // release both locks and wait until all read_state calls left the Arc inc area
+        while user_block_internal
+            .state_access
+            .compare_exchange_weak(i64::MIN, 0, Ordering::SeqCst, Ordering::Relaxed)
+            .is_err()
+        {
+            spin_loop();
+        }
+        println!(
+            "Now we are no longer allowed to make changes to user_block, it might be released"
+        );
+        // Now we are no longer allowed to make changes to user_block, it might be released
+        while provider_block_internal
+            .state_access
+            .compare_exchange_weak(i64::MIN, 0, Ordering::SeqCst, Ordering::Relaxed)
+            .is_err()
+        {
+            spin_loop();
+        }
+        println!("Now we are no longer allowed to make changes to user_block, fully released");
+        return true;
+    }
 }
 
 impl Drop for XAsyncState {
@@ -172,6 +245,8 @@ impl XAsyncState {
 struct XAsyncInternal {
     state: AtomicPtr<c_void>,
     magic_result: AtomicU64,
+    // state access counter, so e.g. the ref count of state is defined behavior
+    state_access: AtomicI64,
 }
 
 // pub unsafe fn x_task_queue_monitor_callback (self: &Self, context: *mut c_void, queue: XTaskQueueHandle, port: XTaskQueuePort);
@@ -347,11 +422,43 @@ impl XAsyncBlock {
         assert!(size_of::<XAsyncInternal>() <= self.internal.len());
         unsafe { &mut *(self.internal.as_ptr() as *mut XAsyncInternal) }
     }
-    fn get_state_ex(&self, detach: bool) -> (Option<Arc<XAsyncState>>, Option<HRESULT>) {
+    fn read_state(&self) -> Option<Arc<XAsyncState>> {
+        let internal = self.get_internal_raw();
+        let lck = internal.state_access.fetch_add(1, Ordering::SeqCst);
+        if lck < 0 {
+            internal.state_access.fetch_sub(1, Ordering::SeqCst);
+            // parallel detach spin until detached
+            println!("parallel detach spin until detached");
+            while internal.state_access.load(Ordering::SeqCst) < 0 {
+                spin_loop();
+            }
+            println!("parallel detach spin success detached");
+            return None;
+        }
+
+        let state_ptr = internal.state.load(Ordering::Acquire);
+        if state_ptr.is_null() {
+            // We have read the storage of the state_ptr allow async block ref count to be decremented by detach
+            internal.state_access.fetch_sub(1, Ordering::SeqCst);
+
+            println!(
+                "XAsyncBlock::get_state_ex: state_ptr is null, thread id: {:?}",
+                std::thread::current().id()
+            );
+            return None;
+        }
+
+        let state = unsafe { ManuallyDrop::new(Arc::from_raw(state_ptr as *mut XAsyncState)) }
+            .deref()
+            .clone();
+        // We have read the storage of the state_ptr allow async block ref count to be decremented by detach
+        internal.state_access.fetch_sub(1, Ordering::SeqCst);
+        Some(state)
+    }
+    fn get_state(&self) -> (Option<Arc<XAsyncState>>, Option<HRESULT>) {
         println!(
-            "XAsyncBlock::get_state_ex called with async_block: {:p}, detach: {}, thread id: {:?}",
+            "XAsyncBlock::get_state_ex called with async_block: {:p}, thread id: {:?}",
             &self,
-            detach,
             std::thread::current().id()
         );
         let internal = self.get_internal_raw();
@@ -372,68 +479,19 @@ impl XAsyncBlock {
         } else {
             Some(result)
         };
+        println!(
+            "XAsyncBlock::get_state_ex called with async_block: {:p}, thread id: {:?}, result: {:?}, magic_result: {:p}",
+            &self,
+            std::thread::current().id(),
+            result,
+            magic_result as *const c_void,
+        );
 
-        let state_ptr = if detach {
-            internal.state.swap(null_mut(), Ordering::AcqRel)
-        } else {
-            internal.state.load(Ordering::Acquire)
-        };
-        if state_ptr.is_null() {
-            println!(
-                "XAsyncBlock::get_state_ex: state_ptr is null, thread id: {:?}",
-                std::thread::current().id()
-            );
+        let Some(state) = self.read_state() else {
             return (None, result);
-        }
+        };
 
-        if detach {
-            let state = unsafe { Arc::from_raw(state_ptr as *mut XAsyncState) };
-
-            let provider_block = unsafe { &*state.get_local_block() };
-            let user_block = unsafe { &*state.get_user_block() };
-            let mut state_ptr_2 = provider_block
-                .get_internal_raw()
-                .state
-                .swap(null_mut(), Ordering::AcqRel);
-            if state_ptr_2.is_null() {
-                state_ptr_2 = user_block
-                    .get_internal_raw()
-                    .state
-                    .swap(null_mut(), Ordering::AcqRel);
-            }
-            if state_ptr_2 != state_ptr {
-                println!(
-                    "XAsyncBlock::get_state_ex: state_ptr_2 != state_ptr, {:p} != {:p}, thread id: {:?}",
-                    state_ptr_2,
-                    state_ptr,
-                    std::thread::current().id()
-                );
-            }
-            assert!(state_ptr_2 == state_ptr);
-            mem::drop(unsafe { Arc::from_raw(state_ptr_2 as *mut XAsyncState) });
-            println!(
-                "XAsyncBlock::get_state_ex: detached state_ptr = {:p}, thread id: {:?}",
-                state_ptr,
-                std::thread::current().id()
-            );
-            (Some(state), result)
-        } else {
-            let state = if state_ptr == null_mut() {
-                None
-            } else {
-                Some(unsafe { ManuallyDrop::new(Arc::from_raw(state_ptr as *mut XAsyncState)) })
-            };
-
-            println!(
-                "XAsyncBlock::get_state_ex: borrowed state_ptr = {:p}, thread id: {:?}",
-                state_ptr,
-                std::thread::current().id()
-            );
-            (state.map(|s| s.deref().clone()), result)
-        }
-    }
-    fn get_state(&self) -> (Option<Arc<XAsyncState>>, Option<HRESULT>) {
-        self.get_state_ex(false)
+        (Some(state), result)
     }
 
     fn create_state(
@@ -987,7 +1045,13 @@ impl ITaskQueuePort_Impl for ManualTaskQueuePort_Impl {
             std::thread::current().id(),
             unsafe { self.get_handle() } as u64,
         );
+        // let start = std::time::Instant::now();
+        // let remaining = std::time::Instant::now() - start;
         let tracker = unsafe { &*tracker }.clone();
+        // todo send wakeup on terminate of any associated taskqueue
+        // self.tx.send(QueueEntry { token: tracker.token(), callback: None, context: 0 });
+        // if current tracker is closed after to wakeup exit or sleep the remaining time
+        // Or do we only need to exit here if all associated queues terminated?
         let mut max = timeout_in_ms.div_ceil(100);
         if max == 0 {
             max += 1;
@@ -1246,6 +1310,7 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         self.work_tracker.close();
         self.close_token.cancel();
         if wait {
+            // todo what to do if we are not allowed to block? bypass the check?
             self.handle.block_on(future);
         } else {
             self.handle.spawn(future);
@@ -1742,33 +1807,24 @@ impl IXAsync_Impl for XAsync_Impl {
             required_buffer_size,
             std::thread::current().id()
         );
-        let blk = unsafe { &mut *async_block };
-        // required_buffer_size == 0 => cleanup state as no result is expected, otherwise the state is kept until x_async_get_result is called
-        let (Some(state), _) = blk.get_state_ex(false) else {
-            return;
-        };
         if result == E_PENDING {
             return;
         }
+        let blk = unsafe { &mut *async_block };
+        let (Some(state), None) = blk.get_state() else {
+            return;
+        };
         let local_block = unsafe { &*state.get_local_block() };
         let user_block = unsafe { &*state.get_user_block() };
-        if user_block
-            .get_internal_raw()
-            .magic_result
-            .compare_exchange(
-                (XASYNC_INT_MAGIC as u64) << 32 | (E_PENDING.0 as u64 & 0xFFFFFFFF),
-                (XASYNC_INT_MAGIC as u64) << 32 | (result.0 as u64 & 0xFFFFFFFF),
-                Ordering::Acquire,
-                Ordering::Acquire,
-            )
-            .is_ok()
-        {
-            if required_buffer_size == 0 {
-                // important detach for user blocks
-                let _ = user_block.get_state_ex(true);
+        if if required_buffer_size == 0 {
+            state.detach(Some(result))
+        } else {
+            local_block.set_result(result)
+        } {
+            if required_buffer_size != 0 {
+                unsafe { state.set_result_size(required_buffer_size) };
+                user_block.set_result(result);
             }
-            // TODO bug we should wait for complete to run
-            unsafe { state.set_result_size(required_buffer_size) };
             let queue = unsafe { state.get_queue() };
             if local_block.callback.is_some() {
                 let _ = unsafe {
@@ -1811,12 +1867,14 @@ impl IXAsync_Impl for XAsync_Impl {
             std::thread::current().id()
         );
         let blk = unsafe { &mut *async_block };
-        let raw_state = blk.get_state_ex(true);
+        let raw_state = blk.get_state();
         let (Some(state), Some(hr)) = raw_state else {
-            if let (None, Some(hr)) = raw_state {
+            if let (_, Some(hr)) = raw_state {
                 if hr != S_OK {
                     return hr;
                 }
+            } else if let (_, None) = raw_state {
+                return E_PENDING;
             }
             if buffer_size == 0 {
                 return S_OK;
@@ -1827,6 +1885,7 @@ impl IXAsync_Impl for XAsync_Impl {
         if hr != S_OK {
             return hr;
         }
+        state.detach(None);
         let result_size = unsafe { state.get_result_size() };
         if !buffer_used.is_null() {
             unsafe { *buffer_used = result_size };
