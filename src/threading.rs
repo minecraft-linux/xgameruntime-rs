@@ -565,6 +565,9 @@ impl XAsyncBlock {
         } else {
             unsafe { ITaskQueue::from_raw_borrowed(&self.queue).unwrap().clone() }
         };
+        if unsafe { queue.is_terminated().as_bool() } {
+            return Err(E_ABORT);
+        }
         let rawq = queue.as_raw();
         let state = Arc::new(XAsyncState {
             local_block: *self,
@@ -661,6 +664,7 @@ unsafe trait ITaskQueue: IUnknown {
     unsafe fn dispatch(&self, port: XTaskQueuePort, timeout_in_ms: u32) -> BOOL;
     unsafe fn get_port_handle(&self, port: XTaskQueuePort) -> XTaskQueuePortHandle;
     unsafe fn is_empty(&self, port: XTaskQueuePort) -> BOOL;
+    unsafe fn is_terminated(&self) -> BOOL;
     unsafe fn terminate(
         &self,
         wait: bool,
@@ -1418,6 +1422,10 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             unsafe { self.get_handle() as u64 },
             std::thread::current().id()
         );
+    }
+    
+    unsafe fn is_terminated(&self,) -> BOOL {
+        self.work_tracker.is_closed().into()
     }
 }
 
