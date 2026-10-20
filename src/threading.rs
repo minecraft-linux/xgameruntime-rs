@@ -14,7 +14,7 @@ use std::{
     time::Duration,
 };
 
-use tokio_util::{sync::CancellationToken, task::task_tracker::TaskTrackerToken};
+use tokio_util::{sync::CancellationToken};
 use windows::{
     threadpoolapiset::{
         CloseThreadpoolWait, CreateThreadpoolWait, SetThreadpoolWait,
@@ -891,21 +891,24 @@ impl ITaskQueuePort_Impl for TaskQueuePort_Impl {
         tracker: *const tokio_util::task::TaskTracker,
         timeout_in_ms: u32,
     ) -> BOOL {
-        println!("TaskQueuePort::dispatch called, but not implemented for thread pool ports");
         let tracker = unsafe { &*tracker }.clone();
-        if tracker.is_empty() {
-            println!("TaskQueuePort::dispatch called, tracker is empty");
-            return BOOL(0);
-        }
-        for _ in 0..timeout_in_ms {
+        // TODO random crash
+        // This is just a placeholder polling as actual dispatching is not supported for thread pool ports
+        println!("TaskQueuePort::dispatch called (thread pool ports via polling)");
+        let mut had_task = !tracker.is_empty();
+        for i in 0..timeout_in_ms {
+            println!("TaskQueuePort::dispatch loop ({i})");
             sleep(Duration::from_millis(1));
-            if tracker.is_empty() {
-                println!("TaskQueuePort::dispatch called, tracker is empty");
-                return BOOL(0);
+            if !tracker.is_empty() {
+                had_task = true;
+            }
+            // queue terminated, skip wait
+            if tracker.is_closed() {
+                break;
             }
         }
-        println!("TaskQueuePort::dispatch called, tracker has a value");
-        return BOOL(1);
+        println!("TaskQueuePort::dispatch called (ret)");
+        return had_task.into();
     }
 
     unsafe fn attach(&self, queue: ITaskQueue, port: XTaskQueuePort) {
@@ -1240,6 +1243,8 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
     }
 
     unsafe fn dispatch(&self, port: XTaskQueuePort, timeout_in_ms: u32) -> BOOL {
+        let unk: InterfaceRef<ITaskQueue> = self.as_interface_ref();
+        let unk = unk.to_owned();
         println!(
             "TaskQueue::dispatch called with port: {:?}, timeout_in_ms: {}",
             port, timeout_in_ms
@@ -1247,14 +1252,19 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         let tracker = match port {
             XTaskQueuePort::Work => &self.work_tracker,
             XTaskQueuePort::Completion => &self.completion_tracker,
-        };
-        let ret = unsafe { self.get_port(port).dispatch(tracker, timeout_in_ms) };
-        if ret.as_bool() {
-            return ret;
-        }
-        (port == XTaskQueuePort::Completion
-            && !(self.work_tracker.is_empty() && self.completion_tracker.is_empty()))
-        .into()
+        }.clone();
+        let port = self.get_port(port).to_owned();
+        println!("TaskQueue::dispatch found tracker");
+        let ret = unsafe { port.dispatch(&tracker, timeout_in_ms) };
+        println!("TaskQueue::dispatch ret");
+        mem::drop(unk);
+        return ret;
+        // if ret.as_bool() {
+        //     return ret;
+        // }
+        // (port == XTaskQueuePort::Completion
+        //     && !(self.work_tracker.is_empty() && self.completion_tracker.is_empty()))
+        // .into()
     }
 
     unsafe fn get_port_handle(&self, port: XTaskQueuePort) -> XTaskQueuePortHandle {
