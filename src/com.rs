@@ -697,6 +697,7 @@ impl IXStore_Impl for XStoreObject_Impl {
                     })
                     .await
                     .unwrap();
+                runtime.shutdown_background();
 
                 let req_size = token.len() + 1;
                 Ok::<_, HRESULT>((
@@ -1501,10 +1502,12 @@ fn xuser_singleton() -> &'static IXUser {
         .get_or_init(|| {
             GlobalInterface(
                 XUser {
-                    runtime: tokio::runtime::Builder::new_multi_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap(),
+                    runtime: Some(
+                        tokio::runtime::Builder::new_multi_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap(),
+                    ),
                     handle: std::sync::Mutex::new(HashMap::new()),
                 }
                 .into(),
