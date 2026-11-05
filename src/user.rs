@@ -35,7 +35,7 @@ use xal_new::{self as xal, SignaturePolicyCache};
 #[cfg(feature = "xuser")]
 use xal_new::{DeviceType, XalAppParameters, XalClientParameters};
 #[cfg(feature = "xuser")]
-use xodus::models::licensing::LicenseUserIdentity;
+use xodus::models::{licensing::LicenseUserIdentity, soap};
 #[cfg(feature = "xuser")]
 use xodus::models::live::ExchangeUserTokenOutcome;
 #[cfg(feature = "xuser")]
@@ -1672,8 +1672,8 @@ pub async fn do_license_token(
             client,
             device_token.clone(),
             "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
-            "www.microsoft.com".to_owned(),
-            Some(xodus::models::soap::PolicyReference::mbi_ssl()),
+            "scope=service::www.microsoft.com::mbi_ssl&uaid=411DB533-6AEF-4B99-8C15-95B6E1C5A2EA&clientid={d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_owned(),
+            Some(soap::PolicyReference::token_broker())
         )
         .await?;
 
@@ -1694,8 +1694,8 @@ pub async fn do_license_token(
         Some("Silent".to_string()),
         "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
         &[(
-            "www.microsoft.com".to_owned(),
-            Some(xodus::models::soap::PolicyReference::mbi_ssl()),
+            "scope=service::www.microsoft.com::mbi_ssl&uaid=411DB533-6AEF-4B99-8C15-95B6E1C5A2EA&clientid={d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_owned(),
+            Some(soap::PolicyReference::token_broker()),
         )],
     )
     .await?;
