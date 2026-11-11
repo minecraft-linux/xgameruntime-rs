@@ -700,7 +700,19 @@ impl IXUser_Impl for XUser_Impl {
                                 std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
                                 println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
                                 secrets::init_secrets().expect("Unable to initialize credentials");
-                                let tokens: TokenManager = TokenManager::with_keychain_and_memory();
+                                let tokens: TokenManager = match (std::env::var("XODUS_DEVICE"), std::env::var("XODUS_X_USER")) {
+                                    (Ok(d), Ok(u)) => {
+                                        use crate::user_compat::{Device, User};
+
+                                        let mgr = TokenManager::with_memory();
+                                        let d: Device = serde_json::from_str(&d).unwrap();
+                                        let u: User = serde_json::from_str(&u).unwrap();
+                                        d.fill(&mgr).unwrap();
+                                        u.fill(&mgr).unwrap();
+                                        mgr
+                                    },
+                                    _ => TokenManager::with_keychain_and_memory(),
+                                };
 
                                 let mut path = [0u16; MAX_PATH as usize];
                                 let len = GetModuleFileNameW(None, &mut path);
@@ -1677,11 +1689,19 @@ pub async fn do_license_token(
         )
         .await?;
 
-    let Token::Compact(ms_device_token) = device_token_resp.into() else {
-        return Err(Box::new(std::io::Error::new(
+
+    let ms_device_token = match device_token_resp.into() {
+        Token::Compact(t) => {
+            if let Some(s) = t.strip_prefix("d=") {
+                s.to_owned()
+            } else {
+                t
+            }
+        },
+        _ => return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::ArgumentListTooLong,
             "error",
-        )));
+        )))
     };
     let user = manager.get_user().unwrap();
 
@@ -1715,8 +1735,18 @@ pub async fn do_license_token(
         }
         _ => unreachable!("Only responses are handled"),
     };
-    let Token::Compact(user_token) = user_token else {
-        todo!();
+    let user_token = match user_token {
+        Token::Compact(t) => {
+            if let Some(s) = t.strip_prefix("d=") {
+                s.to_owned()
+            } else {
+                t
+            }
+        },
+        _ => return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::ArgumentListTooLong,
+            "error",
+        )))
     };
 
     let token = get_license_token(

@@ -680,8 +680,20 @@ impl IXStore_Impl for XStoreObject_Impl {
                             std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
                             println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
                             secrets::init_secrets().expect("Unable to initialize credentials");
-                            let tokens: TokenManager = TokenManager::with_keychain_and_memory();
+                            let tokens: TokenManager = match (std::env::var("XODUS_DEVICE"), std::env::var("XODUS_S_USER")) {
+                                (Ok(d), Ok(u)) => {
+                                    use crate::user_compat::{Device, User};
 
+                                    let mgr = TokenManager::with_memory();
+                                    let d: Device = serde_json::from_str(&d).unwrap();
+                                    let u: User = serde_json::from_str(&u).unwrap();
+                                    d.fill(&mgr).unwrap();
+                                    u.fill(&mgr).unwrap();
+                                    mgr
+                                },
+                                _ => TokenManager::with_keychain_and_memory(),
+                            };
+                            
                             let token = do_license_token(&client, &tokens, products, dev_str)
                                 .await
                                 .unwrap();
