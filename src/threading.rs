@@ -14,7 +14,7 @@ use std::{
     time::Duration,
 };
 
-use tokio_util::{sync::CancellationToken};
+use tokio_util::sync::CancellationToken;
 use windows::{
     threadpoolapiset::{
         CloseThreadpoolWait, CreateThreadpoolWait, SetThreadpoolWait,
@@ -1252,7 +1252,8 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
         let tracker = match port {
             XTaskQueuePort::Work => &self.work_tracker,
             XTaskQueuePort::Completion => &self.completion_tracker,
-        }.clone();
+        }
+        .clone();
         let port = self.get_port(port).to_owned();
         println!("TaskQueue::dispatch found tracker");
         let ret = unsafe { port.dispatch(&tracker, timeout_in_ms) };
@@ -1433,8 +1434,8 @@ impl ITaskQueue_Impl for TaskQueue_Impl {
             std::thread::current().id()
         );
     }
-    
-    unsafe fn is_terminated(&self,) -> BOOL {
+
+    unsafe fn is_terminated(&self) -> BOOL {
         self.work_tracker.is_closed().into()
     }
 }

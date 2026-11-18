@@ -35,13 +35,13 @@ use xal_new::{self as xal, SignaturePolicyCache};
 #[cfg(feature = "xuser")]
 use xal_new::{DeviceType, XalAppParameters, XalClientParameters};
 #[cfg(feature = "xuser")]
-use xodus::models::{licensing::LicenseUserIdentity, soap};
-#[cfg(feature = "xuser")]
 use xodus::models::live::ExchangeUserTokenOutcome;
 #[cfg(feature = "xuser")]
 use xodus::models::secrets::Token;
 #[cfg(feature = "xuser")]
 use xodus::models::soap::BodyContent;
+#[cfg(feature = "xuser")]
+use xodus::models::{licensing::LicenseUserIdentity, soap};
 #[cfg(feature = "xuser")]
 use xodus::{secrets, tokens::TokenManager};
 
@@ -1689,7 +1689,6 @@ pub async fn do_license_token(
         )
         .await?;
 
-
     let ms_device_token = match device_token_resp.into() {
         Token::Compact(t) => {
             if let Some(s) = t.strip_prefix("d=") {
@@ -1697,11 +1696,13 @@ pub async fn do_license_token(
             } else {
                 t
             }
-        },
-        _ => return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::ArgumentListTooLong,
-            "error",
-        )))
+        }
+        _ => {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::ArgumentListTooLong,
+                "error",
+            )));
+        }
     };
     let user = manager.get_user().unwrap();
 
@@ -1742,11 +1743,13 @@ pub async fn do_license_token(
             } else {
                 t
             }
-        },
-        _ => return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::ArgumentListTooLong,
-            "error",
-        )))
+        }
+        _ => {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::ArgumentListTooLong,
+                "error",
+            )));
+        }
     };
 
     let token = get_license_token(
