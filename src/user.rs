@@ -35,13 +35,13 @@ use xal_new::{self as xal, SignaturePolicyCache};
 #[cfg(feature = "xuser")]
 use xal_new::{DeviceType, XalAppParameters, XalClientParameters};
 #[cfg(feature = "xuser")]
-use xodus::models::licensing::LicenseUserIdentity;
-#[cfg(feature = "xuser")]
 use xodus::models::live::ExchangeUserTokenOutcome;
 #[cfg(feature = "xuser")]
 use xodus::models::secrets::Token;
 #[cfg(feature = "xuser")]
 use xodus::models::soap::BodyContent;
+#[cfg(feature = "xuser")]
+use xodus::models::{licensing::LicenseUserIdentity, soap};
 #[cfg(feature = "xuser")]
 use xodus::{secrets, tokens::TokenManager};
 
@@ -526,8 +526,14 @@ pub unsafe trait IXUserDevice: IUnknown {
 
 #[implement(IXUser, IXUser2, IXUser3, IXUser4, IXUser5, IXUser6, IXUserDevice)]
 pub struct XUser {
-    pub runtime: tokio::runtime::Runtime,
+    pub runtime: Option<tokio::runtime::Runtime>,
     pub handle: std::sync::Mutex<HashMap<u64, Arc<XUserHandleObject>>>,
+}
+
+impl Drop for XUser {
+    fn drop(&mut self) {
+        self.runtime.take().unwrap().shutdown_background();
+    }
 }
 
 #[cfg(feature = "xuser")]
@@ -655,9 +661,9 @@ impl IXUser_Impl for XUser_Impl {
         // })
         println!("x_user_add_async called");
         #[cfg(feature = "xuser")]
-        let handle = self.runtime.handle().clone();
+        let handle = self.runtime.as_ref().unwrap().handle().clone();
         #[cfg(feature = "xuser")]
-        let handle2 = self.runtime.handle().clone();
+        let handle2 = self.runtime.as_ref().unwrap().handle().clone();
         unsafe {
             xasync::run(async_, {
                 async move {
@@ -694,7 +700,19 @@ impl IXUser_Impl for XUser_Impl {
                                 std::env::set_var("HOME", std::env::var_os("USERPROFILE").unwrap());
                                 println!("{}", std::env::var_os("HOME").unwrap().to_string_lossy());
                                 secrets::init_secrets().expect("Unable to initialize credentials");
-                                let tokens: TokenManager = TokenManager::with_keychain_and_memory();
+                                let tokens: TokenManager = match (std::env::var("XODUS_DEVICE"), std::env::var("XODUS_X_USER")) {
+                                    (Ok(d), Ok(u)) => {
+                                        use crate::user_compat::{Device, User};
+
+                                        let mgr = TokenManager::with_memory();
+                                        let d: Device = serde_json::from_str(&d).unwrap();
+                                        let u: User = serde_json::from_str(&u).unwrap();
+                                        d.fill(&mgr).unwrap();
+                                        u.fill(&mgr).unwrap();
+                                        mgr
+                                    },
+                                    _ => TokenManager::with_keychain_and_memory(),
+                                };
 
                                 let mut path = [0u16; MAX_PATH as usize];
                                 let len = GetModuleFileNameW(None, &mut path);
@@ -1666,16 +1684,25 @@ pub async fn do_license_token(
             client,
             device_token.clone(),
             "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
-            "www.microsoft.com".to_owned(),
-            Some(xodus::models::soap::PolicyReference::mbi_ssl()),
+            "scope=service::www.microsoft.com::mbi_ssl&uaid=411DB533-6AEF-4B99-8C15-95B6E1C5A2EA&clientid={d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_owned(),
+            Some(soap::PolicyReference::token_broker())
         )
         .await?;
 
-    let Token::Compact(ms_device_token) = device_token_resp.into() else {
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::ArgumentListTooLong,
-            "error",
-        )));
+    let ms_device_token = match device_token_resp.into() {
+        Token::Compact(t) => {
+            if let Some(s) = t.strip_prefix("d=") {
+                s.to_owned()
+            } else {
+                t
+            }
+        }
+        _ => {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::ArgumentListTooLong,
+                "error",
+            )));
+        }
     };
     let user = manager.get_user().unwrap();
 
@@ -1688,8 +1715,8 @@ pub async fn do_license_token(
         Some("Silent".to_string()),
         "{d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_string(),
         &[(
-            "www.microsoft.com".to_owned(),
-            Some(xodus::models::soap::PolicyReference::mbi_ssl()),
+            "scope=service::www.microsoft.com::mbi_ssl&uaid=411DB533-6AEF-4B99-8C15-95B6E1C5A2EA&clientid={d6d5a677-0872-4ab0-9442-bb792fce85c5}".to_owned(),
+            Some(soap::PolicyReference::token_broker()),
         )],
     )
     .await?;
@@ -1709,8 +1736,20 @@ pub async fn do_license_token(
         }
         _ => unreachable!("Only responses are handled"),
     };
-    let Token::Compact(user_token) = user_token else {
-        todo!();
+    let user_token = match user_token {
+        Token::Compact(t) => {
+            if let Some(s) = t.strip_prefix("d=") {
+                s.to_owned()
+            } else {
+                t
+            }
+        }
+        _ => {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::ArgumentListTooLong,
+                "error",
+            )));
+        }
     };
 
     let token = get_license_token(

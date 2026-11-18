@@ -39,6 +39,8 @@ pub mod xpersistedlocalstorage;
 pub mod xstore;
 pub mod xsystem;
 
+#[cfg(feature = "xuser")]
+mod user_compat;
 type Ulong = u32;
 type Char = i8;
 type Lpcstr = *const c_char;

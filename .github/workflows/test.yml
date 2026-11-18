@@ -43,3 +43,11 @@ jobs:
           name: xgameruntime-xodus-static
           path: target/release/xgameruntime.dll
           if-no-files-found: error
+      - name: Run build
+        run: cargo build -r --features xuser,xasync
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: xgameruntime-xodus-static-xasync
+          path: target/release/xgameruntime.dll
+          if-no-files-found: error
